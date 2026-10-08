@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 
 from treeengine import TreeEngine
-from treeengine.core.text import query_terms, segment_for_index
+from treeengine.core.text import query_terms
+from treeengine.storage.fts5 import segment_for_index
 
 
 @pytest.fixture

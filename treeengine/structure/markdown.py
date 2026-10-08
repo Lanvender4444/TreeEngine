@@ -21,7 +21,11 @@ _LINK = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
 _EMPH = re.compile(r"(\*\*|__|\*|_|`)(.+?)\1")
 
 
+_HEADING_ATTRS = re.compile(r"\s*\{[#:.][^{}]*\}\s*$")  # {#anchor} / {: .class} suffixes
+
+
 def clean_inline(text: str) -> str:
+    text = _HEADING_ATTRS.sub("", text)
     text = _LINK.sub(r"\1", text)
     text = _EMPH.sub(r"\2", text)
     return text.strip()
@@ -45,10 +49,7 @@ def guess_title(text: str) -> str | None:
     for el in parse_markdown(text):
         if el.kind == "heading" and el.level == 1:
             return el.text
-    for el in parse_markdown(text):
-        if el.kind == "heading":
-            return el.text
-    return None
+    return None  # a "## Sponsors" is not a document title; caller falls back to file name
 
 
 def _classify(line: str) -> str:
@@ -61,7 +62,19 @@ def _classify(line: str) -> str:
     return "paragraph"
 
 
+_COMMENT = re.compile(r"<!--.*?-->", re.S)
+
+
+def mask_comments(text: str) -> str:
+    """Blank out HTML comments, keeping every offset and newline intact.
+
+    Translated docs (e.g. Kubernetes zh-cn) keep the original text - headings included - in
+    comments; without this they would produce a duplicate tree."""
+    return _COMMENT.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), text)
+
+
 def parse_markdown(text: str) -> list[Element]:
+    text = mask_comments(text)
     lines = text.split("\n")
     offsets = []
     pos = 0

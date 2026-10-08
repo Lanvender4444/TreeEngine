@@ -1,29 +1,16 @@
-"""Retriever protocol. Every retriever (tree, fts, and later vector/web/graph) returns Evidence."""
+"""Retriever helpers. The Retriever protocol itself lives in ``core.protocols``."""
 
 from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
 from ..core.models import Evidence
-
-
-@runtime_checkable
-class Retriever(Protocol):
-    name: str
-
-    def search(
-        self,
-        query: str,
-        *,
-        document_id: str | None = None,
-        node_id: str | None = None,
-        limit: int = 10,
-    ) -> list[Evidence]: ...
+from ..core.protocols import Retriever
 
 
 @runtime_checkable
 class SemanticRetriever(Retriever, Protocol):
-    """Reserved for V0.2 (vector retrieval). Not implemented in V0.1."""
+    """Reserved: added only when the benchmark shows semantic misses are a bottleneck."""
 
     def embed(self, texts: list[str]) -> list[list[float]]: ...
 

@@ -7,7 +7,7 @@ All writes go through this class so that the FTS5 index (``blocks_fts``) always 
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from importlib import resources
@@ -16,9 +16,10 @@ from typing import Any
 
 from ..core.ids import text_hash
 from ..core.models import Block, Document, Node, dumps_meta, loads_meta
-from ..core.text import segment_for_index
+from ..core.protocols import MatchMode
+from .fts5 import fts_match_expr, segment_for_index
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _NODE_COLS = (
     "id, document_id, parent_id, depth, position, title, summary, text, node_type, "
@@ -86,11 +87,43 @@ class SQLiteRepository:
         version = self.conn.execute("PRAGMA user_version").fetchone()[0]
         if version >= SCHEMA_VERSION:
             return
-        sql = resources.files("treeengine.storage").joinpath("schema.sql").read_text("utf-8")
         with self.transaction():
-            for stmt in _split_sql(sql):
-                self.conn.execute(stmt)
+            if version == 0:
+                sql = resources.files("treeengine.storage").joinpath("schema.sql")
+                for stmt in _split_sql(sql.read_text("utf-8")):
+                    self.conn.execute(stmt)
+            else:
+                for v in range(version + 1, SCHEMA_VERSION + 1):
+                    _MIGRATIONS[v](self)
             self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
+    def rebuild_fts(self) -> None:
+        """Recreate and refill the FTS index from the blocks table (source of truth)."""
+        with self.transaction():
+            self.conn.execute("DROP TABLE IF EXISTS blocks_fts")
+            self.conn.execute(
+                "CREATE VIRTUAL TABLE blocks_fts USING fts5(block_id UNINDEXED, "
+                "document_id UNINDEXED, title, content, tokenize = 'porter unicode61')"
+            )
+            rows = self.conn.execute(
+                "SELECT b.rowid AS rid, b.id, b.document_id, b.content, "
+                "COALESCE(n.title, d.title) AS title FROM blocks b "
+                "LEFT JOIN nodes n ON n.id = b.node_id JOIN documents d ON d.id = b.document_id"
+            ).fetchall()
+            self.conn.executemany(
+                "INSERT INTO blocks_fts (rowid, block_id, document_id, title, content) "
+                "VALUES (?, ?, ?, ?, ?)",
+                [
+                    (
+                        r["rid"],
+                        r["id"],
+                        r["document_id"],
+                        segment_for_index(r["title"] or ""),
+                        segment_for_index(r["content"]),
+                    )
+                    for r in rows
+                ],
+            )
 
     @property
     def schema_version(self) -> int:
@@ -122,9 +155,9 @@ class SQLiteRepository:
                 self.conn.execute(f"RELEASE sp{self._tx_depth}")
 
     # ------------------------------------------------------------------ documents
-    def save_document(self, doc: Document, nodes: Iterable[Node], blocks: Iterable[Block]) -> None:
+    def save_document(self, doc: Document, nodes: Sequence[Node], blocks: Sequence[Block]) -> None:
         """Persist a document with its full tree atomically (replacing any previous copy)."""
-        nodes = sorted(nodes, key=lambda n: (n.depth, n.position))
+        ordered = sorted(nodes, key=lambda n: (n.depth, n.position))
         with self.transaction():
             existing = self.get_document(doc.id)
             created = _now()
@@ -152,7 +185,7 @@ class SQLiteRepository:
                     dumps_meta(meta),
                 ),
             )
-            for n in nodes:
+            for n in ordered:
                 self.insert_node(n)
             for b in blocks:
                 self.insert_block(b)
@@ -456,12 +489,17 @@ class SQLiteRepository:
     # ------------------------------------------------------------------ fts
     def fts_query(
         self,
-        match: str,
+        terms: Sequence[str],
+        *,
+        mode: MatchMode = "or",
         document_id: str | None = None,
-        node_ids: list[str] | None = None,
+        node_ids: Sequence[str] | None = None,
         limit: int = 10,
     ) -> list[tuple[Block, float]]:
-        """Run an FTS5 MATCH expression. Returns (block, score) with higher score = better."""
+        """BM25-ranked blocks for ``terms``. Returns (block, score), higher score = better."""
+        match = fts_match_expr(terms, mode)
+        if not match:
+            return []
         sql = [
             f"SELECT {', '.join('b.' + c.strip() for c in _BLOCK_COLS.split(','))}, "
             "bm25(blocks_fts, 0, 0, 0.5, 1.0) AS rank "
@@ -495,3 +533,11 @@ class SQLiteRepository:
 def _split_sql(sql: str) -> list[str]:
     lines = [ln for ln in sql.splitlines() if not ln.strip().startswith("--")]
     return [s.strip() for s in "\n".join(lines).split(";") if s.strip()]
+
+
+def _migrate_v2(repo: SQLiteRepository) -> None:
+    """v1 -> v2: FTS index gets the porter stemmer (re-indexed from blocks)."""
+    repo.rebuild_fts()
+
+
+_MIGRATIONS = {2: _migrate_v2}

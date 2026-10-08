@@ -16,7 +16,7 @@ import json
 import os
 import sys
 
-from .engine import TreeEngine
+from .factory import create_local_engine
 from .llm.base import LLMProvider, OpenAICompatibleLLM
 
 
@@ -48,11 +48,12 @@ def main(argv: list[str] | None = None) -> int:
         s.add_argument("--doc", default=None)
         s.add_argument("--mode", default=None, choices=["LOOKUP", "DOCUMENT_REASONING", "HYBRID"])
         s.add_argument("--limit", type=int, default=8)
+        s.add_argument("--trace", action="store_true", help="print plan/trace/stats")
     args = p.parse_args(argv)
 
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")  # Windows consoles
-    with TreeEngine(args.db, llm=_llm_from_env()) as te:
+    with create_local_engine(args.db, llm=_llm_from_env()) as te:
         if args.cmd == "ingest":
             for path in args.paths:
                 d = te.ingest(path, source_type=args.type)
@@ -66,13 +67,22 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(te.format_tree(args.document_id))
         elif args.cmd == "search":
-            ev = te.search(args.query, document_id=args.doc, limit=args.limit, mode=args.mode)
-            plan = te.last_plan
-            print(f"# plan: {plan.query_type.value if plan else '?'}")
+            res = te.retrieve(args.query, document_id=args.doc, limit=args.limit, mode=args.mode)
+            ev = res.evidence
+            print(f"# plan: {res.query_type}")
             for i, e in enumerate(ev, 1):
                 title = e.metadata.get("node_title")
                 print(f"[{i}] {e.source} score={e.score} node={title!r} block={e.block_id}")
                 print("    " + e.content[:300].replace("\n", " "))
+            if args.trace:
+                print("\n# trace")
+                for step in res.trace:
+                    print(json.dumps(step, ensure_ascii=False, default=str))
+                st = res.stats
+                print(
+                    f"\n# stats: latency={st.latency_ms:.1f}ms fts_queries={st.fts_queries} "
+                    f"visited={st.visited_nodes}/{st.total_nodes} llm_calls={st.llm_calls}"
+                )
         elif args.cmd == "ask":
             r = te.ask(args.query, document_id=args.doc, mode=args.mode, max_evidence=args.limit)
             print(r.answer)

@@ -106,3 +106,23 @@ class AnswerResult(_Serializable):
     evidence: list[Evidence]
     query_type: str
     generated: bool  # False when no LLM was available (extractive fallback)
+
+
+@dataclass
+class NodeView(_Serializable):
+    """What a navigating agent sees when it opens a node (bounded text + counts)."""
+
+    id: str
+    document_id: str
+    parent_id: str | None
+    title: str
+    depth: int
+    position: int
+    node_type: str
+    summary: str | None
+    text: str
+    truncated: bool
+    child_count: int
+    block_count: int
+    page_start: int | None = None
+    page_end: int | None = None

@@ -1,89 +1,114 @@
 # TreeEngine
 
-面向 AI Agent 的本地优先结构化检索层（V0.1：Tree + FTS）。
+一个 local-first、可嵌入、面向 Agent 的结构化 Evidence Retrieval Engine。
 
 ```
 Source → Document → Structure Builder → Tree<Node> + Blocks → SQLite
-       → Tree Retriever + FTS Retriever → Evidence → LLM Answer
+       → Tree / FTS Retriever → Planner → Evidence → (可选) Answer
 ```
 
-- **零运行时依赖**：Python 3.11+、标准库 `sqlite3`（FTS5）、标准库 `html.parser`。PDF 需要可选依赖 `pypdf`。
-- **结构与证据分离**：`Node` 表示章节，`Block` 表示可引用证据，每个 Block 都能追溯到 document / node / page 或 offset。
-- **渐进式 Tree Search**：从根节点开始逐层评分、展开 top 1-3，绝不默认把整棵树塞进 prompt。
-- **中文可检索**：FTS5 默认 `unicode61` 会把一串汉字当成一个 token，这里在索引时把 CJK 字符逐字切开，查询时用 CJK bigram 短语，中英文混排都能命中。
-- **LLM 可插拔**：核心只依赖 `LLMProvider` Protocol；自带一个基于 urllib 的 OpenAI 兼容客户端（OpenAI / new-api / vLLM / Ollama 都可用）。没有 LLM 时所有功能都可工作（启发式导航 + 抽取式回答）。
+TreeEngine 不替 Agent 思考，它负责：知识进入 → 结构化 → 持久化 → 可导航 → 可搜索 → 稳定返回带出处的 Evidence。
+
+- **零运行时依赖**：Python 3.11+、标准库 `sqlite3`（FTS5）和 `html.parser`；PDF 需要可选的 `pypdf`。
+- **结构与证据分离**：`Node` 是导航单元，`Block` 是证据单元；每条 Evidence 都能追溯到 document / node / block / page / offset。
+- **两种用法**：Managed Retrieval（Planner 替你决定怎么搜）和 Agent Navigation（Agent 用原语自己走）。
+- **可度量**：`benchmarks/` 在 10 篇真实文档 + 140 条标注 query 上比较各检索策略，结论见 [benchmarks/README.md](benchmarks/README.md)。
 
 ## 安装
 
 ```bash
-pip install -e ".[dev]"      # 含 pytest / ruff / mypy / pypdf / reportlab
+pip install -e ".[dev]"
 pytest
+python -m benchmarks.run
 ```
 
 ## 用法
 
 ```python
-from treeengine import TreeEngine, OpenAICompatibleLLM
+from treeengine import TreeEngine
 
-llm = OpenAICompatibleLLM(model="gpt-4o-mini", api_key="sk-...", base_url="https://api.openai.com/v1")
-engine = TreeEngine(db_path="treeengine.db", llm=llm)   # llm 可为 None
-
-doc = engine.ingest("annual_report.md")                 # .md / .html / .pdf
-print(engine.format_tree(doc.id))                       # 或 engine.get_tree(doc.id) 得到嵌套 dict
-
-evidence = engine.search("为什么 gross margin 下降？", document_id=doc.id)   # 只检索，不调用回答模型
-result = engine.ask("为什么 gross margin 下降？", document_id=doc.id)        # 带 [E1] 引用的答案
-for c in result.citations:
-    print(c.index, c.document_id, c.node_id, c.block_id, c.title, c.page)
+engine = TreeEngine("treeengine.db")          # 或 create_local_engine(..., llm=provider)
+doc = engine.ingest("annual_report.md")       # .md / .html / .pdf
 ```
+
+**Managed Retrieval**
+
+```python
+evidence = engine.search("为什么利润率下降？", document_id=doc.id)   # list[Evidence]
+
+res = engine.retrieve("风险章节里哪些地方提到供应链？", document_id=doc.id)
+res.plan.query_type       # LOOKUP / DOCUMENT_REASONING / HYBRID
+res.trace                 # plan → tree（每层候选与选择）→ fts（范围、命中）→ result
+res.stats                 # latency_ms, fts_queries, visited_nodes/total_nodes, llm_calls, tokens
+```
+
+**Agent Navigation**（每次调用只读有限范围：一个节点、一层子节点、一条祖先链或一页 block）
+
+```python
+engine.list_documents()
+roots = engine.get_roots(doc.id)
+chapters = engine.get_children(roots[0].id)
+view = engine.read_node(chapters[1].id)        # NodeView：摘要、截断正文、子节点数、block 数
+blocks = engine.read_blocks(chapters[1].id, limit=20, offset=0)
+engine.get_ancestors(blocks[0].node_id)        # 面包屑
+hits = engine.search_text("芯片成本", node_id=chapters[3].id)   # 在某章节子树内搜
+```
+
+**Answer（便利 API，不是核心）**
+
+```python
+result = engine.ask("为什么利润率下降？", document_id=doc.id)
+result.answer, result.citations   # 每条引用带 document_id / node_id / block_id / page / offset
+```
+
+LLM 通过 `LLMProvider` Protocol 接入，自带基于 urllib 的 `OpenAICompatibleLLM`（OpenAI / new-api / vLLM / Ollama）。所有 LLM 调用都经过 `MeteredLLM` 计数，按用途统计（tree_navigation / answer / summary / structure / planner）；provider 返回真实 usage 时用真实值，否则估算。没有 LLM 时一切照常工作（启发式导航 + 抽取式回答）。
 
 命令行：
 
 ```bash
-treeengine --db te.db ingest tests/fixtures/annual_report.md
+treeengine --db te.db ingest docs/*.md
 treeengine --db te.db tree <document_id>
-treeengine --db te.db search "风险章节里哪些地方提到供应链？"
-TREEENGINE_LLM_MODEL=gpt-4o-mini TREEENGINE_LLM_API_KEY=sk-... treeengine --db te.db ask "为什么毛利率下降？"
+treeengine --db te.db search "风险章节里哪些地方提到供应链？" --trace
 ```
 
-## 模块
+## 架构
+
+```
+          Core  (models, protocols, config, text)
+         ▲    ▲
+         │    │
+   Storage    Retrieval   (+ ingest / structure / llm)
+         \    /
+          App   (factory → TreeEngine facade, pipeline, answer, cli)
+```
+
+- `core/protocols.py` 定义 `Repository`、`LLMProvider`、`Retriever`（Evidence 契约）。
+- `storage/` 实现 `Repository`（SQLite + FTS5）；FTS5 的查询语法和中文切字只在 `storage/fts5.py` 里。
+- `retrieval/` 只依赖 Protocol，从不 import `storage`；Planner 只调用 Retriever 的 API。
+- `factory.py` 是唯一组装具体实现的地方（CLI、测试、benchmark 都从这里建引擎）；`TreeEngine` 只做委托。
+- `tests/test_architecture.py` 用 AST 检查这些边界，并用一个包装过的第二种 Repository 实现跑完整检索，确认 Managed Retrieval 不会读整棵树。
 
 | 模块 | 内容 |
 | --- | --- |
-| `core/` | `Document` / `Node` / `Block` / `Evidence` / `Citation` / `AnswerResult`，`EngineConfig`，CJK 分词与打分工具 |
-| `ingest/` | `MarkdownAdapter`、`HTMLAdapter`（过滤 nav/script/style/footer/aside/hidden，优先 main/article）、`PDFAdapter`（文本 + bookmarks） |
-| `structure/` | 统一的 Element → Node/Block 组装；优先级 Native → Heuristic → LLM fallback；启发式/LLM 摘要 |
-| `storage/` | `schema.sql`（v1，`PRAGMA user_version` 迁移）、`SQLiteRepository`（事务、CRUD、FTS 同步、roots/children/ancestors/subtree） |
-| `retrieval/` | `TreeRetriever`（get_roots / get_children / read_node / read_blocks / tree_search）、`FTSRetriever`（document_id / node_id 范围）、`RetrievalPlanner`（LOOKUP / DOCUMENT_REASONING / HYBRID） |
-| `llm/` | `LLMProvider` Protocol、`CallableLLM`、`OpenAICompatibleLLM`、prompts |
+| `core/` | `Document` / `Node` / `Block` / `Evidence` / `NodeView` / `Citation`，Protocols，`EngineConfig`，词项抽取与打分 |
+| `ingest/` | Markdown / HTML（过滤导航、脚本、隐藏元素、permalink 锚点，优先 main/article）/ PDF（文本 + 书签） |
+| `structure/` | 统一的 Element → Node/Block 组装；Native → Heuristic → LLM fallback；Markdown HTML 注释屏蔽、`{#anchor}` 清理；PDF 页眉页脚去除、目录识别 |
+| `storage/` | schema v2（`PRAGMA user_version` 迁移；v2 = FTS5 porter 词干）、事务、FTS 同步、`rebuild_fts()` |
+| `retrieval/` | `Navigator`（原语）、`TreeRetriever`、`FTSRetriever`、`RetrievalPlanner`、`SearchResult` / `Trace` / `SearchStats` |
+| `pipeline.py` / `answer.py` / `treeview.py` | ingest 流水线、回答层、整树渲染（仅供查看） |
+| `benchmarks/` | 语料清单、ground truth、策略、指标、报告 |
 
-### 检索策略
+### Tree 导航怎么打分（无 LLM 时）
 
-| Query 类型 | 示例 | 执行 |
-| --- | --- | --- |
-| LOOKUP | “EBITDA 2025 是多少？” | FTS；为空时退回 Tree |
-| DOCUMENT_REASONING | “报告为什么解释利润率下降？” | Tree；为空时退回 FTS |
-| HYBRID | “风险章节里哪些地方提到供应链？” | Tree 定位章节 → 在其子树内 FTS → 补充 Tree 证据 |
+- 每层候选 = 子节点 + 已展开父章节的“自身文字”（父章节引言也可以是答案）。
+- 子节点分数 = 3 × 标题命中率 + 摘要命中率 + 2 × 子树内**最佳** FTS 命中（一次 FTS 查询 + 命中块的祖先链，不读整棵树）。
+- 取前 `tree_beam` 个（≥ 最高分一半）展开，直到叶子；目录节点不参与导航。
+- 证据按 目标得分 + 词重叠 + 章节开头位置先验 排序。
 
-`engine.search(..., mode="HYBRID")` 可以强制策略。
+传入 LLM 时每层改由 LLM 只看当前候选（标题 + 摘要 + 子节点数）做选择，解析失败自动退回启发式。
 
-### Tree 导航如何打分（无 LLM 时）
+## 版本
 
-每层候选节点分数 = 3 × 标题命中率 + 摘要命中率 + 子树内 FTS 命中权重。子树 FTS 权重来自一次 FTS 查询 + 命中节点的祖先链，不需要读整棵树。传入 LLM 时改由 LLM 每次只看当前一层候选（标题 + 摘要 + 子节点数）做选择，解析失败自动退回启发式。`TreeSearchResult.trace` 记录每层候选与选择，`visited_nodes` 记录实际加载的节点数。
-
-## 与执行文档的差异
-
-- `documents` 表多了 `text` 列：为满足“数据库是事实来源”，Document 能从库中完整重建。
-- FTS 表结构与文档一致，`blocks_fts.rowid == blocks.rowid`，同步由 Repository 在同一事务里完成（没有用触发器，因为写入内容要先做 CJK 切分）。
-- `narrow_scope_chars` 只在 LLM 导航时用于提前停止（省调用）；启发式导航总是下钻到最具体的节点。
-- 额外提供了 `cli.py` 方便手工验证。
-
-## 测试
-
-`tests/fixtures/` 下有 Markdown（中/英）、HTML（含噪声）、79 节点的大文档、带/不带 bookmarks 的 PDF；`make_fixtures.py` 可重新生成后两类。回归测试固定了 query → 期望节点/块：
-
-- `test_storage.py`：迁移、重载、FTS 同步（insert/update/delete/改标题）、事务回滚、重复导入
-- `test_ingest_markdown.py` / `test_ingest_html.py` / `test_ingest_pdf.py`：树结构、parent/child/position/depth、offset 可回溯、噪声过滤
-- `test_fts.py`：专有名词 / 数字 / 标识符 / 中文 lookup 回归表，document / node scope
-- `test_tree_retrieval.py`：章节定位回归表，50+ 节点文档只加载不到一半节点，LLM 每次只看到一层
-- `test_planner_engine.py`：分类、HYBRID 范围限定、三种格式同库、search 不调用回答模型、ask 返回 block 级引用
+- **V0.1**：Ingest / Structure / SQLite / Tree / FTS / Planner / Evidence / Answer。
+- **V0.2（当前）**：Repository 边界、Navigation 原语、Benchmark、Trace & Stats、Factory。
+- **V0.3**：由 benchmark 决定。当前数据指向 LLM 导航评测和 paraphrase 方向的 `Tree → 子树内 Vector`（见 benchmarks/README.md）。

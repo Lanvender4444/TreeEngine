@@ -5,15 +5,17 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from enum import StrEnum
 
 from ..core.config import EngineConfig
 from ..core.models import Evidence
+from ..core.protocols import LLMProvider
 from ..llm import prompts
-from ..llm.base import LLMProvider
 from .base import dedupe
 from .fts import FTSRetriever
+from .result import SearchResult, SearchStats, Trace
 from .tree import TreeRetriever
 
 log = logging.getLogger(__name__)
@@ -116,36 +118,67 @@ class RetrievalPlanner:
         limit: int = 10,
         mode: QueryType | str | None = None,
     ) -> tuple[list[Evidence], RetrievalPlan]:
+        res = self.retrieve(query, document_id=document_id, limit=limit, mode=mode)
+        return res.evidence, res.plan
+
+    def retrieve(
+        self,
+        query: str,
+        document_id: str | None = None,
+        limit: int = 10,
+        mode: QueryType | str | None = None,
+    ) -> SearchResult:
+        """Managed retrieval with trace and stats (LLM usage is filled in by the caller that
+        owns the metered provider)."""
+        t0 = time.perf_counter()
+        trace = Trace()
         plan = self.plan(query, mode)
+        trace.add("plan", query_type=plan.query_type.value, by=plan.by, steps=plan.steps)
         qt = plan.query_type
         ev: list[Evidence]
         if qt is QueryType.LOOKUP:
-            ev = self.fts.fts_search(query, document_id=document_id, limit=limit)
+            ev = self.fts.fts_search(query, document_id=document_id, limit=limit, trace=trace)
             if not ev:
-                ev = self.tree.search(query, document_id=document_id, limit=limit)
+                trace.add("fallback", frm="fts", to="tree", reason="no fts hits")
+                ev = self.tree.search(query, document_id=document_id, limit=limit, trace=trace)
         elif qt is QueryType.DOCUMENT_REASONING:
-            ev = self.tree.search(query, document_id=document_id, limit=limit)
+            ev = self.tree.search(query, document_id=document_id, limit=limit, trace=trace)
             if not ev:
-                ev = self.fts.fts_search(query, document_id=document_id, limit=limit)
+                trace.add("fallback", frm="tree", to="fts", reason="no tree evidence")
+                ev = self.fts.fts_search(query, document_id=document_id, limit=limit, trace=trace)
         else:
-            ev = self._hybrid(query, document_id, limit)
+            ev = self._hybrid(query, document_id, limit, trace)
         for e in ev:
             e.metadata.setdefault("strategy", qt.value)
-        return dedupe(ev)[:limit], plan
+        ev = dedupe(ev)[:limit]
 
-    def _hybrid(self, query: str, document_id: str | None, limit: int) -> list[Evidence]:
-        doc_ids = [document_id] if document_id else self.tree.candidate_documents(query)
+        stats = SearchStats(latency_ms=(time.perf_counter() - t0) * 1000)
+        stats.fts_queries = len(trace.of("fts"))
+        for step in trace.of("tree"):
+            stats.tree_searches += 1
+            stats.visited_nodes += step["visited_nodes"]
+            stats.total_nodes += step["total_nodes"]
+        trace.add("result", evidence=len(ev))
+        return SearchResult(query, ev, plan, trace.steps, stats)
+
+    def _hybrid(
+        self, query: str, document_id: str | None, limit: int, trace: Trace
+    ) -> list[Evidence]:
+        doc_ids = (
+            [document_id] if document_id else self.tree.candidate_documents(query, trace=trace)
+        )
         scoped: list[Evidence] = []
         tree_ev: list[Evidence] = []
         for doc_id in doc_ids:
-            loc = self.tree.locate(query, doc_id, limit=limit)
+            loc = self.tree.locate(query, doc_id, limit=limit, trace=trace)
             tree_ev += loc.evidence
-            scope: list[str] = []
-            for t in loc.targets:
-                scope += self.tree.repo.get_subtree_ids(t.id)
-            if scope:
+            if loc.scope_node_ids:
                 scoped += self.fts.fts_search(
-                    query, document_id=doc_id, node_ids=scope, limit=limit
+                    query,
+                    document_id=doc_id,
+                    node_ids=loc.scope_node_ids,
+                    limit=limit,
+                    trace=trace,
                 )
         for e in scoped:
             e.metadata["scoped_by"] = "tree"

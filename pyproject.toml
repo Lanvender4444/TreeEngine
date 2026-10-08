@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "treeengine"
-version = "0.1.0"
+version = "0.2.0.dev0"
 description = "Local-first structured retrieval engine for AI agents (Tree + FTS on SQLite)"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -26,6 +26,7 @@ treeengine = ["storage/schema.sql"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 
 [tool.ruff]
 line-length = 100

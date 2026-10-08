@@ -1,21 +1,24 @@
-"""FTS5 lexical retriever: names, numbers, terms, identifiers, short facts.
+"""Lexical retriever: names, numbers, terms, identifiers, short facts.
 
-Supports scoping by ``document_id`` and by ``node_id`` (whole subtree) so that the hybrid
-"Tree finds the section, FTS finds the paragraph" pattern works.
+Supports scoping by ``document_id``, by ``node_id`` (whole subtree) or by an explicit set of
+``node_ids`` so that "Tree finds the section, FTS finds the paragraph" works.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from ..core.config import EngineConfig
 from ..core.models import Block, Evidence
-from ..core.text import fts_match_expr, query_terms
-from ..storage.sqlite import SQLiteRepository
+from ..core.protocols import MatchMode, Repository
+from ..core.text import query_terms
+from .result import Trace
 
 
 class FTSRetriever:
     name = "fts"
 
-    def __init__(self, repo: SQLiteRepository, config: EngineConfig | None = None) -> None:
+    def __init__(self, repo: Repository, config: EngineConfig | None = None) -> None:
         self.repo = repo
         self.config = config or EngineConfig()
 
@@ -35,24 +38,27 @@ class FTSRetriever:
         document_id: str | None = None,
         node_id: str | None = None,
         limit: int | None = None,
-        node_ids: list[str] | None = None,
+        node_ids: Sequence[str] | None = None,
+        trace: Trace | None = None,
     ) -> list[Evidence]:
         limit = limit or self.config.fts_limit
         terms = query_terms(query)
         if not terms:
+            if trace is not None:
+                trace.add("fts", terms=[], hits=0, document_id=document_id)
             return []
-        scope: list[str] | None = node_ids
+        scope: list[str] | None = list(node_ids) if node_ids is not None else None
         if node_id is not None:
             sub = self.repo.get_subtree_ids(node_id)
             scope = sub if scope is None else [i for i in scope if i in set(sub)]
 
-        results: list[tuple[str, Block, float]] = []
+        results: list[tuple[MatchMode, Block, float]] = []
         seen: set[str] = set()
         # precise pass (all terms) first, then recall pass (any term)
-        passes = ["and", "or"] if 1 < len(terms) <= 6 else ["or"]
+        passes: list[MatchMode] = ["and", "or"] if 1 < len(terms) <= 6 else ["or"]
         for mode in passes:
             hits = self.repo.fts_query(
-                fts_match_expr(terms, mode), document_id=document_id, node_ids=scope, limit=limit
+                terms, mode=mode, document_id=document_id, node_ids=scope, limit=limit
             )
             for block, score in hits:
                 if block.id in seen:
@@ -61,6 +67,15 @@ class FTSRetriever:
                 results.append((mode, block, score))  # "and" hits stay ahead of "or" hits
             if len(results) >= limit:
                 break
+        if trace is not None:
+            trace.add(
+                "fts",
+                terms=terms,
+                passes=passes,
+                document_id=document_id,
+                scope_nodes=None if scope is None else len(scope),
+                hits=len(results),
+            )
 
         titles: dict[str, str] = {}
         out: list[Evidence] = []

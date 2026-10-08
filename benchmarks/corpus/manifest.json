@@ -1,0 +1,129 @@
+{
+  "documents": [
+    {
+      "name": "rust_ownership.md",
+      "url": "https://raw.githubusercontent.com/rust-lang/book/1500248d8f230566e4ec9f27fcbb8fe9e2898ab1/src/ch04-01-what-is-ownership.md",
+      "sha256": "873724c6862ad0cc447becf0e818eb39a324c5d4bfa26ef721286aae1941c0ba",
+      "source": "https://github.com/rust-lang/book/blob/1500248d8f230566e4ec9f27fcbb8fe9e2898ab1/src/ch04-01-what-is-ownership.md",
+      "license": "MIT OR Apache-2.0",
+      "lang": "en",
+      "kind": "book chapter"
+    },
+    {
+      "name": "rust_result.md",
+      "url": "https://raw.githubusercontent.com/rust-lang/book/1500248d8f230566e4ec9f27fcbb8fe9e2898ab1/src/ch09-02-recoverable-errors-with-result.md",
+      "sha256": "dab3e88d324cdde74cf96356c58a423747a5735ac6848d8d4592dc7c13637c62",
+      "source": "https://github.com/rust-lang/book/blob/1500248d8f230566e4ec9f27fcbb8fe9e2898ab1/src/ch09-02-recoverable-errors-with-result.md",
+      "license": "MIT OR Apache-2.0",
+      "lang": "en",
+      "kind": "book chapter"
+    },
+    {
+      "name": "k8s_pod_lifecycle_en.md",
+      "url": "https://raw.githubusercontent.com/kubernetes/website/da4702f74876bf4714f6a6b2f815712b9f7a134b/content/en/docs/concepts/workloads/pods/pod-lifecycle.md",
+      "sha256": "1d81a56b63aa75e10d3cea41978420da7c046027a143c56852f6698ff5e6623c",
+      "source": "https://github.com/kubernetes/website/blob/da4702f74876bf4714f6a6b2f815712b9f7a134b/content/en/docs/concepts/workloads/pods/pod-lifecycle.md",
+      "license": "CC-BY-4.0",
+      "lang": "en",
+      "kind": "long technical doc"
+    },
+    {
+      "name": "k8s_pod_lifecycle_zh.md",
+      "url": "https://raw.githubusercontent.com/kubernetes/website/da4702f74876bf4714f6a6b2f815712b9f7a134b/content/zh-cn/docs/concepts/workloads/pods/pod-lifecycle.md",
+      "sha256": "50c3ece97105707a5f17258dbb711292ba0cbf06bf7463ef29782f851044759a",
+      "source": "https://github.com/kubernetes/website/blob/da4702f74876bf4714f6a6b2f815712b9f7a134b/content/zh-cn/docs/concepts/workloads/pods/pod-lifecycle.md",
+      "license": "CC-BY-4.0",
+      "lang": "zh",
+      "kind": "long technical doc (translated, English kept in comments)"
+    },
+    {
+      "name": "k8s_configmap_zh.md",
+      "url": "https://raw.githubusercontent.com/kubernetes/website/da4702f74876bf4714f6a6b2f815712b9f7a134b/content/zh-cn/docs/concepts/configuration/configmap.md",
+      "sha256": "f0fc1ee79a8517af31e372e0a3dc025a85ea51f95d3a75edb2c0fb86bbc1de9d",
+      "source": "https://github.com/kubernetes/website/blob/da4702f74876bf4714f6a6b2f815712b9f7a134b/content/zh-cn/docs/concepts/configuration/configmap.md",
+      "license": "CC-BY-4.0",
+      "lang": "zh",
+      "kind": "technical doc"
+    },
+    {
+      "name": "rocketmq_best_practice_zh.md",
+      "url": "https://raw.githubusercontent.com/apache/rocketmq/9ea2ccdc2b41445aee5e177e14e501d606f5a1ed/docs/cn/best_practice.md",
+      "sha256": "464e596805894ddc99ecedfdb952dcb2046628a7976e02ae87d233bac34d802f",
+      "source": "https://github.com/apache/rocketmq/blob/9ea2ccdc2b41445aee5e177e14e501d606f5a1ed/docs/cn/best_practice.md",
+      "license": "Apache-2.0",
+      "lang": "zh",
+      "kind": "deep numbered outline"
+    },
+    {
+      "name": "rocketmq_design_zh.md",
+      "url": "https://raw.githubusercontent.com/apache/rocketmq/9ea2ccdc2b41445aee5e177e14e501d606f5a1ed/docs/cn/design.md",
+      "sha256": "cce0899b32a5aa2daa6dd4ee4878095ce81023b316b493940551a4f9b76e7ea9",
+      "source": "https://github.com/apache/rocketmq/blob/9ea2ccdc2b41445aee5e177e14e501d606f5a1ed/docs/cn/design.md",
+      "license": "Apache-2.0",
+      "lang": "zh",
+      "kind": "design doc"
+    },
+    {
+      "name": "fastapi_readme.md",
+      "url": "https://raw.githubusercontent.com/fastapi/fastapi/182c8b8c83a0c3f19b61e31e092570af7d4e637b/README.md",
+      "sha256": "e2a012418ad45efe15a3342ddf58f39d605ce7d65f497832b566ce010b41ad67",
+      "source": "https://github.com/fastapi/fastapi/blob/182c8b8c83a0c3f19b61e31e092570af7d4e637b/README.md",
+      "license": "MIT",
+      "lang": "en",
+      "kind": "README"
+    },
+    {
+      "name": "sklearn_cross_validation.html",
+      "url": "https://raw.githubusercontent.com/scikit-learn/scikit-learn.github.io/d3953cff8a584c7731c9109b09ff85af4d6c19fa/1.7/modules/cross_validation.html",
+      "sha256": "a3dfd7d11c008eebad9f56bc0f68605554e769d8147a7cf23f1a15df95ca0643",
+      "source": "https://github.com/scikit-learn/scikit-learn.github.io/blob/d3953cff8a584c7731c9109b09ff85af4d6c19fa/1.7/modules/cross_validation.html",
+      "license": "BSD-3-Clause",
+      "lang": "en",
+      "kind": "Sphinx HTML docs page"
+    },
+    {
+      "name": "p3c.pdf",
+      "url": "https://raw.githubusercontent.com/alibaba/p3c/6c59c8c36ecd8722c712d5685b8c3822c1c8b030/Java%E5%BC%80%E5%8F%91%E6%89%8B%E5%86%8C%28%E9%BB%84%E5%B1%B1%E7%89%88%29.pdf",
+      "sha256": "68463b8cc5f1ad8f9c4fcaaa7c468a46a7e603b23cd22f38414697782b404f1f",
+      "source": "https://github.com/alibaba/p3c/blob/6c59c8c36ecd8722c712d5685b8c3822c1c8b030/Java开发手册(黄山版).pdf",
+      "license": "see upstream repository",
+      "lang": "zh",
+      "kind": "PDF manual with bookmarks"
+    },
+    {
+      "name": "annual_report.md",
+      "path": "tests/fixtures/annual_report.md",
+      "synthetic": true,
+      "lang": "zh",
+      "kind": "synthetic financial report"
+    },
+    {
+      "name": "handbook_large.md",
+      "path": "tests/fixtures/handbook_large.md",
+      "synthetic": true,
+      "lang": "en",
+      "kind": "synthetic 79-node handbook"
+    },
+    {
+      "name": "product_page.html",
+      "path": "tests/fixtures/product_page.html",
+      "synthetic": true,
+      "lang": "zh",
+      "kind": "synthetic HTML with page chrome"
+    },
+    {
+      "name": "api_guide.md",
+      "path": "tests/fixtures/api_guide.md",
+      "synthetic": true,
+      "lang": "en",
+      "kind": "synthetic SDK guide"
+    },
+    {
+      "name": "manual_bookmarks.pdf",
+      "path": "tests/fixtures/manual_bookmarks.pdf",
+      "synthetic": true,
+      "lang": "en",
+      "kind": "synthetic PDF with bookmarks"
+    }
+  ]
+}

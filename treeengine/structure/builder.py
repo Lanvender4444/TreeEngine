@@ -8,6 +8,7 @@ assembled into nodes/blocks by :func:`assemble`.
 from __future__ import annotations
 
 import logging
+import re
 from collections import defaultdict
 
 from ..core.config import EngineConfig
@@ -19,6 +20,8 @@ from ..llm import prompts
 from ..llm.base import LLMProvider, extract_json
 
 log = logging.getLogger(__name__)
+
+_TOC_TITLE = re.compile(r"^(目\s*录|目\s*次|contents|table of contents|toc)$", re.I)
 
 
 class StructureBuilder:
@@ -230,6 +233,8 @@ def _finalise(
         if pages:
             n.page_start, n.page_end = min(pages), max(pages)
         n.summary = heuristic_summary(n, children.get(n.id, []), config.summary_chars)
+        if n.node_type == "section" and _TOC_TITLE.match(n.title.strip()):
+            n.node_type = "toc"  # a table of contents mentions every topic: not a navigation target
     assert all(n.parent_id is None or n.parent_id in by_id for n in nodes)
 
 

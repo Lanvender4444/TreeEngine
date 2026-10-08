@@ -1,18 +1,16 @@
-"""Text helpers shared by storage (FTS indexing) and retrieval (query terms, lexical scoring).
-
-SQLite's default ``unicode61`` tokenizer treats a run of CJK characters as one token, which
-makes Chinese/Japanese text unsearchable. We therefore index CJK text with every CJK character
-separated by spaces and build queries from CJK bigrams expressed as FTS5 phrases
-(``"供 应"``). Latin words, numbers and identifiers are left as they are.
+"""Index-agnostic text helpers: query term extraction (latin words + CJK bigrams), lexical
+scoring and splitting. Index-specific syntax (FTS5 phrases, CJK segmentation for the
+``unicode61`` tokenizer) lives in ``treeengine.storage.fts5``.
 """
 
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 
-_CJK = "぀-ヿ㐀-䶿一-鿿豈-﫿가-힯"
-_CJK_CHAR_RE = re.compile(f"([{_CJK}])")
-_TOKEN_RE = re.compile(f"[{_CJK}]+|[A-Za-z0-9_][A-Za-z0-9_.+\\-]*[A-Za-z0-9_+]|[A-Za-z0-9_]")
+CJK_CLASS = "\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af"
+CJK_CHAR_RE = re.compile(f"([{CJK_CLASS}])")
+_TOKEN_RE = re.compile(f"[{CJK_CLASS}]+|[A-Za-z0-9_][A-Za-z0-9_.+\\-]*[A-Za-z0-9_+]|[A-Za-z0-9_]")
 
 _EN_STOP = {
     "a",
@@ -114,12 +112,7 @@ _ZH_STOP_BIGRAMS = {
 
 
 def is_cjk(ch: str) -> bool:
-    return bool(_CJK_CHAR_RE.fullmatch(ch))
-
-
-def segment_for_index(text: str) -> str:
-    """Make CJK characters individual tokens for FTS5's unicode61 tokenizer."""
-    return re.sub(r"[ \t]+", " ", _CJK_CHAR_RE.sub(r" \1 ", text)).strip()
+    return bool(CJK_CHAR_RE.fullmatch(ch))
 
 
 def query_terms(query: str) -> list[str]:
@@ -155,23 +148,44 @@ def query_terms(query: str) -> list[str]:
     return out
 
 
-def fts_phrase(term: str) -> str:
-    """Quote a term as an FTS5 phrase, splitting CJK chars the same way as the index."""
-    seg = segment_for_index(term).replace('"', '""')
-    return f'"{seg}"'
+_SUFFIXES = ("ings", "ing", "edly", "ed", "es", "s")
 
 
-def fts_match_expr(terms: list[str], mode: str = "or") -> str:
-    joiner = " AND " if mode == "and" else " OR "
-    return joiner.join(fts_phrase(t) for t in terms)
+def stem(term: str) -> str:
+    """Tiny English suffix stripper for substring matching ("shuffle" ~ "shuffling",
+    "partitions" ~ "partition"). CJK terms and short tokens are returned unchanged."""
+    if len(term) <= 4 or not term.isascii() or not term.isalpha():
+        return term
+    for suf in _SUFFIXES:
+        if term.endswith(suf) and len(term) - len(suf) >= 4:
+            term = term[: -len(suf)]
+            break
+    if term.endswith("e") and len(term) > 4:
+        term = term[:-1]
+    return term
+
+
+@lru_cache(maxsize=4096)
+def _term_pattern(term: str) -> re.Pattern[str] | None:
+    """Latin terms must start at a word boundary ("groupkfold" must not match
+    "stratifiedgroupkfold"); CJK terms use plain substring matching (no word boundaries)."""
+    if is_cjk(term[0]):
+        return None
+    return re.compile(r"(?<![a-z0-9_])" + re.escape(stem(term)))
 
 
 def lexical_score(terms: list[str], text: str | None) -> float:
-    """Number of distinct query terms that occur in ``text`` (case-insensitive substring)."""
+    """Number of distinct query terms that occur in ``text`` (case-insensitive, lightly
+    stemmed, word-start anchored for latin terms)."""
     if not text or not terms:
         return 0.0
     low = text.lower()
-    return float(sum(1 for t in terms if t in low))
+    n = 0
+    for t in terms:
+        pat = _term_pattern(t)
+        if (t in low) if pat is None else bool(pat.search(low)):
+            n += 1
+    return float(n)
 
 
 def truncate(text: str, limit: int) -> str:

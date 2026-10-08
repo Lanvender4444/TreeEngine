@@ -99,3 +99,16 @@ def test_long_paragraph_is_split(tmp_path: Path) -> None:
         assert all(len(b.content) <= 300 for b in blocks)
         for b in blocks:
             assert doc.text[b.start_offset : b.end_offset] == b.content
+
+
+def test_html_comments_are_ignored_but_offsets_kept() -> None:
+    src = (
+        "# 标题\n\n<!--\n## Hidden English heading\nEnglish text\n-->\n"
+        "中文正文。\n\n## 第二节\n\n内容\n"
+    )
+    els = parse_markdown(src)
+    assert [e.text for e in els if e.kind == "heading"] == ["标题", "第二节"]
+    body = [e for e in els if e.kind == "block"]
+    assert [b.text for b in body] == ["中文正文。", "内容"]
+    for b in body:
+        assert src[b.start : b.end] == b.text

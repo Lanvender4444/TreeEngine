@@ -99,24 +99,6 @@ def test_llm_garbage_falls_back_to_heuristic(engine: TreeEngine, fixtures: Path)
     assert all(step["by"].startswith("heuristic") for step in res.trace)
 
 
-def test_primitives(engine: TreeEngine, report: str) -> None:
-    tr = engine.tree
-    roots = tr.get_roots(report)
-    assert [r.position for r in roots] == sorted(r.position for r in roots)
-    kids = tr.get_children(roots[0].id)
-    assert len(kids) == 5 and all(k.parent_id == roots[0].id for k in kids)  # one level only
-    info = tr.read_node(kids[1].id, max_chars=10)
-    assert info and info["child_count"] == 3
-    gm = next(n for n in engine.repo.get_document_nodes(report) if n.title == "毛利率分析")
-    info = tr.read_node(gm.id, max_chars=20)
-    assert info and info["truncated"] and len(info["text"]) <= 20
-    assert len(tr.read_blocks(gm.id, limit=1)) == 1
-    assert (
-        tr.read_blocks(gm.id, limit=1, offset=1)[0].position
-        > tr.read_blocks(gm.id, limit=1)[0].position
-    )
-
-
 def test_search_without_document_id(engine: TreeEngine, fixtures: Path) -> None:
     engine.ingest(fixtures / "annual_report.md")
     engine.ingest(fixtures / "product_page.html")

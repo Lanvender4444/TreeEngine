@@ -42,6 +42,37 @@ def _lines(text: str) -> list[tuple[int, str]]:
     return out
 
 
+_DIGITS = re.compile(r"\d+")
+
+
+def running_lines(
+    lines: list[tuple[int, str]], pages: list[tuple[int, int, int]], edge: int = 3
+) -> set[int]:
+    """Indexes of running headers/footers: lines near the top/bottom of a page that recur on
+    at least half of the pages ("Java 开发手册（黄山版）" verbatim, "3/51" up to digits)."""
+    if len(pages) < 4:
+        return set()
+    by_page: dict[int, list[int]] = {}
+    for idx, (off, ln) in enumerate(lines):
+        if ln.strip():
+            no = _page_of(pages, off)
+            if no is not None:
+                by_page.setdefault(no, []).append(idx)
+    seen: dict[str, set[int]] = {}
+    candidates: dict[str, list[int]] = {}
+    for no, idxs in by_page.items():
+        for idx in idxs[:edge] + idxs[-edge:]:
+            text = re.sub(r"\s+", "", lines[idx][1])
+            if len(text) > 80:
+                continue
+            # page numbers ("3/51", "- 12 -") differ per page; anything longer must repeat verbatim
+            key = _DIGITS.sub("#", text) if len(text) <= 12 else text
+            seen.setdefault(key, set()).add(no)
+            candidates.setdefault(key, []).append(idx)
+    threshold = max(3, len(pages) // 2)
+    return {i for k, pgs in seen.items() if len(pgs) >= threshold for i in candidates[k]}
+
+
 def heuristic_heading(line: str) -> int | None:
     s = line.strip()
     if not s or len(s) > 60 or s.endswith(_END_PUNCT) or len(s) < 2:
@@ -67,6 +98,7 @@ def pdf_elements(doc: Document) -> tuple[list[Element], str]:
         (int(lv), str(t), pg) for lv, t, pg in doc.metadata.get("_outline", [])
     ]
     lines = _lines(doc.text)
+    noise = running_lines(lines, pages)
 
     headings: dict[int, tuple[int, str]] = {}  # line index -> (level, title)
     method = "flat"
@@ -120,6 +152,8 @@ def pdf_elements(doc: Document) -> tuple[list[Element], str]:
     extra_sorted = sorted(extra)
     ei = 0
     for idx, (off, ln) in enumerate(lines):
+        if idx in noise:
+            continue  # running header/footer: skip without breaking the paragraph
         while ei < len(extra_sorted) and extra_sorted[ei][0] <= off:
             flush()
             a_off, a_lvl, a_title = extra_sorted[ei]

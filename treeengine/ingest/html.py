@@ -35,6 +35,8 @@ _SKIP_TAGS = {
     "head",
 }
 _SKIP_ROLES = {"navigation", "banner", "contentinfo", "complementary", "search"}
+# permalink anchors rendered inside headings by Sphinx / MkDocs / Docusaurus ("#", "¶")
+_SKIP_CLASSES = {"headerlink", "anchorjs-link", "hash-link", "anchor-link"}
 _VOID_TAGS = {
     "area",
     "base",
@@ -122,6 +124,7 @@ class _Collector(HTMLParser):
             or "hidden" in a
             or (a.get("aria-hidden") or "").lower() == "true"
             or (a.get("role") or "").lower() in _SKIP_ROLES
+            or bool(_SKIP_CLASSES & set((a.get("class") or "").split()))
         )
         if self.skip_depth or skip:
             self.skip_depth += 1

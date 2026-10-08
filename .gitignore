@@ -10,3 +10,5 @@ __pycache__/
 *.db-shm
 build/
 dist/
+benchmarks/corpus/files/
+benchmarks/results/*.json

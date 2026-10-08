@@ -13,11 +13,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..core.config import EngineConfig
-from ..core.models import Block, Evidence, Node
-from ..core.text import fts_match_expr, lexical_score, query_terms, truncate
+from ..core.models import Block, Evidence, Node, NodeView
+from ..core.protocols import LLMProvider, Repository
+from ..core.text import lexical_score, query_terms, truncate
 from ..llm import prompts
-from ..llm.base import LLMProvider, extract_json
-from ..storage.sqlite import SQLiteRepository
+from ..llm.base import extract_json
+from .navigation import Navigator
+from .result import Trace
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +32,31 @@ class TreeSearchResult:
     trace: list[dict[str, Any]] = field(default_factory=list)
     visited_nodes: int = 0  # number of nodes whose metadata was loaded during traversal
     total_nodes: int = 0
+    scope_node_ids: list[str] = field(default_factory=list)  # targets + their subtrees
+    own_text_target_ids: list[str] = field(default_factory=list)  # targets scoped to own text
+
+
+@dataclass
+class _Cand:
+    """A navigation candidate: a node (its whole subtree) or, with ``own=True``, only the
+    section's own text (the intro before its first child)."""
+
+    node: Node
+    own: bool = False
+
+    @property
+    def key(self) -> tuple[str, bool]:
+        return (self.node.id, self.own)
+
+    @property
+    def label(self) -> str:
+        return f"{self.node.title} (own text)" if self.own else self.node.title
+
+
+@dataclass
+class _Signal:
+    own: dict[str, float]
+    subtree: dict[str, float]
 
 
 class TreeRetriever:
@@ -37,7 +64,7 @@ class TreeRetriever:
 
     def __init__(
         self,
-        repo: SQLiteRepository,
+        repo: Repository,
         llm: LLMProvider | None = None,
         config: EngineConfig | None = None,
         use_llm: bool = True,
@@ -45,34 +72,20 @@ class TreeRetriever:
         self.repo = repo
         self.llm = llm if use_llm else None
         self.config = config or EngineConfig()
+        self.nav = Navigator(repo, self.config)
 
     # ------------------------------------------------------------------ primitives (tool API)
     def get_roots(self, document_id: str) -> list[Node]:
-        return self.repo.get_roots(document_id)
+        return self.nav.get_roots(document_id)
 
     def get_children(self, node_id: str) -> list[Node]:
-        return self.repo.get_children(node_id)
+        return self.nav.get_children(node_id)
 
-    def read_node(self, node_id: str, max_chars: int | None = None) -> dict[str, Any] | None:
-        n = self.repo.get_node(node_id)
-        if n is None:
-            return None
-        limit = max_chars or self.config.read_node_max_chars
-        text = n.text or ""
-        return {
-            "id": n.id,
-            "title": n.title,
-            "depth": n.depth,
-            "summary": n.summary,
-            "text": truncate(text, limit),
-            "truncated": len(text) > limit,
-            "page_start": n.page_start,
-            "page_end": n.page_end,
-            "child_count": self.repo.count_children([n.id])[n.id],
-        }
+    def read_node(self, node_id: str, max_chars: int | None = None) -> NodeView | None:
+        return self.nav.read_node(node_id, max_chars=max_chars)
 
     def read_blocks(self, node_id: str, limit: int | None = 20, offset: int = 0) -> list[Block]:
-        return self.repo.get_blocks(node_id, limit=limit, offset=offset)
+        return self.nav.read_blocks(node_id, limit=limit, offset=offset)
 
     # ------------------------------------------------------------------ search
     def search(
@@ -82,14 +95,17 @@ class TreeRetriever:
         document_id: str | None = None,
         node_id: str | None = None,
         limit: int | None = None,
+        trace: Trace | None = None,
     ) -> list[Evidence]:
         if document_id is None:
             out: list[Evidence] = []
-            for doc_id in self.candidate_documents(query):
-                out += self.tree_search(query, doc_id, limit=limit)
+            for doc_id in self.candidate_documents(query, trace=trace):
+                out += self.locate(query, doc_id, limit=limit, trace=trace).evidence
             out.sort(key=lambda e: -(e.score or 0))
             return out[: limit or self.config.tree_max_evidence]
-        return self.tree_search(query, document_id, limit=limit, start_node_id=node_id)
+        return self.locate(
+            query, document_id, limit=limit, start_node_id=node_id, trace=trace
+        ).evidence
 
     def tree_search(
         self,
@@ -106,112 +122,146 @@ class TreeRetriever:
         document_id: str,
         limit: int | None = None,
         start_node_id: str | None = None,
+        trace: Trace | None = None,
     ) -> TreeSearchResult:
         cfg = self.config
         terms = query_terms(query)
-        hit_signal = self._fts_signal(terms, document_id)
+        sig = self._fts_signal(terms, document_id) if cfg.tree_use_fts_signal else _Signal({}, {})
         result = TreeSearchResult(
             document_id, [], [], total_nodes=self.repo.count_nodes(document_id)
         )
 
-        frontier = (
-            self.repo.get_children(start_node_id)
-            if start_node_id
-            else self.repo.get_roots(document_id)
-        )
-        if start_node_id and not frontier:
-            n = self.repo.get_node(start_node_id)
-            frontier = [n] if n else []
+        if start_node_id:
+            start = self.repo.get_node(start_node_id)
+            kids = self.repo.get_children(start_node_id)
+            frontier = [_Cand(k) for k in kids] or ([_Cand(start)] if start else [])
+            if start and kids and self.repo.count_blocks(start.id):
+                frontier.append(_Cand(start, own=True))
+        else:
+            frontier = [_Cand(n) for n in self.repo.get_roots(document_id)]
+        frontier = [c for c in frontier if c.node.node_type != "toc"]
         result.visited_nodes += len(frontier)
         path: list[str] = []
         parents: list[Node] = []
-        targets: list[Node] = []
-        node_scores: dict[str, float] = {}
+        targets: list[_Cand] = []
+        scores: dict[tuple[str, bool], float] = {}
 
         for level in range(cfg.tree_max_depth):
             if not frontier:
                 break
-            scores = {n.id: self._heuristic_score(n, terms, hit_signal) for n in frontier}
-            node_scores.update(scores)
-            child_counts = self.repo.count_children([n.id for n in frontier])
+            level_scores = {c.key: self._score(c, terms, sig) for c in frontier}
+            scores.update(level_scores)
+            child_counts = self.repo.count_children([c.node.id for c in frontier if not c.own])
             selected, stop, how = self._select(
-                query, frontier, scores, child_counts, path, level, bool(hit_signal)
+                query, frontier, level_scores, child_counts, path, level, bool(sig.subtree)
             )
             result.trace.append(
                 {
                     "level": level,
-                    "candidates": [(n.title, round(scores[n.id], 3)) for n in frontier],
-                    "selected": [n.title for n in selected],
+                    "candidates": [(c.label, round(level_scores[c.key], 3)) for c in frontier],
+                    "selected": [c.label for c in selected],
                     "by": how,
                 }
             )
             if not selected:
-                targets.extend(parents)  # children irrelevant -> the parent itself is the scope
+                targets.extend(_Cand(p) for p in parents)  # children irrelevant -> parent scope
                 break
-            path.append(" / ".join(n.title for n in selected))
-            next_frontier: list[Node] = []
+            path.append(" / ".join(c.node.title for c in selected))
+            next_frontier: list[_Cand] = []
             expanded: list[Node] = []
-            for n in selected:
+            for c in selected:
+                n = c.node
+                if c.own:
+                    targets.append(c)  # the section's own (intro) text is the answer scope
+                    continue
                 # "narrow enough" only short-circuits LLM navigation (saves calls); the
                 # heuristic scorer is cheap, so it always descends to the most specific node.
                 narrow = how == "llm" and (
                     self.repo.subtree_char_count(n.id) <= cfg.narrow_scope_chars
                 )
                 if child_counts.get(n.id, 0) == 0 or stop or narrow:
-                    targets.append(n)
-                else:
-                    kids = self.repo.get_children(n.id)
-                    result.visited_nodes += len(kids)
-                    next_frontier.extend(kids)
-                    expanded.append(n)
+                    targets.append(c)
+                    continue
+                kids = self.repo.get_children(n.id)
+                result.visited_nodes += len(kids)
+                next_frontier.extend(_Cand(k) for k in kids if k.node_type != "toc")
+                if self.repo.count_blocks(n.id):
+                    # a section is both a container and a content holder: its own text competes
+                    # with its children at the next level
+                    next_frontier.append(_Cand(n, own=True))
+                expanded.append(n)
             frontier, parents = next_frontier, expanded
         else:
-            targets.extend(parents)
+            targets.extend(_Cand(p) for p in parents)
 
-        result.targets = _unique(targets)
-        result.evidence = self._read_evidence(result.targets, terms, node_scores, limit)
+        targets = list({c.key: c for c in targets}.values())
+        result.targets = list({c.node.id: c.node for c in targets}.values())
+        result.own_text_target_ids = [c.node.id for c in targets if c.own]
+        scope: list[str] = []
+        for c in targets:
+            scope += [c.node.id] if c.own else self.repo.get_subtree_ids(c.node.id)
+        result.scope_node_ids = _unique_ids(scope)
+        result.evidence = self._read_evidence(targets, terms, scores, limit)
+        if trace is not None:
+            trace.add(
+                "tree",
+                document_id=document_id,
+                levels=result.trace,
+                targets=[c.label for c in targets],
+                target_ids=[c.node.id for c in targets],
+                visited_nodes=result.visited_nodes,
+                total_nodes=result.total_nodes,
+                fts_signal=cfg.tree_use_fts_signal,
+            )
         return result
 
     # ------------------------------------------------------------------ selection
     def _select(
         self,
         query: str,
-        frontier: list[Node],
-        scores: dict[str, float],
+        frontier: list[_Cand],
+        scores: dict[tuple[str, bool], float],
         child_counts: dict[str, int],
         path: list[str],
         level: int,
         has_signal: bool = False,
-    ) -> tuple[list[Node], bool, str]:
+    ) -> tuple[list[_Cand], bool, str]:
         k = max(1, min(3, self.config.tree_beam))
         if self.llm is not None:
             picked = self._llm_select(query, frontier, child_counts, path, k)
             if picked is not None:
                 return picked[0], picked[1], "llm"
-        ranked = sorted(frontier, key=lambda n: (-scores[n.id], n.position))
-        best = scores[ranked[0].id]
+        ranked = sorted(frontier, key=lambda c: (-scores[c.key], c.own, c.node.position))
+        best = scores[ranked[0].key]
         if best <= 0:
             if level == 0 and has_signal:
                 # weak match somewhere below the roots: start from the first root
                 return ranked[:1], False, "heuristic-default"
             return [], True, "heuristic"
-        chosen = [n for n in ranked[:k] if scores[n.id] > 0 and scores[n.id] >= 0.5 * best]
+        chosen = [c for c in ranked[:k] if scores[c.key] > 0 and scores[c.key] >= 0.5 * best]
         return chosen, False, "heuristic"
 
     def _llm_select(
         self,
         query: str,
-        frontier: list[Node],
+        frontier: list[_Cand],
         child_counts: dict[str, int],
         path: list[str],
         k: int,
-    ) -> tuple[list[Node], bool] | None:
+    ) -> tuple[list[_Cand], bool] | None:
         assert self.llm is not None
-        alias = {f"c{i + 1}": n for i, n in enumerate(frontier)}
+        alias = {f"c{i + 1}": c for i, c in enumerate(frontier)}
         lines = []
-        for a, n in alias.items():
-            summary = truncate(" ".join((n.summary or "").split()), 220)
-            lines.append(f"- {a}: {n.title} (subsections: {child_counts.get(n.id, 0)}) — {summary}")
+        for a, c in alias.items():
+            if c.own:
+                intro = truncate(" ".join((c.node.text or "").split()), 220)
+                lines.append(f"- {a}: (introductory text of '{c.node.title}') — {intro}")
+            else:
+                n = c.node
+                summary = truncate(" ".join((n.summary or "").split()), 220)
+                lines.append(
+                    f"- {a}: {n.title} (subsections: {child_counts.get(n.id, 0)}) — {summary}"
+                )
         prompt = prompts.TREE_SELECT.format(
             question=query, path=" > ".join(path) or "(root)", candidates="\n".join(lines), k=k
         )
@@ -227,65 +277,77 @@ class TreeRetriever:
         return chosen, bool(data.get("stop", False))
 
     # ------------------------------------------------------------------ scoring
-    def _fts_signal(self, terms: list[str], document_id: str) -> dict[str, float]:
-        """Normalised FTS hit weight per node *and its ancestors* (cheap, no full-tree read)."""
+    def _fts_signal(self, terms: list[str], document_id: str) -> _Signal:
+        """One FTS query, mapped onto the tree without loading it.
+
+        ``own[n]``     = best normalised block score directly inside n
+        ``subtree[n]`` = best normalised block score anywhere under n (max, not sum: a big
+                         section with many weak mentions must not beat a small precise one)
+        """
         if not terms:
-            return {}
-        hits = self.repo.fts_query(fts_match_expr(terms, "or"), document_id=document_id, limit=40)
+            return _Signal({}, {})
+        hits = self.repo.fts_query(terms, mode="or", document_id=document_id, limit=50)
         if not hits:
-            return {}
+            return _Signal({}, {})
         top = max(s for _, s in hits) or 1.0
-        signal: dict[str, float] = {}
+        own: dict[str, float] = {}
+        subtree: dict[str, float] = {}
         ancestors: dict[str, list[str]] = {}
         for block, score in hits:
             if not block.node_id:
                 continue
+            w = max(score, 0.0) / top
+            own[block.node_id] = max(own.get(block.node_id, 0.0), w)
             if block.node_id not in ancestors:
                 ancestors[block.node_id] = [a.id for a in self.repo.get_ancestors(block.node_id)]
-            w = max(score, 0.0) / top
             for nid in [block.node_id, *ancestors[block.node_id]]:
-                signal[nid] = signal.get(nid, 0.0) + w
-        return signal
+                subtree[nid] = max(subtree.get(nid, 0.0), w)
+        return _Signal(own, subtree)
 
     @staticmethod
-    def _heuristic_score(n: Node, terms: list[str], signal: dict[str, float]) -> float:
+    def _score(c: _Cand, terms: list[str], sig: _Signal) -> float:
         if not terms:
             return 0.0
+        n = c.node
+        if c.own:
+            own_text = lexical_score(terms, (n.text or "")[:2000]) / len(terms)
+            return 1.0 * own_text + 2.0 * sig.own.get(n.id, 0.0)
         title = lexical_score(terms, n.title) / len(terms)
         summary = lexical_score(terms, n.summary) / len(terms)
-        return 3.0 * title + 1.0 * summary + min(signal.get(n.id, 0.0), 3.0)
+        return 3.0 * title + 1.0 * summary + 2.0 * sig.subtree.get(n.id, 0.0)
 
     # ------------------------------------------------------------------ evidence
     def _read_evidence(
         self,
-        targets: list[Node],
+        targets: list[_Cand],
         terms: list[str],
-        node_scores: dict[str, float],
+        scores: dict[tuple[str, bool], float],
         limit: int | None,
     ) -> list[Evidence]:
         limit = limit or self.config.tree_max_evidence
-        scored: list[tuple[float, float, Block, Node]] = []
-        for t in targets:
-            # target is either a leaf or a narrow subtree: read its blocks (bounded)
-            node_ids = self.repo.get_subtree_ids(t.id)
+        scored: list[tuple[float, Block, Node]] = []
+        seen: set[str] = set()
+        # targets are leaves, narrow subtrees or a section's own text: reading is bounded
+        for c in targets:
+            base = scores.get(c.key, 0.0)
+            node_ids = [c.node.id] if c.own else self.repo.get_subtree_ids(c.node.id)
             for nid in node_ids:
-                owner = t if nid == t.id else self.repo.get_node(nid)
+                if nid in seen:
+                    continue
+                seen.add(nid)
+                owner = c.node if nid == c.node.id else self.repo.get_node(nid)
                 if owner is None:
                     continue
-                blocks = self.read_blocks(nid, limit=50)
-                for i, b in enumerate(blocks):
+                for i, b in enumerate(self.repo.get_blocks(nid, limit=50)):
                     lex = lexical_score(terms, b.content) / max(1, len(terms))
-                    base = node_scores.get(t.id, 0.0)
-                    # keep section openings as weak evidence even without lexical overlap
-                    prior = 0.05 if i < 2 else 0.0
-                    scored.append((base + 2.0 * lex + prior, lex, b, owner))
-        if any(x[1] > 0 for x in scored):
-            # once some blocks match the query, unmatched blocks are just noise
-            scored = [x for x in scored if x[1] > 0]
-        scored.sort(key=lambda x: (-x[0], x[2].position))
+                    # lead prior: a section's opening blocks often carry the answer even when
+                    # they share no words with the question
+                    lead = 0.3 if i == 0 else 0.15 if i == 1 else 0.0
+                    scored.append((base + 2.0 * lex + lead, b, owner))
+        scored.sort(key=lambda x: (-x[0], x[1].position))
         path_cache: dict[str, list[str]] = {}
         out: list[Evidence] = []
-        for score, _lex, b, owner in scored[:limit]:
+        for score, b, owner in scored[:limit]:
             if owner.id not in path_cache:
                 path_cache[owner.id] = [a.title for a in self.repo.get_ancestors(owner.id)] + [
                     owner.title
@@ -310,24 +372,28 @@ class TreeRetriever:
             )
         return out
 
-    def candidate_documents(self, query: str, max_docs: int = 3) -> list[str]:
+    def candidate_documents(
+        self, query: str, max_docs: int = 3, trace: Trace | None = None
+    ) -> list[str]:
+        """Coarse step of coarse-to-fine: which documents are worth navigating."""
         docs = self.repo.list_documents()
         if len(docs) <= max_docs:
-            return [d.id for d in docs]
-        terms = query_terms(query)
-        hits = self.repo.fts_query(fts_match_expr(terms, "or"), limit=50) if terms else []
-        weight: dict[str, float] = {}
-        for b, s in hits:
-            weight[b.document_id] = weight.get(b.document_id, 0.0) + s
-        ranked = sorted(weight, key=lambda d: -weight[d])
-        return ranked[:max_docs] or [d.id for d in docs[:max_docs]]
+            chosen = [d.id for d in docs]
+        else:
+            terms = query_terms(query)
+            hits = self.repo.fts_query(terms, mode="or", limit=50) if terms else []
+            # rank documents by their best few hits, not by volume: long documents would
+            # otherwise win every query on sheer number of weak matches
+            per_doc: dict[str, list[float]] = {}
+            for b, s in hits:
+                per_doc.setdefault(b.document_id, []).append(s)
+            weight = {d: sum(sorted(v, reverse=True)[:3]) for d, v in per_doc.items()}
+            ranked = sorted(weight, key=lambda d: -weight[d])
+            chosen = ranked[:max_docs] or [d.id for d in docs[:max_docs]]
+        if trace is not None:
+            trace.add("select_documents", candidates=len(docs), chosen=chosen)
+        return chosen
 
 
-def _unique(nodes: list[Node]) -> list[Node]:
-    seen: set[str] = set()
-    out = []
-    for n in nodes:
-        if n.id not in seen:
-            seen.add(n.id)
-            out.append(n)
-    return out
+def _unique_ids(ids: list[str]) -> list[str]:
+    return list(dict.fromkeys(ids))

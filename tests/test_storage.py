@@ -7,7 +7,6 @@ import pytest
 
 from treeengine import Block, Document, Node, TreeEngine
 from treeengine.core.ids import new_id
-from treeengine.core.text import fts_match_expr
 from treeengine.storage import SCHEMA_VERSION, SQLiteRepository
 
 
@@ -64,24 +63,24 @@ def test_fts_sync_insert_update_delete() -> None:
     repo = SQLiteRepository()
     doc, nodes, blocks = _mini(repo)
     assert repo.fts_integrity() == (2, 2)
-    assert [b.id for b, _ in repo.fts_query(fts_match_expr(["alpha"]))] == [blocks[0].id]
-    assert [b.id for b, _ in repo.fts_query(fts_match_expr(["供应"]))] == [blocks[1].id]
+    assert [b.id for b, _ in repo.fts_query(["alpha"])] == [blocks[0].id]
+    assert [b.id for b, _ in repo.fts_query(["供应"])] == [blocks[1].id]
     # title column is indexed too
-    assert [b.id for b, _ in repo.fts_query(fts_match_expr(["child"]))] == [blocks[0].id]
+    assert [b.id for b, _ in repo.fts_query(["child"])] == [blocks[0].id]
 
     b = blocks[0]
     b.content = "gamma delta"
     repo.update_block(b)
-    assert repo.fts_query(fts_match_expr(["alpha"])) == []
-    assert [x.id for x, _ in repo.fts_query(fts_match_expr(["gamma"]))] == [b.id]
+    assert repo.fts_query(["alpha"]) == []
+    assert [x.id for x, _ in repo.fts_query(["gamma"])] == [b.id]
 
     n = nodes[1]
     n.title = "Renamed"
     repo.update_node(n)
-    assert [x.id for x, _ in repo.fts_query(fts_match_expr(["renamed"]))] == [b.id]
+    assert [x.id for x, _ in repo.fts_query(["renamed"])] == [b.id]
 
     repo.delete_block(b.id)
-    assert repo.fts_query(fts_match_expr(["gamma"])) == []
+    assert repo.fts_query(["gamma"]) == []
     assert repo.fts_integrity() == (1, 1)
 
     new = Block(new_id("blk"), doc.id, nodes[0].id, 5, "paragraph", "epsilon")
@@ -100,7 +99,7 @@ def test_transaction_rollback() -> None:
     with pytest.raises(RuntimeError), repo.transaction():
         repo.insert_block(Block(new_id("blk"), doc.id, nodes[0].id, 9, "paragraph", "zeta"))
         raise RuntimeError("boom")
-    assert repo.fts_query(fts_match_expr(["zeta"])) == []
+    assert repo.fts_query(["zeta"]) == []
     assert repo.fts_integrity() == (2, 2)
 
 

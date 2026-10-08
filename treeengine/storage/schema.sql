@@ -1,4 +1,4 @@
--- TreeEngine schema v1
+-- TreeEngine schema (latest = v2). Older databases are upgraded by SQLiteRepository.migrate().
 -- Deviation from the V0.1 baseline doc: documents.text is stored so that a Document can be
 -- fully reloaded from the database (the database is the source of truth).
 
@@ -55,9 +55,11 @@ CREATE INDEX IF NOT EXISTS idx_blocks_doc ON blocks(document_id, position);
 
 -- rowid of blocks_fts == rowid of blocks (kept in sync by SQLiteRepository).
 -- title/content are stored CJK-segmented (see treeengine.core.text.segment_for_index).
+-- v2: porter stemming on top of unicode61 ("shuffle" matches "shuffling"); CJK is unaffected.
 CREATE VIRTUAL TABLE IF NOT EXISTS blocks_fts USING fts5(
     block_id UNINDEXED,
     document_id UNINDEXED,
     title,
-    content
+    content,
+    tokenize = 'porter unicode61'
 );
