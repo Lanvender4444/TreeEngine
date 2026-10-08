@@ -1,0 +1,21 @@
+<html>
+<head><title>Understanding SQLite FTS5 | Dev Blog</title></head>
+<body>
+<div class="menu" role="navigation">Home | Blog | About</div>
+<div class="content">
+  <h1>Understanding SQLite FTS5</h1>
+  <p>FTS5 is the full-text search extension that ships with SQLite since version 3.9.0.</p>
+  <h2>Ranking with bm25</h2>
+  <p>The built-in bm25() function returns lower values for better matches, so results are
+     ordered ascending.</p>
+  <h2>Tokenizers</h2>
+  <p>The default tokenizer is unicode61. The trigram tokenizer was added in SQLite 3.34.0 and
+     enables substring matching.</p>
+  <div hidden>Hidden tracking text should be ignored</div>
+  <h2>External content tables</h2>
+  <p>An external content table stores only the index, while the text lives in another table
+     referenced by content_rowid.</p>
+</div>
+<div class="cookie" aria-hidden="true">We use cookies</div>
+</body>
+</html>

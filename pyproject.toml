@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "treeengine"
+version = "0.1.0"
+description = "Local-first structured retrieval engine for AI agents (Tree + FTS on SQLite)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = []
+
+[project.optional-dependencies]
+pdf = ["pypdf>=4.0"]
+dev = ["pytest>=7", "ruff>=0.4", "mypy>=1.8", "pypdf>=4.0", "reportlab>=4.0"]
+
+[project.scripts]
+treeengine = "treeengine.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["treeengine*"]
+
+[tool.setuptools.package-data]
+treeengine = ["storage/schema.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_unused_ignores = true

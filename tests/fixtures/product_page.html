@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <title>EdgeBox 3 产品文档 - 星河科技</title>
+  <style>body { font-family: sans-serif; } .secret { color: red; }</style>
+  <script>var trackingId = "UA-NOISE-123"; console.log("tracking");</script>
+</head>
+<body>
+  <header class="site-header">
+    <nav><a href="/">首页</a> <a href="/products">产品</a> <a href="/login">登录导航噪声</a></nav>
+  </header>
+  <aside class="sidebar">侧边栏广告：限时折扣噪声</aside>
+  <main>
+    <article>
+      <h1>EdgeBox 3 边缘网关</h1>
+      <p>EdgeBox 3 是星河科技的第三代边缘计算网关，面向工厂产线数据采集。</p>
+      <section>
+        <h2>硬件规格</h2>
+        <h3>处理器与内存</h3>
+        <p>搭载四核 ARM Cortex-A55 处理器，主频 1.8GHz，内存 4GB LPDDR4。</p>
+        <h3>接口</h3>
+        <ul>
+          <li>2 个千兆以太网口</li>
+          <li>4 路 RS-485 串口</li>
+          <li>1 个 M.2 扩展槽，支持 5G 模组</li>
+        </ul>
+        <table>
+          <tr><th>参数</th><th>数值</th></tr>
+          <tr><td>工作温度</td><td>-40°C 至 85°C</td></tr>
+          <tr><td>功耗</td><td>典型 12W</td></tr>
+        </table>
+      </section>
+      <section>
+        <h2>软件与协议</h2>
+        <p>支持 Modbus、OPC UA 与 MQTT 协议，内置 EdgeOS 2.1 系统。</p>
+        <pre><code>edgebox-cli config set mqtt.broker tcp://10.0.0.5:1883
+edgebox-cli restart</code></pre>
+      </section>
+      <section>
+        <h2>安装与维护</h2>
+        <h3>导轨安装</h3>
+        <p>设备支持 35mm DIN 导轨安装，安装前请断开电源。</p>
+        <h3>固件升级</h3>
+        <p>固件升级需通过 Web 控制台上传 .fw 文件，升级过程约 6 分钟，期间请勿断电。</p>
+      </section>
+    </article>
+  </main>
+  <footer>© 2025 星河科技 版权所有 页脚噪声</footer>
+  <script>document.write("脚本噪声");</script>
+</body>
+</html>
