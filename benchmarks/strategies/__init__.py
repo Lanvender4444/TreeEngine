@@ -98,10 +98,12 @@ PRESETS = {
         "rag_hybrid",
         "vector",
         "fts+vector",
+        "tree_lexical",
         "tree_lexical+fts",
         "tree_lexical+vector",
         "tree_lexical+fts+vector",
         "managed",
+        "managed+vector",
     ],
     # block vector ablation: granularity vs title metadata vs tree scope
     "vector_ablation": [

@@ -96,7 +96,7 @@ benchmarks/
 
 预设组合：
 - `round1`：benchmark 方案第 38 节的第一轮。
-- `v04`：V0.4 Phase 1 的完整矩阵，包括 fts、rag_bm25、rag_vector、rag_hybrid、vector、fts+vector、tree→fts、tree→vector、tree→fts+vector、managed。
+- `v04`：V0.4 Phase 1 的完整矩阵，包括 fts、rag_bm25、rag_vector、rag_hybrid、vector（block 向量）、fts+vector、tree_lexical、tree→fts、tree→vector、tree→fts+vector、managed、managed+vector。
 - `vector_ablation`：rag_vector、`vector_raw`（只 embed 正文）、`vector`（标题 + 正文），以及两者各自加上 Tree scope。用来拆开分块粒度、标题元数据和 Tree scope 各自的贡献。
 - `llm_tree`：tree_structure、tree_lexical、tree_llm、tree_llm+fts、tree_llm+vector。
 
@@ -144,7 +144,7 @@ benchmarks/
 | --- | --- |
 | P0-1 用 BGE-M3 全量重算 embedding | **等 embedding API** |
 | P0-2 三个数据集的完整 Vector 矩阵（`--preset v04`） | 代码就绪；词法部分已在冻结后跑完（见下） |
-| P0-3 冻结检索代码 | **已冻结**：`FROZEN.json`，指纹 `23819bbe843fcd0f` |
+| P0-3 冻结检索代码 | **已冻结**：`FROZEN.json`，指纹 `f3b045187897135d`（20:00 重新冻结过一次，只是给 `v04` 预设补了 tree_lexical 和 managed+vector，评分、融合、Planner 都没改） |
 | P0-4/5 longdoc、FinanceBench 的 QA | 代码就绪，你在本地跑 |
 | P1-6 Block Vector 消融（raw vs title × 有无 Tree scope） | 策略就绪（`--preset vector_ablation`），等 embedding |
 | P1-7 Chunk 大小扫描（只在 dev 上） | 脚本就绪；词法部分已跑，最终选择要等 embedding |

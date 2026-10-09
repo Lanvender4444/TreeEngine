@@ -1,7 +1,7 @@
 {
- "frozen_at": "2026-10-09 17:33",
- "note": "V0.4: retrieval frozen before Phase 1; chunk size pending the dev sweep with embeddings",
- "fingerprint": "23819bbe843fcd0f",
+ "frozen_at": "2026-10-09 20:00",
+ "note": "V0.4: retrieval frozen before Phase 1 (re-frozen 2026-10-09 20:00: only the v04 preset list gained tree_lexical and managed+vector; no scorer / fusion / planner change); chunk size pending the dev sweep with embeddings",
+ "fingerprint": "f3b045187897135d",
  "chunk": {
   "size": 600,
   "overlap": 100,
@@ -42,7 +42,7 @@
   "treeengine/retrieval/vector.py": "e460b70ff224c6d6",
   "treeengine/embeddings/__init__.py": "0b5e16d9b873ea8d",
   "treeengine/embeddings/providers.py": "40428511d1654bc7",
-  "benchmarks/strategies/__init__.py": "05f66c5a99d52d11",
+  "benchmarks/strategies/__init__.py": "da975d90bb4e413d",
   "benchmarks/strategies/base.py": "22f941725e262a2a",
   "benchmarks/strategies/chunk_rag.py": "38d7ac8625166270",
   "benchmarks/strategies/full_context.py": "7b1cd566dfcbd4cc",
