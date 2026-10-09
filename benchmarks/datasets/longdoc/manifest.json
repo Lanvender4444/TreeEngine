@@ -1,0 +1,391 @@
+{
+  "description": "MMLongBench-Doc pure-text, answerable, arithmetic-free subset (yubo2333/MMLongBench-Doc@2ff6aa9237fc). Evidence = pages; gold answers for end-to-end QA.",
+  "has_answers": true,
+  "source": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc",
+  "documents": [
+    {
+      "name": "0b85477387a9d0cc33fca0f4becaa0e5.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/0b85477387a9d0cc33fca0f4becaa0e5.pdf",
+      "sha256": "004b6c63f504f3868b678e04339be94361434e405ff2cf54fbf84e894a71183c",
+      "lang": "en",
+      "kind": "Administration/Industry file",
+      "pages": 16
+    },
+    {
+      "name": "0e94b4197b10096b1f4c699701570fbf.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/0e94b4197b10096b1f4c699701570fbf.pdf",
+      "sha256": "13ff22623b747d1facbb405369001c6d3793322b24a56365bb8cef89db2f903e",
+      "lang": "en",
+      "kind": "Tutorial/Workshop",
+      "pages": 15
+    },
+    {
+      "name": "2310.05634v2.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/2310.05634v2.pdf",
+      "sha256": "7cb9c5f18f753325319d7cacf5d5a53d39ce1cf368c28fc85455388955cf0dfe",
+      "lang": "en",
+      "kind": "Academic paper",
+      "pages": 24
+    },
+    {
+      "name": "2310.09158v1.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/2310.09158v1.pdf",
+      "sha256": "45e8a907fb0c10450be68cd1711548df85f806d66a8bfea9eb7adf51f4a3e227",
+      "lang": "en",
+      "kind": "Academic paper",
+      "pages": 23
+    },
+    {
+      "name": "2312.04350v3.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/2312.04350v3.pdf",
+      "sha256": "6020ba90c4f16fb632cae4f698e565b25f713a58f13ebbdbd330ca5943b2fc24",
+      "lang": "en",
+      "kind": "Academic paper",
+      "pages": 28
+    },
+    {
+      "name": "2312.10997v5.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/2312.10997v5.pdf",
+      "sha256": "396a0fadeb4cd40f5c8ccc36b73a0815f6cb4d7f6bfa53b6c48c1f9aba7c7e02",
+      "lang": "en",
+      "kind": "Academic paper",
+      "pages": 21
+    },
+    {
+      "name": "2401.18059v1.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/2401.18059v1.pdf",
+      "sha256": "01319e2e6e6ecfd504ee1bbda41d023f9e060bd3505ab3c161baa1d6d696cf75",
+      "lang": "en",
+      "kind": "Academic paper",
+      "pages": 23
+    },
+    {
+      "name": "3276a5b991c49cf5f9a4af0f7d6fce67.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/3276a5b991c49cf5f9a4af0f7d6fce67.pdf",
+      "sha256": "03708bc596d91f8d0000bc44b0794b1300fffa24ab96419e361e483d0d47be93",
+      "lang": "en",
+      "kind": "Administration/Industry file",
+      "pages": 16
+    },
+    {
+      "name": "379f44022bb27aa53efd5d322c7b57bf.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/379f44022bb27aa53efd5d322c7b57bf.pdf",
+      "sha256": "08408fea6869f71b8bb85b86143ded39b28fc8b32a9090ceb64211febd446a67",
+      "lang": "en",
+      "kind": "Research report / Introduction",
+      "pages": 17
+    },
+    {
+      "name": "3M_2018_10K.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/3M_2018_10K.pdf",
+      "sha256": "faf10c53fc6f1a8aa346ec3db79145e3ae6fbb3753c8064924e174d0a973934d",
+      "lang": "en",
+      "kind": "Financial report",
+      "pages": 160
+    },
+    {
+      "name": "698bba535087fa9a7f9009e172a7f763.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/698bba535087fa9a7f9009e172a7f763.pdf",
+      "sha256": "be8b8e31e4804cd3a8dc5e67f4cf877b0295ded30f9db250a5694c3264acbbe0",
+      "lang": "en",
+      "kind": "Research report / Introduction",
+      "pages": 20
+    },
+    {
+      "name": "7c3f6204b3241f142f0f8eb8e1fefe7a.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/7c3f6204b3241f142f0f8eb8e1fefe7a.pdf",
+      "sha256": "c6cca153a7681b0af2b51f06f2528affe5b4198e3a3990a64cb0f62eb928f860",
+      "lang": "en",
+      "kind": "Administration/Industry file",
+      "pages": 15
+    },
+    {
+      "name": "8dfc21ec151fb9d3578fc32d5c4e5df9.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/8dfc21ec151fb9d3578fc32d5c4e5df9.pdf",
+      "sha256": "b38932583846e5de2daadcf65376621de643541ad2ec54f37ec205e4ebfc8b80",
+      "lang": "en",
+      "kind": "Guidebook",
+      "pages": 18
+    },
+    {
+      "name": "936c0e2c2e6c8e0c07c51bfaf7fd0a83.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/936c0e2c2e6c8e0c07c51bfaf7fd0a83.pdf",
+      "sha256": "c340ba25ac7d837244e99d7bd692ae79fd3280682287874eaf0748da60e03171",
+      "lang": "en",
+      "kind": "Administration/Industry file",
+      "pages": 15
+    },
+    {
+      "name": "ACTIVISIONBLIZZARD_2019_10K.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/ACTIVISIONBLIZZARD_2019_10K.pdf",
+      "sha256": "017f1bbc1e37f2945a41fa2b5cf39d822e1e9d435a2c2b9c6b1cc76cd114a2df",
+      "lang": "en",
+      "kind": "Financial report",
+      "pages": 198
+    },
+    {
+      "name": "ADOBE_2015_10K.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/ADOBE_2015_10K.pdf",
+      "sha256": "f9ddba652f19e20752d98b1b4cedcebcb1a9a6d11dd23ab2e2f00f009a164c24",
+      "lang": "en",
+      "kind": "Financial report",
+      "pages": 116
+    },
+    {
+      "name": "AMAZON_2017_10K.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/AMAZON_2017_10K.pdf",
+      "sha256": "f8af08ff6c4147351ec3a6e5e2c74e104678ce68fb0d6d476b1e43f685c09a3f",
+      "lang": "en",
+      "kind": "Financial report",
+      "pages": 85
+    },
+    {
+      "name": "BESTBUY_2023_10K.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/BESTBUY_2023_10K.pdf",
+      "sha256": "7ca465d31a08be29e8c08d756644d33d818c7254a1215720f265227005cda696",
+      "lang": "en",
+      "kind": "Financial report",
+      "pages": 75
+    },
+    {
+      "name": "COSTCO_2021_10K.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/COSTCO_2021_10K.pdf",
+      "sha256": "29e05b3862cf6ffa6cfda34ac82a9fa0fe76b67338c5924da3325c2ee3b08748",
+      "lang": "en",
+      "kind": "Financial report",
+      "pages": 76
+    },
+    {
+      "name": "Campaign_038_Introducing_AC_Whitepaper_v5e.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/Campaign_038_Introducing_AC_Whitepaper_v5e.pdf",
+      "sha256": "185095809183fcc58ed8dee7eac4da1011e042639ffa1bf1bdd817ed5049e4a0",
+      "lang": "en",
+      "kind": "Brochure",
+      "pages": 28
+    },
+    {
+      "name": "Independents-Report.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/Independents-Report.pdf",
+      "sha256": "bc1d3a07194f0423b4c2771bbb9bea45f80863518734fff7dab0930a6b467858",
+      "lang": "en",
+      "kind": "Research report / Introduction",
+      "pages": 23
+    },
+    {
+      "name": "Macbook_air.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/Macbook_air.pdf",
+      "sha256": "d99de99131b4d8a5471d3e3d96befaa1e6152560d12a93f854c5dd95e54225aa",
+      "lang": "en",
+      "kind": "Guidebook",
+      "pages": 76
+    },
+    {
+      "name": "NETFLIX_2015_10K.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/NETFLIX_2015_10K.pdf",
+      "sha256": "b22ca874ef08f383bd0b1071677d44f4a242af668f855f00dc9c6d4ac94148e2",
+      "lang": "en",
+      "kind": "Financial report",
+      "pages": 72
+    },
+    {
+      "name": "NIKE_2021_10K.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/NIKE_2021_10K.pdf",
+      "sha256": "73b54e5e0b1b0b33e51ac314f6d9a9db0bcc286269feb24a3445a5f1ff0f7789",
+      "lang": "en",
+      "kind": "Financial report",
+      "pages": 109
+    },
+    {
+      "name": "NYU_graduate.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/NYU_graduate.pdf",
+      "sha256": "16ee1cfbd58f9c6a3793c66ff5f4ec38dd864ac9fd7a9b7186f8af7db53f870b",
+      "lang": "en",
+      "kind": "Brochure",
+      "pages": 30
+    },
+    {
+      "name": "PH_2016.06.08_Economy-Final.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/PH_2016.06.08_Economy-Final.pdf",
+      "sha256": "10e57152f44d1a2b2d5325c4aafec4970b573b672ab253fb233731f327e7856c",
+      "lang": "en",
+      "kind": "Research report / Introduction",
+      "pages": 23
+    },
+    {
+      "name": "PWC_opportunity_of_lifetime.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/PWC_opportunity_of_lifetime.pdf",
+      "sha256": "ba92752271eac6db634d84d9ae29840f08e252b71a7e2ab0dc068e9e91a4ba4b",
+      "lang": "en",
+      "kind": "Brochure",
+      "pages": 18
+    },
+    {
+      "name": "SAO-StudentSupport_Guidebook-Content.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/SAO-StudentSupport_Guidebook-Content.pdf",
+      "sha256": "7515cd264f0a33a782169d938a291e9ec4fc81a094a30a4ecf951d4cfa7ff336",
+      "lang": "en",
+      "kind": "Guidebook",
+      "pages": 44
+    },
+    {
+      "name": "Sinopolis-Chengdu.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/Sinopolis-Chengdu.pdf",
+      "sha256": "850436eff14422e68332c66ad72c58232afe8983ce15dfb04a848a742ca4f0db",
+      "lang": "en",
+      "kind": "Guidebook",
+      "pages": 96
+    },
+    {
+      "name": "User_Manual_1500S_Classic_EN.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/User_Manual_1500S_Classic_EN.pdf",
+      "sha256": "ba6a07e262b070f963cf1f4ef3372074d08e5820a833f130e67d597af211359c",
+      "lang": "en",
+      "kind": "Guidebook",
+      "pages": 108
+    },
+    {
+      "name": "a4f3ced0696009fec3179f493e4f28c4.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/a4f3ced0696009fec3179f493e4f28c4.pdf",
+      "sha256": "702351312f3241cc51d140064ba02ac63ec50581c3a8a664c9249908d8c0c30b",
+      "lang": "en",
+      "kind": "Administration/Industry file",
+      "pages": 17
+    },
+    {
+      "name": "a5879805d70c854ea4361e43a84e3bb2.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/a5879805d70c854ea4361e43a84e3bb2.pdf",
+      "sha256": "b49aac986f8b13cdca3c429013ab668304e64eca8c72e85f9961acf3616d793e",
+      "lang": "en",
+      "kind": "Administration/Industry file",
+      "pages": 15
+    },
+    {
+      "name": "afe620b9beac86c1027b96d31d396407.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/afe620b9beac86c1027b96d31d396407.pdf",
+      "sha256": "a7b0ae685a743a0acedd57477fd20e3ad0a09e15ec73203b83ea531facb4e5d9",
+      "lang": "en",
+      "kind": "Financial report",
+      "pages": 20
+    },
+    {
+      "name": "c31e6580d0175ab3f9d99d1ff0bfa000.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/c31e6580d0175ab3f9d99d1ff0bfa000.pdf",
+      "sha256": "972056ce39de67fc3eef402099a8f58fa3388a5142b4314a286968e7999bbc74",
+      "lang": "en",
+      "kind": "Tutorial/Workshop",
+      "pages": 20
+    },
+    {
+      "name": "camry_ebrochure.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/camry_ebrochure.pdf",
+      "sha256": "d3f8049bc0c48b735b7c4e0d6399ed9e8188afd332f58829f44e1c39cfb13528",
+      "lang": "en",
+      "kind": "Brochure",
+      "pages": 26
+    },
+    {
+      "name": "e639029d16094ea71d964e2fb953952b.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/e639029d16094ea71d964e2fb953952b.pdf",
+      "sha256": "773e1fc44166300d1473853e48b2b0c3f16164e3e125b52db8c616a34fdf8ea7",
+      "lang": "en",
+      "kind": "Administration/Industry file",
+      "pages": 20
+    },
+    {
+      "name": "e79deb02a0c0e87511080836c5d4347b.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/e79deb02a0c0e87511080836c5d4347b.pdf",
+      "sha256": "ca33492fafca0831b1a248f5ce5e8015cbe1f858100e8ebce55c7224f32a175e",
+      "lang": "en",
+      "kind": "Administration/Industry file",
+      "pages": 17
+    },
+    {
+      "name": "efd88e41c5f2606c57929cac6c1c0605.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/efd88e41c5f2606c57929cac6c1c0605.pdf",
+      "sha256": "6c5b29bf0cba703de3ce7baa19aaf61771596e906d388cee5fb40a1bda740d18",
+      "lang": "en",
+      "kind": "Research report / Introduction",
+      "pages": 20
+    },
+    {
+      "name": "f1f5242528411b262be447e61e2eb10f.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/f1f5242528411b262be447e61e2eb10f.pdf",
+      "sha256": "120054270633261077812b834bf62fe3d60d812adcd750c9f082e71a12725622",
+      "lang": "en",
+      "kind": "Academic paper",
+      "pages": 20
+    },
+    {
+      "name": "f8d3a162ab9507e021d83dd109118b60.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/f8d3a162ab9507e021d83dd109118b60.pdf",
+      "sha256": "f2eb17a3ad57b7cf547da596a67f71b00c00d4c7e93d03a5ad9ec2d16c5618dd",
+      "lang": "en",
+      "kind": "Administration/Industry file",
+      "pages": 17
+    },
+    {
+      "name": "fdac8d1e9ef56519371df7e6532df27d.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/fdac8d1e9ef56519371df7e6532df27d.pdf",
+      "sha256": "df65695cae4e30afe465edf187d334d55fa9a2c0ac7d72269cef09b38d2d39f1",
+      "lang": "en",
+      "kind": "Research report / Introduction",
+      "pages": 20
+    },
+    {
+      "name": "mmdetection-readthedocs-io-en-v2.18.0.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/mmdetection-readthedocs-io-en-v2.18.0.pdf",
+      "sha256": "8d7fccbf5690ad72fadcffda6f4a7aa808a79853398addf89f765e5f34ab8d9b",
+      "lang": "en",
+      "kind": "Guidebook",
+      "pages": 468
+    },
+    {
+      "name": "nova_y70.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/nova_y70.pdf",
+      "sha256": "1d645b8b4b035ca54e197309d3d0db23e89cfc406066f030db44ee2cd0e536a5",
+      "lang": "en",
+      "kind": "Guidebook",
+      "pages": 45
+    },
+    {
+      "name": "owners-manual-2170416.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/owners-manual-2170416.pdf",
+      "sha256": "91e70aaf49192b4deb640154a50d0b14976c831be11a7f858f9e953a761b8681",
+      "lang": "en",
+      "kind": "Guidebook",
+      "pages": 32
+    },
+    {
+      "name": "san-francisco-11-contents.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/san-francisco-11-contents.pdf",
+      "sha256": "e538e1e713684742ce5d6686efefc8e5c182e6f62f1a79f59ed0b2f0bc1e7e80",
+      "lang": "en",
+      "kind": "Guidebook",
+      "pages": 40
+    },
+    {
+      "name": "stereo_headset.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/stereo_headset.pdf",
+      "sha256": "d17cde8229847cb53926e578d70410cf46f9dbfb8a0d62cf675e18c3625507e3",
+      "lang": "en",
+      "kind": "Guidebook",
+      "pages": 151
+    },
+    {
+      "name": "watch_d.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/watch_d.pdf",
+      "sha256": "bb5fd3576ac080c867f200ddc90311cdb351fb8240c70c9468dc433936c136e6",
+      "lang": "en",
+      "kind": "Guidebook",
+      "pages": 27
+    },
+    {
+      "name": "welcome-to-nus.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/welcome-to-nus.pdf",
+      "sha256": "7dea5266e6c8eaa3e3549c6796dfab684cc7fa808e14386d6cf1e413479a61b3",
+      "lang": "en",
+      "kind": "Brochure",
+      "pages": 24
+    }
+  ]
+}

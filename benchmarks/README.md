@@ -1,270 +1,217 @@
-# TreeEngine Retrieval Benchmark
+# TreeEngine vs Traditional RAG — Benchmark
 
-V0.3 用数据回答三个问题：
+目标：用可复现、公平、可解释的数据回答
 
-1. LLM 树导航是否比 FTS / 启发式树更好？（**LLM 部分待跑**，见文末）
-2. Tree 在系统里的正确角色：Retriever、Scope Resolver 还是 Navigation Layer？
-3. Vector 能否补上 paraphrase（换种说法）的缺口？
+> **TreeEngine 相比传统 RAG，在哪些场景更好、代价是多少、为什么。**
+
+方法参考 PageIndex 的思路：固定文档、问题、Answer Model、Prompt 和 Judge，唯一变量是检索策略。但我们不照搬它的结论，所有 baseline 都自己实现。
+
+```text
+                     Benchmark suites (controlled / longdoc / financebench)
+                                       │
+                 ┌─────────────────────┴─────────────────────┐
+     Layer A  run_retrieval                         Layer B  run_qa
+     Evidence Recall@k · MRR · Node / Doc Recall    Strategy → Evidence[] → same Answer LLM
+     等上下文召回 · Context tokens · Tree 指标        → same Judge → QA Accuracy · $/query
+```
+
+## 快速开始
 
 ```bash
-python -m benchmarks.run                       # 全部非 LLM、非向量策略，k = 1,3,5,10
-python -m benchmarks.run --vector              # + 向量策略（pip install 'treeengine[vector]'）
-python -m benchmarks.run --vector --split heldout
-python -m benchmarks.run --type paraphrase --strategies fts,vector,fts+vector
-python -m benchmarks.run --check               # 只校验 ground truth
-python -m benchmarks.run --per-type 5          # 每类最多 5 条（试跑 LLM 时省钱）
-TREEENGINE_LLM_MODEL=... TREEENGINE_LLM_API_KEY=... TREEENGINE_LLM_BASE_URL=... \
-  python -m benchmarks.run --llm --vector      # + tree_llm / tree_llm+fts / managed_llm
+pip install -e '.[bench,vector]'            # pypdf, sqlite-vec, tiktoken, matplotlib, fastembed
+
+# Layer A：只测检索
+python -m benchmarks.run_retrieval                                  # controlled，词法策略
+python -m benchmarks.run_retrieval --suite longdoc --vector --embedder openai:BAAI/bge-m3
+python -m benchmarks.run_retrieval --suite financebench --preset round1 --vector --embedder openai:BAAI/bge-m3
+
+# Layer B：端到端 QA（需要 LLM）
+export TREEENGINE_LLM_MODEL=... TREEENGINE_LLM_API_KEY=... TREEENGINE_LLM_BASE_URL=...
+export TREEENGINE_JUDGE_MODEL=...           # 可选，默认与 Answer 模型相同；可再配 TREEENGINE_JUDGE2_*
+python -m benchmarks.run_qa --suite longdoc --vector --embedder openai:BAAI/bge-m3 \
+    --price-llm-input 0.15 --price-llm-output 0.6 --price-embedding 0.02
+python -m benchmarks.run_qa --suite financebench --limit 20 ...     # 先小样本看成本
+python -m benchmarks.run_qa --stub-llm --suite longdoc               # 离线测流程，accuracy 无意义
 ```
 
-每次运行在 `results/` 写 `<时间戳>.md`（报告）和 `.json`（每条 query × 策略的结果，不入库）。
-语料 ingest 结果缓存在 `.cache/corpus-<hash>.db`（hash 覆盖文档与解析/存储代码，改了就自动重建）；
-block 向量缓存在 `.cache/embeddings.sqlite`，模型在 `.cache/models/`。`--no-cache` 强制重建。
+- Embedding：`openai:<model>` 读取 `TREEENGINE_EMBED_BASE_URL` / `TREEENGINE_EMBED_API_KEY`；`fastembed:<model>` 本地运行；`hashing` 只用于冒烟测试。
+- 价格：`--price-*` 或 `TREEENGINE_PRICE_{LLM_INPUT,LLM_OUTPUT,EMBEDDING}`，单位 USD / 1M tokens。没给价格时只报 token 数。
+- 缓存：ingest 结果在 `.cache/corpus-<hash>.db`，hash 覆盖文档内容和解析/存储代码；embedding 在 `.cache/embeddings.sqlite`，按模型 + 文本 hash 存。重复运行不会重复计费。
+- 输出：`results/<时间戳>-<suite>[-qa].md`（报告）、`.json`（每条 query × 策略的结果，不入库）、`.svg`（图）、`-audit.jsonl`（待人工审计）。
+- `python -m benchmarks.run` 等同于 `run_retrieval`，保持旧用法可用。
 
-## 组成
+## 目录
 
-| 文件 | 作用 |
-| --- | --- |
-| `corpus/manifest.json` | 语料清单：真实文档固定到上游 commit + sha256，运行时下载到 `corpus/files/`（不入库）；合成文档引用 `tests/fixtures` |
-| `queries.jsonl` | ground truth，一行一个 query |
-| `evaluators.py` | 相关性判断（NFKC + 去空白 + 忽略大小写的子串匹配）、指标、校验、oracle |
-| `runners.py` | 被比较的检索策略 |
-| `report.py` / `run.py` | 报告与入口 |
-
-## 语料：33 篇（28 真实 + 5 合成），2222 节点，14682 blocks
-
-| 文档 | 类型 | 语言 | 节点 |
-| --- | --- | --- | --- |
-| Node.js `fs` API | API 参考 | en | **322** |
-| Pattern Recognition and Machine Learning（758 页） | 教材 PDF | en | **285** |
-| Node.js `http` API | API 参考 | en | 186 |
-| System Design Primer | 大型手册 | en | 173 |
-| Go 语言规范 | 规范 HTML | en | 170 |
-| SEC Regulation Best Interest 提案（408 页） | 监管 PDF | en | 163 |
-| OpenAPI 3.1.0 | 规范 | en | 141 |
-| JavaGuide MySQL / 并发 / 网络 / Redis | 问答手册 | zh | 41–66 |
-| Fed 2023 年报（222 页） | 年报 PDF | en | 51 |
-| GraphQL 类型系统 / 校验 | 规范 | en | 40 / 49 |
-| Kubernetes Pod 生命周期（中、英） | 技术文档 | zh / en | 42 |
-| RocketMQ 最佳实践 / 设计 | 设计文档 | zh | 40 / 20 |
-| 阿里巴巴 Java 开发手册 | 带书签 PDF | zh | 33 |
-| FastAPI README、scikit-learn 交叉验证 | README / Sphinx HTML | en | 30 / 28 |
-| Attention Residuals、Earthmover | 论文 PDF（后者无书签，启发式标题） | en | 23 / 25 |
-| SEC Reg BI 解释性文件 | 监管 PDF | en | 11 |
-| Rust Book 两章、K8s ConfigMap | 书籍章节 / 文档 | en / zh | 6–11 |
-| Q1 FY25 财报新闻稿 | 无书签、无结构 PDF | en | 1 |
-| 合成：年报、79 节点手册、产品页、SDK 指南、书签 PDF | | zh / en | 7–79 |
-
-共 7 篇 100+ 节点，2 篇 200+ 节点。
-
-未收录两篇：
-- Uber 10-K：pypdf 把标题并入正文，无法建树；
-- four_lectures：检测不到结构。
-
-这两篇是 PDF 解析的已知边界，不是检索问题。
-
-## Ground truth：325 条
-
-```json
-{"id": "v3-go-04", "query": "When several channel operations are ready at once, how does Go decide which one runs?",
- "document": "go_spec.html", "type": "paraphrase", "expected_nodes": ["Select statements"],
- "expected_blocks": ["chosen via a uniform pseudo-random selection"], "split": "heldout"}
+```text
+benchmarks/
+├── datasets/            controlled/ longdoc/ financebench/：manifest.json + queries.jsonl (+ build.py)
+├── strategies/          base.py (BenchmarkStrategy / RetrievalRun / IndexStats) · workspace.py（共享索引）
+│                        chunk_rag.py（传统 RAG）· full_context.py · __init__.py（全部策略）
+├── metrics/             retrieval.py · qa.py · cost.py
+├── judges/              exact.py · semantic.py · human_audit.py
+├── answer.py            统一 Answerer（同模型、同 prompt、temperature 0）
+├── run_retrieval.py     Layer A
+├── run_qa.py            Layer B
+├── report.py · charts.py
+└── results/
 ```
 
-标注方式：
-- 按内容标注，因为 id 每次 ingest 都会变。
-- `expected_blocks` 是证据原文片段；`"a || b"` 表示两种说法任一出现都算。
-- `expected_nodes` 是标题或 `"父 > 子"` 路径，命中其子孙节点也算。
-- `document: null` 表示全库检索。
-- 每次运行前先校验：片段必须存在于文档中，且位于某个 expected node 之下，否则拒绝运行。
+## 三个数据集
 
-| split | 条数 | 规则 |
-| --- | --- | --- |
-| dev | 115 | V0.1–V0.3 调参时看过失败案例 |
-| heldout | 210（V0.2 的 25 条 + V0.3 的 185 条） | 先写 ground truth → 标 heldout → 跑 → 才看结果；之后若据其失败修改 scorer/planner/retriever/parser，相应 query 转入 dev |
+| suite | 来源 | 文档 | 问题 | Ground truth | 用途 |
+| --- | --- | --- | --- | --- | --- |
+| **controlled** | 自建 | 28 真实 + 5 合成（7 篇 100+ 节点） | 325（dev 115 / heldout 210），6 类各 ≥30 | 证据原文片段 + 章节路径 | 精确归因 failure type |
+| **longdoc** | MMLongBench-Doc `@2ff6aa92` | 48 份 PDF（15–468 页） | 91，全部 heldout | 证据页 + gold answer | 与 PageIndex OSS benchmark 方法对齐 |
+| **financebench** | FinanceBench 开源 150 条 `@cc39aeb4` | 84 份 SEC 文件（4–549 页，共 12,013 页） | 150，全部 heldout | 证据页 + gold answer | 真实长财报，端到端对比 |
 
-heldout 分布（每类 ≥30）：lookup 43 · reasoning 36 · paraphrase 34 · navigation 33 · hybrid 33 · cross_doc 31。
+- **longdoc 的筛选**沿用 PageIndex 的做法：证据来源恰好是 `Pure-text`，不涉及图表、表格、图片或版式；问题可回答；证据 1–3 页且有可抽取文本；排除“列出所有页”类问题和含算术线索（sum / difference / ratio …）的问题。这样答错时基本可以归因到检索或阅读。上游有一份 PDF（`mi_phone.pdf`）的 LFS 元数据不一致，下载不了，已排除。
+- **financebench 不做筛选**：`category` 保留它的 `question_reasoning` 标签（information extraction / numerical reasoning / …），报告按类别拆开。它的页码是 0-based，已转换为 1-based。
+- **split 规则**：`dev` 是改系统时看过失败案例的问题；`heldout` 按“先写 ground truth → 标 heldout → 跑 → 才看结果”的顺序产生。如果根据 heldout 的失败修改了 scorer / planner / retriever / parser，相应问题要转入 dev。longdoc 和 financebench 在系统冻结之后才构建，全部是 heldout。
+- 文档都固定到上游 commit 或 revision，并校验 sha256，运行时下载到 `datasets/*/files/`，不入库。重建：`python -m benchmarks.datasets.longdoc.build`（需要 `.[bench-build]`）、`python -m benchmarks.datasets.financebench.build`。
 
 ## 策略
 
-| 名称 | 含义 |
+| 字母 | 名称 | 家族 | 含义 |
+| --- | --- | --- | --- |
+| A | `full_context` | baseline | 整篇文档交给 Answer 模型（只用于 QA；超过 `--max-context-tokens` 的跳过并单独计数） |
+| B | `fts` | TreeEngine | block 级 FTS5 / BM25 |
+| C | `rag_vector` | 传统 RAG | **600 token / 100 overlap** 固定分块（tiktoken cl100k）→ embedding |
+| D | `rag_hybrid` | 传统 RAG | chunk 级 BM25 + Vector，RRF 融合：**强传统 baseline** |
+| – | `rag_bm25` | 传统 RAG | chunk 级 BM25 |
+| E | `tree_structure` | TreeEngine | 只用结构（标题、摘要、层级） |
+| F | `tree_lexical` | TreeEngine | 结构 + 标题/摘要词匹配 + 子树 FTS 信号 |
+| G | `tree_lexical+fts` | TreeEngine | Tree 定范围 → 范围内 FTS |
+| H | `tree_lexical+vector` | TreeEngine | Tree 定范围 → 范围内 Vector |
+| I | `tree_lexical+fts+vector` | TreeEngine | Tree 定范围 → 范围内 RRF(FTS, Vector) |
+| J | `managed` / `managed+vector` | TreeEngine | 规则 Planner（后者在词法步骤融合 Vector） |
+| K | oracle | 仅评测 | 每题事后选最好的策略，代表完美路由的上限 |
+| – | `vector`, `fts+vector`, `tree_semantic*`, `tree_llm*`, `managed_llm` | TreeEngine | block 级向量、融合、语义子树信号、LLM 导航 / Planner |
+
+`--preset round1` 是方案第 38 节的第一轮：`fts, rag_vector, rag_hybrid, tree_lexical, tree_lexical+fts, tree_lexical+vector, tree_lexical+fts+vector`。
+
+**传统 RAG 只看原始抽取文本**：没有标题、没有树、也没有 block。它的 BM25 和 TreeEngine 用同一个 FTS5 tokenizer 和同样的 CJK 切分，向量侧用同一个 embedding 模型。所以两族之间只有单元（chunk 还是 block）和结构这两个差异。chunk 只在**评测**时才映射回页码和章节。
+
+## 公平性
+
+| 规则 | 实现 |
 | --- | --- |
-| `fts` | FTS5 / BM25 |
-| `tree_structure` | 树导航，只看结构（标题、摘要、层级） |
-| `tree_lexical` | 树导航 + 词汇匹配 + 子树内最佳 FTS 命中（V0.2 的 `tree`） |
-| `tree_semantic` | 树导航，子树信号取 FTS 与向量两者中较强的一个（V0.3 新增） |
-| `tree_X+fts` / `+vector` / `+fts+vector` | 先用 tree_X 定位范围 → 在范围内 FTS / 向量 / RRF(FTS, 向量) |
-| `vector` | block 向量检索（`jinaai/jina-embeddings-v2-base-zh`，768 维，中英双语，本地 CPU） |
-| `fts+vector` | FTS 与向量各取 top-k，RRF（k=60，等权）融合 |
-| `managed` | 规则 Planner（LOOKUP → FTS / REASONING → Tree / HYBRID → Tree→FTS） |
-| `tree_llm` / `tree_llm+fts` / `managed_llm` | LLM 逐层导航 / LLM Planner（需 `--llm`） |
+| 同一份原始文档 | 同一次 ingest；传统 RAG 从同一份抽取文本分块 |
+| 同一个 Top-K | 检索评测 k = 1/3/5/10；QA 一律 top 5 |
+| 同一个 Answer Model 和 Prompt | `answer.py`：`[E1] (page n) 正文`，不带章节标题（避免结构信息只泄漏给一族），temperature 0 |
+| 同一个 Judge | 三级：deterministic → semantic → human audit |
+| 同一个 embedding 模型 | 一个 `--embedder` 同时用于 block 向量和 chunk 向量 |
+| 不故意做弱 baseline | 600/100 分块、强 embedding、BM25 + Vector RRF |
+| **上下文大小不同也要可比** | 新增 **recall@1k_tok / recall@2k_tok**：在前 1,000 / 2,000 个证据 token 内的召回。只比 top-k，600 token 的 chunk 天然比 80 token 的 block 占便宜 |
+| 延迟可比 | 所有 query 的 embedding 先统一预热；向量策略的检索延迟不含 query embedding，embedding 延迟单独报 |
 
-Planner 评估另外报告：always_fts、always_tree、always_hybrid、rule_planner、llm_planner，以及两个 oracle。oracle 逐条 query 选当时表现最好的策略，只用于评估，代表“完美路由”的上限。
+## 指标
 
-指标：
+- **Layer A**
+  - Evidence Recall@1/3/5/10、MRR、Node Recall@5、Document Recall@5（全库题）、recall@1k_tok / @2k_tok、ctx_tokens@5。
+  - Tree 专属指标：target_recall、visited_ratio、depth reached、nodes expanded。
+  - p50 / p95 延迟、embedding 调用数、LLM tokens。
+  - 显著性：配对符号检验，同时对比 `fts` 和强 baseline `rag_hybrid`。
+  - 按 query type、category、文档长度（页数、节点数、token 数）分桶。
+- **Index cost**：每个策略部署时需要的全部索引的构建时间、单元数、embedding 调用数和 tokens、LLM 调用数、大小、估算费用。
+- **Layer B**
+  - QA Accuracy = correct / (correct + incorrect)。uncertain 进入人工审计；full context 超预算的单独计数。
+  - Retrieval R@5、平均上下文 tokens、p95 延迟（检索 + 回答）、$/query、$/correct（没给价格时报 tokens/query 和 tokens/correct）。
+  - 按类型、类别、文档长度拆分。
+- **Judge**
+  - **exact**：数字归一化（`1.23 billion = $1.23B = 1,230 million`，误差 1%）、短事实、列表项。它只确认正确，确认不了就交给下一级，而且很保守：答案里还有别的数字时不判定。
+  - **semantic**：只看问题、gold answer 和生成答案，不读原文，可以配置两个 judge 互相校验。
+  - **human audit**：judge 不确定或两个 judge 不一致的，写入 `-audit.jsonl`。人工在 `datasets/<suite>/audit.jsonl` 打标签，题目级可标 `ambiguous / invalid / multiple-valid`，答案级可标 `correct / incorrect`，之后每次运行都会生效。
+- **图**
+  - 检索：recall@5 vs context tokens。
+  - QA：Accuracy vs $/query、Accuracy vs context tokens、文档长度 vs query cost。
 
-| 指标 | 含义 |
-| --- | --- |
-| recall@k | 期望片段进入前 k 的比例 |
-| MRR | 平均倒数排名 |
-| node_recall@5 | 前 5 条证据里有来自期望章节的 |
-| target_recall | 导航终点在期望章节或其祖先 |
-| visited_ratio | 加载的节点数 ÷ 遍历树的总节点数 |
-| p50 / p95 | 延迟（ms） |
-| LLM 调用 / token | 每 query 的 LLM 调用次数、输入和输出 token |
-| **tokens/success** | 总 token ÷ top-5 命中的 query 数 |
+## 第一轮结果：词法部分（2026-10-09）
 
-## V0.3 结果（2026-10-09）
+向量策略（`rag_vector`、`rag_hybrid`、`tree_*+vector`）和 QA 层要等 embedding API 和 LLM 到位后再跑，见下一节。下面这些策略不需要模型，已经跑完。
 
 完整报告：
-- `results/v0.3-heldout.md`：210 条，**主结论以此为准**；
-- `results/v0.3-all.md`：全部 325 条。
+- `results/round1-lexical-controlled-heldout.md`（210 条）
+- `results/round1-lexical-longdoc.md`（91 条）
+- `results/round1-lexical-financebench.md`（150 条）
 
-显著性用配对符号检验：只计 recall@5 有差异的 query，W:L 为赢 / 输条数。
+每份报告都附有对应的 `-recall-vs-context.svg`。
 
-### Held-out 总表（210 条）
+### 总表
 
-| 策略 | R@1 | R@5 | R@10 | MRR | node_R@5 | p50 ms | vs fts（W:L，p） |
+| suite | 指标 | fts | rag_bm25 | tree_structure | tree_lexical | tree_lexical+fts | managed |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| fts | 48.6 | 78.1 | 87.6 | 62.0 | 89.5 | 9 | — |
-| tree_structure | 25.2 | 39.0 | 41.9 | 31.1 | 47.6 | 3 | 10:92 |
-| tree_lexical | 46.7 | 75.2 | 80.0 | 59.3 | 83.3 | 12 | 14:20，p=0.39 |
-| tree_lexical+fts | 48.6 | 77.6 | 81.4 | 60.7 | 85.7 | 15 | 11:12，p=1.0 |
-| managed | 49.5 | 78.1 | 84.3 | 62.3 | 87.1 | 7 | 8:8，p=1.0 |
-| vector | 52.4 | 79.0 | 89.0 | 64.0 | 91.9 | 77 | 23:21，p=0.88 |
-| **fts+vector** | **53.3** | **85.2** | **90.5** | **67.5** | **92.9** | 21 | **18:3，p=0.0015** |
-| tree_semantic | 49.0 | 78.1 | 81.9 | 61.6 | 85.7 | 27 | 19:19，p=1.0 |
-| tree_semantic+fts+vector | 51.4 | 79.0 | 83.3 | 63.6 | 86.2 | 59 | 对 fts+vector：6:19，p=0.015 |
+| controlled heldout | R@5 | 78.1 | **91.9** | 39.0 | 75.2 | 77.6 | 78.1 |
+| | R@1k tokens | **86.7** | 70.0 | 41.9 | 81.0 | 80.5 | 83.8 |
+| | R@2k tokens | **91.0** | 85.2 | 42.9 | 82.4 | 82.4 | 86.7 |
+| | ctx tokens@5 | 452 | 2,965 | 376 | 438 | 397 | 436 |
+| longdoc | R@5 | 63.2 | **72.0** | 31.3 | 53.3 | 58.6 | 63.2 |
+| | R@1k tokens | **74.4** | 54.8 | 33.2 | 57.3 | 64.5 | 73.8 |
+| | R@2k tokens | **80.2** | 66.1 | 33.2 | 58.4 | 68.9 | 77.1 |
+| | ctx tokens@5 | 515 | 2,736 | 318 | 582 | 511 | 522 |
+| financebench | R@5 | 34.7 | **35.9** | 16.3 | 20.9 | 32.0 | 35.0 |
+| | R@1k tokens | **35.0** | 20.2 | 15.3 | 20.2 | 32.0 | 34.7 |
+| | R@2k tokens | **46.0** | 29.9 | 17.3 | 25.1 | 38.9 | 45.7 |
+| | ctx tokens@5 | 824 | 2,982 | 669 | 875 | 842 | 838 |
 
-### Held-out recall@5 按类型
+显著性（R@5，配对符号检验，W:L 是对 fts 的胜负题数）：
 
-| 类型 | n | fts | tree_lexical | tree_lexical+fts | managed | vector | fts+vector | tree_semantic |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| lookup | 43 | 88.4 | 81.4 | 81.4 | 86.0 | 83.7 | **93.0** | 83.7 |
-| reasoning | 36 | 80.6 | 86.1 | 83.3 | 86.1 | 91.7 | **94.4** | 83.3 |
-| navigation | 33 | 78.8 | 72.7 | **84.8** | 78.8 | **84.8** | **84.8** | 72.7 |
-| hybrid | 33 | 84.8 | 75.8 | 84.8 | 78.8 | 90.9 | **97.0** | 81.8 |
-| paraphrase | 34 | 50.0 | 58.8 | 52.9 | 55.9 | 52.9 | 58.8 | **64.7** |
-| cross_doc | 31 | **83.9** | 74.2 | 77.4 | 80.6 | 67.7 | 80.6 | 80.6 |
-
-### 按文档规模（held-out，单文档 query）
-
-| 节点数 | n | tree_lexical visited_ratio | fts | tree_lexical | vector | fts+vector |
-| --- | --- | --- | --- | --- | --- | --- |
-| ≤ 20 | 29 | 73.6% | 82.8 | 82.8 | 82.8 | 89.7 |
-| 21–60 | 69 | 45.6% | 81.2 | 78.3 | 81.2 | 87.0 |
-| 101–200 | 57 | 26.3% | 73.7 | 73.7 | 84.2 | 87.7 |
-| 201–400 | 21 | 23.5% | 61.9 | 61.9 | 71.4 | 71.4 |
-
-### Vector 成本（14682 blocks）
-
-| 项 | 数值 |
-| --- | --- |
-| 索引大小 | 45.1 MB（768 维 float32，约 3 KB / block；sqlite-vec `vec0`，与 `blocks` 同库） |
-| 全量 embedding | 约 95 分钟（2 核 CPU，约 2.6 blocks/s，含 PRML 的 3665 blocks）；增量 ingest 只 embed 新文档 |
-| 查询 embedding | 约 60–80 ms（CPU）。`vector` 的 p50 77 ms 基本都花在这一步；其他向量策略的延迟偏低，是因为同一 query 的向量已被前一个策略缓存 |
-| 向量检索 | 全库 KNN 和子树内精确 cosine 都在个位数 ms |
-
-## 对三个问题的回答
-
-### Q2. Tree 的正确角色
-
-**1. 只靠结构做不了 Retriever。** `tree_structure` 在 held-out 上 R@5 只有 39.0%（dev 45.2%），对 FTS 10 胜 92 负。不借助词汇信号或 LLM，标题和层级无法把人领到答案。
-
-**2. 启发式 Tree 不是更好的 Retriever。**
-- `tree_lexical` 与 FTS 打平：75.2 vs 78.1，14:20，p=0.39。
-- dev 上的领先（88.7 vs 86.1）没有泛化，确认了 V0.2 的判断。
-- 它只在 reasoning（86.1 vs 80.6）和 paraphrase（58.8 vs 50.0）上占优，每类净胜仅 4–5 条，不显著。
-
-**3. 自动 Scope Resolver 不提升召回，反而会限制它。**
-- `tree_lexical+fts` 与 fts 持平。
-- `tree_semantic+fts+vector` 显著差于不定位的 `fts+vector`（6:19，p=0.015），cross_doc、hybrid、reasoning 都退步。
-- 原因：导航终点有 13–15% 不在正确章节（target_recall 85.7–87.1%）。定位一旦错了，范围内的检索就不可能找回答案，这是硬上限。检索器越强，前面加一层定位的损失越明显。
-
-**4. Navigation Layer 的价值在成本，不在召回。**
-- 100+ 节点的文档上，渐进遍历只加载 23–26% 的节点。
-- 启发式模式下多读几个节点几乎不花钱。
-- 这个比例真正值钱的场景是 LLM / Agent 逐层阅读：每层一次调用，按 token 计费。
-
-**结论：Tree 定位为 Navigation Layer + 显式 Scope。**
-- Navigation Layer：Agent 原语（`get_roots / get_children / read_node / read_blocks`）、面包屑、引用定位。
-- 显式 Scope：用户或 Agent 已经指定 `node_id` 时，在该子树内检索。
-- 它不应作为默认检索路径上的自动范围过滤器。规则 Planner 与 always_fts 完全打平（78.1，8:8），也说明自动路由到 Tree 目前没有收益。
-
-### Q3. Vector 与 paraphrase
-
-**1. 单独的 Vector 没有补上 paraphrase 缺口。** held-out paraphrase 的 R@5：vector 52.9，fts 50.0，5:4，不显著。按计划的成功标准（paraphrase R@5 明显高于 FTS），**这一条未达成**。
-
-**2. dev 与 held-out 的差距来自语言分布。**
-
-| paraphrase R@5 | n | vector | fts |
+| 策略 | controlled heldout | longdoc | financebench |
 | --- | --- | --- | --- |
-| dev（以中文为主） | 18 | 88.9 | 55.6 |
-| held-out 英文（多为大文档） | 28 | 46.4 | 53.6 |
-| held-out 中文 | 6 | 83.3 | 33.3 |
+| rag_bm25 | 31:2，p<0.001 | 16:6，p=0.052 | 18:15，p=0.73 |
+| tree_structure | 10:92 | 8:38 | 11:42 |
+| tree_lexical | 14:20 | 9:19 | **7:32，显著更差** |
+| tree_lexical+fts | 11:12 | 3:8 | 5:11 |
+| managed | 8:8 | 3:3 | 1:1 |
 
-中文上的结果与 dev 一致，英文上 vector 反而**低于** fts。当前 embedding 模型（jina v2 base **zh**）对英文技术文档的换说法检索偏弱。这是对模型的结论，不是对“向量”这一机制的结论。
+### 现在能下的结论（只限词法部分）
 
-**3. 真正的收益来自融合。** `fts+vector` 在 held-out 上 R@5 从 78.1 提到 85.2（+7.1，18:3，p=0.0015）。
-- 6 个类型中 5 个持平或提升：reasoning 5:0，hybrid 4:0，paraphrase 3:0。
-- 唯一例外是 cross_doc（1:2）：文档路由多了一路向量信号，排名略有扰动。
-- **reasoning 和 navigation 都没有回退**，满足“不得退步”的要求。
-- 大文档上收益最大：100–200 节点的文档从 73.7 提到 87.7。
+1. **“top-k 一样”本身不公平，要同时看上下文大小。**
+   - 600-token chunk 的 BM25 在 R@5 上胜过 block 级 FTS（controlled 91.9 vs 78.1，longdoc 72.0 vs 63.2）。但它让 Answer 模型多读 4–6 倍 token。
+   - 在同样 1,000 / 2,000 token 的阅读预算下，三个数据集都是 block 级 FTS 领先：controlled 86.7 vs 70.0，longdoc 74.4 vs 54.8，financebench 35.0 vs 20.2。
+   - 这正是 Layer B 要回答的问题：更大的上下文能不能换来更高的答案准确率，又要多花多少钱。
+2. **Tree 在长 PDF 上没有体现理论优势。**
+   - financebench 上 `tree_lexical` 显著差于 FTS（20.9 vs 34.7，7:32）。
+   - 平均 visited_ratio 高达 84%，depth 只有 1.4，说明树很浅，几乎没有剪枝。
+   - 原因在**结构抽取**：84 份 SEC 文件里只有 16 份带书签，55 份靠启发式标题，13 份完全没有结构。
+3. **结构质量决定 Tree 的价值。** 按结构抽取方式拆开，R@5 如下：
 
-**4. 加权 RRF（dev 实验，未采用）。** 把 FTS 权重降到 0.3，dev paraphrase 升到 78–83，但 lookup 降到 93。为避免按 dev 调参，保持等权、k=60。
+   | financebench | n | fts | rag_bm25 | tree_lexical | tree_lexical+fts |
+   | --- | --- | --- | --- | --- | --- |
+   | 原生书签 | 26 | 48.1 | 46.2 | 23.1 | **51.9** |
+   | 启发式标题 | 110 | **32.7** | 33.0 | 23.0 | 28.2 |
+   | 无结构 | 14 | 25.0 | **39.3** | 0.0 | 25.0 |
 
-### Q1. LLM 树导航（待跑）
+   只有在原生书签的文档上，Tree→FTS 才略好于 FTS（样本小，不显著）。启发式结构反而有害。
+4. **Planner 没有贡献。** `managed` 在三个数据集上都和 FTS 打平（8:8、3:3、1:1）。
+5. **financebench 很难**：所有词法策略的 R@5 都不到 36%。numerical reasoning 类只有 3–19%，因为答案常在财务报表页，问题措辞和报表行名不一致。这正是 Vector 应该补上的缺口。
 
-`tree_llm`、`tree_llm+fts`、`managed_llm` 已实现。报告里已有对应的列：每类 R@5、MRR、visited_ratio、LLM 调用数、输入 / 输出 token、tokens/success。这一轮没有 LLM endpoint，所以未运行。
+## 待完成
 
-这是唯一能回答“结构导航本身有没有价值”的实验。启发式 `tree_structure` 只有 39%；LLM 能否大幅超过它、要花多少 token，决定了 Tree 是否值得进入默认检索路径。
+| 实验 | 状态 | 需要 |
+| --- | --- | --- |
+| 第一轮向量部分（`rag_vector`、`rag_hybrid`、`tree_lexical+vector`、`tree_lexical+fts+vector`、`fts+vector`、`managed+vector`） | 代码就绪，已用 hashing embedding 跑通 | embedding API（推荐 `BAAI/bge-m3`，中英双语、8k 上下文）。预计约 900 万 tokens |
+| Layer B 端到端 QA（longdoc + financebench，含 full context） | 代码就绪，已用 `--stub-llm` 跑通 | Answer LLM（以及可选的独立 Judge） |
+| LLM 树导航（`tree_llm*`、`managed_llm`） | 代码就绪 | LLM |
+| 人工审计 | 流程就绪 | QA 跑完后按 `-audit.jsonl` 审 |
+
+建议的运行顺序：
 
 ```bash
-TREEENGINE_LLM_MODEL=... TREEENGINE_LLM_API_KEY=... TREEENGINE_LLM_BASE_URL=... \
-  python -m benchmarks.run --llm --vector --split heldout --per-type 10   # 先小样本看成本
-TREEENGINE_LLM_MODEL=... python -m benchmarks.run --llm --vector --split heldout
+# 1. 第一轮完整检索（三个数据集）
+for s in controlled longdoc financebench; do
+  python -m benchmarks.run_retrieval --suite $s --vector --embedder openai:BAAI/bge-m3 \
+      --price-embedding 0.02 $( [ $s = controlled ] && echo --split heldout )
+done
+# 2. QA（先小样本看成本，再全量）
+python -m benchmarks.run_qa --suite longdoc --vector --embedder openai:BAAI/bge-m3 --limit 10 ...
+python -m benchmarks.run_qa --suite longdoc --vector --embedder openai:BAAI/bge-m3 ...
+python -m benchmarks.run_qa --suite financebench --vector --embedder openai:BAAI/bge-m3 ...
 ```
-
-### Planner 与 oracle
-
-| held-out R@5 | always_fts | always_tree | always_hybrid | rule_planner | oracle(fts\|tree\|hybrid) | oracle(全部策略) |
-| --- | --- | --- | --- | --- | --- | --- |
-| 全部 | 78.1 | 75.2 | 77.6 | 78.1 | 85.7 | 92.9 |
-
-- 如果能在 fts / tree / hybrid 之间完美路由，上限是 85.7。
-- **不做任何路由的 `fts+vector` 已经达到 85.2**，几乎吃满这部分空间。
-- 规则 Planner 目前没有超过 always_fts。
-
-## 结论与建议
-
-1. **默认检索。** 配置了 embedder 时，默认检索应是 FTS+Vector 的 RRF 融合：这是本轮唯一在 held-out 上显著、且没有类型回退的提升。
-   - 现有的 `managed(use_vector=True)` 只在 LOOKUP / HYBRID 路径融合向量，REASONING 仍走 Tree，而数据表明 Tree 并不优于融合检索。
-   - 是否把 REASONING 也改走融合属于 planner 改动：必须先在 dev 上做，再用**新一批** held-out 验证。本批已经看过结果，不能用来决定这个改动。
-2. **Tree 的定位。** Navigation Layer + 显式 Scope。不再投入启发式打分器的调参；`tree_semantic` 保留为实验策略。
-3. **Embedding 模型。** 下一步在 dev 上比较对英文更强的模型（如 bge-m3、multilingual-e5），再用新的 held-out 批次验证。本批 held-out 已被看过，不能用来选模型。
-4. **LLM 导航。** 需要 endpoint 才能跑，这是 V0.3 唯一未完成的实验。
-
-### 所有策略都漏掉的 held-out query
-
-- `h-ke-03`（paraphrase）Who deletes terminated Pods when there are too many of them?
-- `v3-fed-03`（navigation）Who manufactures U.S. paper money for the Federal Reserve?
-- `v3-go-04`（paraphrase）When several channel operations are ready at once, how does Go decide which one runs?
-- `v3-go-08`（navigation）Can the := form be used outside of functions?
 
 ## 历史
 
-**V0.1 → V0.2。** 基准跑出了启发式树的 6 个通用缺陷，均已修复：
-- 子树信号改为取最佳命中；
-- 父章节自身的文字参与竞争；
-- 章节首段加位置先验；
-- porter 词干；
-- 拉丁词按词边界匹配；
-- PDF 页眉页脚和目录节点的处理。
-
-详见 `results/baseline-v0.1-scorer.md`、`results/v0.2-*.md`。
-
-**V0.2 held-out（25 条）。** 启发式 Tree 与 FTS 打平；V0.3 用 210 条 held-out 确认了这一点。
-
-**V0.3 dev 实验。**
-- 等权 vs 加权 RRF：保留等权。
-- 用向量子树信号导航的 `tree_semantic`：dev 从 88.7 到 90.4，held-out 从 75.2 到 78.1；对 tree_lexical 9:3，p=0.15，不显著。
+- **V0.1 → V0.2**：基准跑出启发式树的 6 个通用缺陷并修复。见 `results/baseline-v0.1-scorer.md`、`results/v0.2-*.md`。
+- **V0.3**（`results/v0.3-*.md`）：
+  - FTS+Vector RRF 融合是唯一显著的提升：R@5 从 78.1 到 85.2，18:3。
+  - 启发式 Tree 与 FTS 打平，定位为 Navigation Layer + 显式 Scope。
+  - jina-v2-base-zh 在英文 paraphrase 上偏弱，因此这一轮改用更强的 embedding。

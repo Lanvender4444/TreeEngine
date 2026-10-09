@@ -13,6 +13,7 @@ import json
 import math
 import sqlite3
 import struct
+import urllib.error
 import urllib.request
 from collections.abc import Sequence
 from pathlib import Path
@@ -26,10 +27,21 @@ def l2_normalise(v: Sequence[float]) -> list[float]:
     return [float(x) / n for x in v]
 
 
+# Instruction prefixes some models are trained with (query, passage); fastembed does not add them.
+_PREFIXES: dict[str, tuple[str, str]] = {
+    "google/embeddinggemma-300m": ("task: search result | query: ", "title: none | text: "),
+    "intfloat/multilingual-e5-large": ("query: ", "passage: "),
+    "nomic-ai/nomic-embed-text-v1.5": ("search_query: ", "search_document: "),
+    "nomic-ai/nomic-embed-text-v1.5-Q": ("search_query: ", "search_document: "),
+}
+
+
 class FastEmbedProvider:
     """Local embedding model through fastembed (ONNX runtime, CPU, no torch).
 
     Default ``jinaai/jina-embeddings-v2-base-zh``: 768-d, trained for mixed Chinese/English.
+    Texts are embedded in length-sorted batches (padding waste dominates CPU time otherwise:
+    ~3x faster on real block lengths) and returned in input order.
     """
 
     def __init__(
@@ -37,7 +49,7 @@ class FastEmbedProvider:
         model_name: str = "jinaai/jina-embeddings-v2-base-zh",
         cache_dir: str | None = None,
         batch_size: int = 16,
-        max_chars: int = 2000,
+        max_chars: int = 8000,
     ) -> None:
         try:
             from fastembed import TextEmbedding
@@ -46,57 +58,105 @@ class FastEmbedProvider:
         self.model_name = model_name
         self.batch_size = batch_size
         self.max_chars = max_chars
+        self.query_prefix, self.passage_prefix = _PREFIXES.get(model_name, ("", ""))
         self._model = TextEmbedding(model_name, cache_dir=cache_dir)
 
     def embed_texts(self, texts: Sequence[str]) -> list[list[float]]:
-        clipped = [t[: self.max_chars] for t in texts]
-        return [
-            l2_normalise(v.tolist())
-            for v in self._model.passage_embed(clipped, batch_size=self.batch_size)
-        ]
+        clipped = [self.passage_prefix + t[: self.max_chars] for t in texts]
+        order = sorted(range(len(clipped)), key=lambda i: len(clipped[i]))
+        vecs = self._model.embed([clipped[i] for i in order], batch_size=self.batch_size)
+        out: list[list[float]] = [[] for _ in clipped]
+        for i, v in zip(order, vecs, strict=True):
+            out[i] = l2_normalise(v.tolist())
+        return out
 
     def embed_query(self, query: str) -> list[float]:
-        return l2_normalise(next(iter(self._model.query_embed([query]))).tolist())
+        if self.query_prefix:
+            v = next(iter(self._model.embed([self.query_prefix + query])))
+        else:
+            v = next(iter(self._model.query_embed([query])))
+        return l2_normalise(v.tolist())
 
 
 class OpenAICompatibleEmbedding:
+    """Any ``/v1/embeddings`` endpoint (OpenAI, SiliconFlow, new-api / one-api, vLLM, Ollama).
+
+    Batches by count and by an approximate character budget, retries 429 / 5xx / network errors
+    with exponential backoff, and records the provider-reported token usage in ``usage_tokens``.
+    """
+
     def __init__(
         self,
         model_name: str,
         api_key: str | None = None,
         base_url: str = "https://api.openai.com/v1",
-        timeout: float = 60.0,
-        batch_size: int = 64,
+        timeout: float = 120.0,
+        batch_size: int = 32,
+        max_chars: int = 16000,
+        batch_chars: int = 60000,
+        retries: int = 6,
+        dimensions: int | None = None,
     ) -> None:
         self.model_name = model_name
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.batch_size = batch_size
+        self.max_chars = max_chars
+        self.batch_chars = batch_chars
+        self.retries = retries
+        self.dimensions = dimensions
+        self.usage_tokens = 0
+        self.requests = 0
 
     def _post(self, inputs: list[str]) -> list[list[float]]:
+        import time
+
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
-        req = urllib.request.Request(
-            f"{self.base_url}/embeddings",
-            data=json.dumps({"model": self.model_name, "input": inputs}).encode("utf-8"),
-            headers=headers,
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        body: dict[str, Any] = {"model": self.model_name, "input": inputs}
+        if self.dimensions:
+            body["dimensions"] = self.dimensions
+        payload = json.dumps(body).encode("utf-8")
+        for attempt in range(self.retries + 1):
+            req = urllib.request.Request(
+                f"{self.base_url}/embeddings", data=payload, headers=headers, method="POST"
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                break
+            except urllib.error.HTTPError as e:
+                if e.code not in (408, 409, 429, 500, 502, 503, 504) or attempt == self.retries:
+                    detail = e.read().decode("utf-8", "replace")[:300]
+                    raise RuntimeError(f"embedding request failed: HTTP {e.code} {detail}") from e
+            except (urllib.error.URLError, TimeoutError, ConnectionError):
+                if attempt == self.retries:
+                    raise
+            time.sleep(min(60.0, 2.0**attempt))
+        self.requests += 1
+        self.usage_tokens += int((data.get("usage") or {}).get("total_tokens") or 0)
         rows = sorted(data["data"], key=lambda r: r["index"])
         return [l2_normalise(r["embedding"]) for r in rows]
 
     def embed_texts(self, texts: Sequence[str]) -> list[list[float]]:
         out: list[list[float]] = []
-        for i in range(0, len(texts), self.batch_size):
-            out += self._post(list(texts[i : i + self.batch_size]))
+        batch: list[str] = []
+        size = 0
+        for t in texts:
+            t = t[: self.max_chars] or " "
+            if batch and (len(batch) >= self.batch_size or size + len(t) > self.batch_chars):
+                out += self._post(batch)
+                batch, size = [], 0
+            batch.append(t)
+            size += len(t)
+        if batch:
+            out += self._post(batch)
         return out
 
     def embed_query(self, query: str) -> list[float]:
-        return self._post([query])[0]
+        return self._post([query[: self.max_chars] or " "])[0]
 
 
 class HashingEmbedding:

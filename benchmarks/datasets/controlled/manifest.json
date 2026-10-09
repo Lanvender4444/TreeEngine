@@ -1,4 +1,6 @@
 {
+  "description": "Hand-written, type-balanced queries (lookup / reasoning / navigation / hybrid / paraphrase / cross_doc) over 28 real documents and 5 synthetic fixtures. Retrieval only: evidence is judged by text needles and section paths.",
+  "has_answers": false,
   "documents": [
     {
       "name": "rust_ownership.md",

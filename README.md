@@ -13,7 +13,7 @@ TreeEngine 不替 Agent 思考，它负责：知识进入 → 结构化 → 持�
 - **结构与证据分离**：`Node` 是导航单元，`Block` 是证据单元；每条 Evidence 都能追溯到 document / node / block / page / offset。
 - **两种用法**：Managed Retrieval（Planner 替你决定怎么搜）和 Agent Navigation（Agent 用原语自己走）。
 - **语义检索（可选）**：Block 级 embedding（本地 fastembed 模型或任意 OpenAI 兼容 `/v1/embeddings`），默认存在同一个 SQLite 文件里（sqlite-vec），通过 RRF 与 FTS 融合；是否进入 Managed Retrieval 由 benchmark 决定，默认关闭。
-- **可度量**：`benchmarks/` 在 28 篇真实文档（7 篇 100+ 节点）+ 325 条标注 query（210 条 heldout）上比较各检索策略，结论见 [benchmarks/README.md](benchmarks/README.md)。V0.3 held-out 结论：FTS+Vector RRF 融合是唯一显著的提升（R@5 78.1 → 85.2）；启发式 Tree 与 FTS 打平，定位为 Navigation Layer + 显式 Scope，而不是默认检索路径上的自动过滤器。
+- **可度量**：`benchmarks/` 用三个数据集（自建 controlled 325 条、MMLongBench-Doc 纯文本子集 91 条、FinanceBench 150 条）把 TreeEngine 与传统 chunk RAG（BM25 / Vector / Hybrid）、Full Context 放在同一套检索指标和端到端 QA（同一 Answer 模型、同一 Judge）下比较，结论见 [benchmarks/README.md](benchmarks/README.md)。V0.3 held-out 结论：FTS+Vector RRF 融合是唯一显著的提升（R@5 78.1 → 85.2）；启发式 Tree 与 FTS 打平，定位为 Navigation Layer + 显式 Scope，而不是默认检索路径上的自动过滤器。
 
 ## 安装
 
@@ -21,8 +21,9 @@ TreeEngine 不替 Agent 思考，它负责：知识进入 → 结构化 → 持�
 pip install -e ".[dev]"            # 核心 + 测试工具
 pip install -e ".[vector]"         # 可选：fastembed + sqlite-vec
 pytest
-python -m benchmarks.run           # 词法策略
-python -m benchmarks.run --vector  # + 向量策略（首次会下载模型并为全部 block 生成 embedding，有缓存）
+python -m benchmarks.run_retrieval                       # Layer A：检索，词法策略
+python -m benchmarks.run_retrieval --suite longdoc --vector --embedder openai:BAAI/bge-m3
+python -m benchmarks.run_qa --suite financebench --vector  # Layer B：端到端 QA（需要 TREEENGINE_LLM_*）
 ```
 
 ## 用法
@@ -114,7 +115,7 @@ treeengine --db te.db --embedder fastembed:jinaai/jina-embeddings-v2-base-zh sem
 | `retrieval/` | `Navigator`（原语）、`CorpusRetriever`（选文档）、`TreeRetriever`（文档内导航 / 定 scope）、`FTSRetriever`、`VectorRetriever`、`EvidenceMerger`（RRF）、`tree_scoped_search`（Tree 定范围 → 证据检索）、`RetrievalPlanner`、`SearchResult` / `Trace` / `SearchStats` |
 | `embeddings/` | `FastEmbedProvider`、`OpenAICompatibleEmbedding`、`HashingEmbedding`（测试用）、`CachedEmbedding` |
 | `pipeline.py` / `answer.py` / `treeview.py` | ingest 流水线、回答层、整树渲染（仅供查看） |
-| `benchmarks/` | 语料清单、ground truth、策略、指标、报告 |
+| `benchmarks/` | 数据集（controlled / longdoc / financebench）、策略（TreeEngine 与传统 RAG）、检索与 QA 指标、Judge、成本、报告与图 |
 
 ### Tree 导航怎么打分（无 LLM 时）
 
