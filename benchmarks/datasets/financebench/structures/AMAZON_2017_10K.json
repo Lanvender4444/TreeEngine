@@ -13,13 +13,13 @@
    1,
    "Item 1A. Risk Factors",
    6,
-   "Item 1A.Risk Factors"
+   "Item 1A.Risk"
   ],
   [
    1,
    "Item 1B. Unresolved Staff Comments",
    15,
-   "Item 1B.Unresolved Staff"
+   "Item 1B.Unresolved"
   ],
   [
    1,
@@ -31,43 +31,37 @@
    1,
    "Item 3. Legal Proceedings",
    16,
-   "Item 3.Legal Proceedings"
+   "Item 3.Legal"
   ],
   [
    1,
    "Item 5. Market for Registrant's Common Equity, Related Stockholder Matters and Issuer Purchases of Equity Securities",
    17,
-   "Item 5.Market for"
+   "Item 5.Market"
+  ],
+  [
+   1,
+   "Item 6. Selected Financial Data",
+   18,
+   "Item 6.Selected"
   ],
   [
    1,
    "Item 7. Management's Discussion and Analysis of Financial Condition and Results of Operations",
    19,
-   "Item 7.Management's"
-  ],
-  [
-   2,
-   "Segment Results",
-   25,
-   "Segment Information"
-  ],
-  [
-   2,
-   "Cash Flows",
-   30,
-   "cash flow"
+   "Item 7.Management"
   ],
   [
    1,
    "Item 7A. Quantitative and Qualitative Disclosures About Market Risk",
    33,
-   "Item 7A.Quantitative and"
+   "Item 7A.Quantitative"
   ],
   [
    1,
    "Item 8. Financial Statements and Supplementary Data",
    35,
-   "Item 8.Financial Statements"
+   "Item 8.Financial"
   ],
   [
    2,
@@ -187,19 +181,19 @@
    1,
    "Item 9. Changes in and Disagreements with Accountants on Accounting and Financial Disclosure",
    73,
-   "Item 9.Changes in"
+   "Item 9.Changes"
   ],
   [
    1,
    "Item 9A. Controls and Procedures",
    73,
-   "Item 9A.Controls and"
+   "Item 9A.Controls"
   ],
   [
    1,
    "Item 16. Form 10-K Summary",
    77,
-   "Item 16.Form 10-K"
+   "Item 16.Form"
   ]
  ]
 }

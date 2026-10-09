@@ -81,6 +81,8 @@ def aggregate_qa(outcomes: Sequence[QAOutcome]) -> dict[str, Any]:
         sum(usd) / correct if usd and correct and row["usd/q"] is not None else None
     )
     row["tokens/correct"] = sum(o.system_tokens for o in ran) / correct if correct else None
+    # context handed to the answer model per correct answer (design doc V0.4 next-step §4)
+    row["ctx_tokens/correct"] = sum(o.context_tokens for o in ran) / correct if correct else None
     return row
 
 

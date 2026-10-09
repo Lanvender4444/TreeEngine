@@ -13,13 +13,13 @@
    1,
    "Item 1A. Risk Factors",
    13,
-   "ITEM 1A.RISK FACTORS"
+   "ITEM 1A.RISK"
   ],
   [
    1,
    "Item 1B. Unresolved Staff Comments",
    26,
-   "ITEM 1B. UNRESOLVED STAFF"
+   "ITEM 1B. UNRESOLVED"
   ],
   [
    1,
@@ -31,91 +31,43 @@
    1,
    "Item 3. Legal Proceedings",
    28,
-   "ITEM 3.LEGAL PROCEEDINGS"
+   "ITEM 3.LEGAL"
   ],
   [
    1,
    "Item 4. Mine Safety Disclosures",
    28,
-   "ITEM 4.MINE SAFETY"
+   "ITEM 4.MINE"
   ],
   [
    1,
    "Item 5. Market for Registrant's Common Equity, Related Stockholder Matters and Issuer Purchases of Equity Securities",
    29,
-   "ITEM 5.MARKET FOR"
+   "ITEM 5.MARKET"
   ],
   [
    1,
    "Item 6. Selected Financial Data",
    31,
-   "ITEM 6.SELECTED FINANCIAL"
+   "ITEM 6.SELECTED"
   ],
   [
    1,
    "Item 7. Management's Discussion and Analysis of Financial Condition and Results of Operations",
    33,
-   "ITEM 7.MANAGEMENT'S"
-  ],
-  [
-   2,
-   "Results of Operations",
-   33,
-   "RESULTS OF OPERATIONS"
-  ],
-  [
-   2,
-   "Overview",
-   33,
-   "Executive Overview"
-  ],
-  [
-   2,
-   "Non-GAAP Financial Measures",
-   41,
-   "Non-GAAP Measures"
-  ],
-  [
-   2,
-   "Liquidity and Capital Resources",
-   45,
-   "Liquidity and Capital Resources"
-  ],
-  [
-   2,
-   "Cash Flows",
-   45,
-   "Cash Flows"
-  ],
-  [
-   2,
-   "Off-Balance Sheet Arrangements",
-   48,
-   "Off Balance Sheet Arrangements"
-  ],
-  [
-   2,
-   "Contractual Obligations",
-   49,
-   "Contractual Obligations"
-  ],
-  [
-   2,
-   "Critical Accounting Estimates",
-   49,
-   "Critical Accounting Policies and Estimates"
+   "ITEM 7.MANAGEMENT"
   ],
   [
    1,
    "Item 7A. Quantitative and Qualitative Disclosures About Market Risk",
    53,
-   "ITEM 7A. QUANTITATIVE AND"
+   "ITEM 7A. QUANTITATIVE"
   ],
   [
    1,
    "Item 8. Financial Statements and Supplementary Data",
    54,
-   "ITEM 8. FINANCIAL STATEMENTS"
+   "ITEM 8. FINANCIAL"
   ],
   [
    2,
@@ -277,19 +229,25 @@
    1,
    "Item 9. Changes in and Disagreements with Accountants on Accounting and Financial Disclosure",
    104,
-   "ITEM 9.CHANGES IN"
+   "ITEM 9.CHANGES"
   ],
   [
    1,
    "Item 9A. Controls and Procedures",
    104,
-   "ITEM 9A.CONTROLS AND"
+   "ITEM 9A.CONTROLS"
+  ],
+  [
+   1,
+   "Item 15. Exhibits and Financial Statement Schedules",
+   106,
+   "ITEM 15.EXHIBITS"
   ],
   [
    1,
    "Item 16. Form 10-K Summary",
    112,
-   "ITEM 16.FORM 10K"
+   "ITEM 16.FORM"
   ]
  ]
 }

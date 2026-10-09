@@ -13,3 +13,4 @@ dist/
 benchmarks/datasets/*/files/
 benchmarks/results/*.json
 benchmarks/.cache/
+benchmarks/datasets/financebench/structures/review/

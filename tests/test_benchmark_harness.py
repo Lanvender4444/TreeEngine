@@ -275,3 +275,75 @@ def test_freeze_detects_changes(tmp_path: Path, monkeypatch) -> None:  # type: i
     st = freeze.status()
     assert not st["frozen"] and st["changed"] == [some]
     assert "CHANGED" in freeze.describe(st)
+
+
+def test_freeze_groups_are_separate(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """A dataset / evaluation change is reported but does not unfreeze retrieval."""
+    from benchmarks import freeze
+
+    monkeypatch.setattr(freeze, "FROZEN", tmp_path / "FROZEN.json")
+    assert freeze.main(["--note", "t"]) == 0
+    data = json.loads((tmp_path / "FROZEN.json").read_text(encoding="utf-8"))
+    assert data["dataset"]["files"] and data["evaluation"]["files"]
+    assert not set(data["files"]) & set(data["evaluation"]["files"])
+    some = next(iter(data["evaluation"]["files"]))
+    data["evaluation"]["files"][some] = "0" * 16
+    (tmp_path / "FROZEN.json").write_text(json.dumps(data), encoding="utf-8")
+    st = freeze.status()
+    assert st["frozen"] and st["evaluation_changed"] == [some] and st["dataset_changed"] == []
+    assert "frozen retrieval" in freeze.describe(st) and "evaluation changed" in freeze.describe(st)
+
+
+def test_scope_strategies(fixtures: Path) -> None:
+    """Hard scopes nest (node ⊆ subtree ⊆ siblings, parent); soft priors keep global candidates
+    and order structure-matching evidence first when λ is large."""
+    from benchmarks.strategies.scope import BASES, ScopeBuilder
+    from treeengine.core.config import EngineConfig
+    from treeengine.retrieval.corpus import CorpusRetriever
+    from treeengine.retrieval.tree import TreeRetriever
+
+    repo = SQLiteRepository()
+    doc = build_components(repo).pipeline.ingest(fixtures / "handbook_large.md").id
+    ws = Workspace(repo, {"handbook": doc})
+    names = list(BASES)
+    st = build_strategies(ws, names)
+    assert set(names) <= set(st)
+    q = "Redis eviction policy"
+    corpus = CorpusRetriever(repo)
+    tree = TreeRetriever(repo, None, EngineConfig(), corpus=corpus)
+    sc = ScopeBuilder(repo, lambda: tree, lambda: corpus).scopes(q, doc, 5, None)
+    node, sub, sib, par = (set(sc[k]) for k in HARD_KINDS)
+    assert node and node <= sub <= sib and sub <= par
+    glob = st["scope_global"].retrieve(q, document_id=doc).evidence
+    hard = st["scope_subtree"].retrieve(q, document_id=doc).evidence
+    assert glob and all(e.node_id in sub for e in hard)
+    rr = st["rerank_structure"].retrieve(q, document_id=doc).evidence
+    priors = [e.metadata["structural_prior"] for e in rr]
+    assert priors == sorted(priors, reverse=True)
+    soft = st["prior_0.25"].retrieve(q, document_id=doc).evidence
+    assert soft and all("structural_prior" in e.metadata for e in soft)
+
+
+HARD_KINDS = ("scope_node", "scope_subtree", "scope_siblings", "scope_parent")
+
+
+def test_review_sample_and_snippet() -> None:
+    from benchmarks.datasets.financebench.review import sample, snippet
+
+    names = [f"DOC_{i}" for i in range(40)]
+    assert sample(names) == sample(list(reversed(names))) and len(sample(names)) == 20
+    text = "PART I\n \nItem 1. \nBusines\n \ns.\n \n3M Company’s business"
+    assert "not found" not in snippet(text, "Item 1. Business")
+    assert "3M Company's" in snippet(text, "3M Company's business")
+
+
+def test_reference_generator_tolerates_split_words_and_bullets() -> None:
+    from benchmarks.datasets.financebench.structures import _Doc, _first, _item_rx
+
+    d = _Doc([(4, ["PART I", " ", "Item 1. ", "Busines", " ", "s.", " ", "3M was founded"])])
+    assert _first(_item_rx("1"), d, 0, len(d.text), set()) is not None
+    import re as _re
+
+    d = _Doc([(15, ["· Overview · Results of Operations"]), (16, ["Overview", "3M is"])])
+    m = _first(_re.compile(r"overview", _re.I), d, 0, len(d.text), set())
+    assert m is not None and d.page(m.start()) == 16

@@ -303,6 +303,7 @@ def render_qa(
         "retrieval R@5",
         "QA accuracy",
         "context tokens",
+        "ctx tokens/correct",
         "p95 latency ms",
         "$/query" if priced else "LLM tokens/query",
         "$/correct" if priced else "tokens/correct",
@@ -320,6 +321,7 @@ def render_qa(
                 _fmt(r.get("recall@5")),
                 _fmt(r.get("accuracy")),
                 _fmt(r.get("ctx_tokens"), pct=False),
+                _fmt(r.get("ctx_tokens/correct"), pct=False),
                 _fmt(r.get("p95_ms"), pct=False),
                 (f"${r['usd/q']:.5f}" if r.get("usd/q") is not None else "–")
                 if priced

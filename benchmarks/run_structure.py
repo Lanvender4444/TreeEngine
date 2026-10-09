@@ -6,18 +6,20 @@ Same documents, same questions, same retrieval algorithms - only the document tr
   heuristic  current heading heuristic (bookmarks ignored)
   native     PDF bookmarks only (documents without bookmarks fall back to flat)
   llm        LLM-recovered headings, window by window (needs TREEENGINE_LLM_*)
-  oracle     reference structure: datasets/financebench/structures/*.json (10-K schema,
-             semi-automatic; "reviewed" files were checked by a person)
+  reference  reference structure: datasets/financebench/structures/*.json (10-K schema,
+             recovered semi-automatically). Only files a person has reviewed
+             ("reviewed": true) may be called a human oracle: those documents are reported
+             separately as "human_oracle".
   auto       what TreeEngine does today (bookmarks -> heuristic -> flat)
 
     python -m benchmarks.run_structure                         # FinanceBench 10-Ks with a reference
-    python -m benchmarks.run_structure --variants flat,heuristic,oracle --reviewed-only
+    python -m benchmarks.run_structure --variants flat,heuristic,reference --reviewed-only
     python -m benchmarks.run_structure --vector --embedder openai:BAAI/bge-m3
 
 Reports, per variant: retrieval recall of the tree strategies (Tree -> FTS is the main one; FTS
 is the structure-independent reference), tree shape, and heading agreement with the reference
 structure (precision / recall / F1: same page and similar title). The decision the design doc
-asks for is the gap between ``auto`` / ``heuristic`` and ``oracle`` on Tree -> FTS.
+asks for is the gap between ``auto`` / ``heuristic`` and ``reference`` on Tree -> FTS.
 """
 
 from __future__ import annotations
@@ -41,11 +43,11 @@ from .freeze import status as freeze_status
 from .loader import CACHE, check_queries, load_corpus, load_queries, prepare_suite, select_queries
 from .metrics.retrieval import aggregate, evaluate, sign_test
 from .report import _fmt, _table
-from .strategies import Workspace, build_strategies
+from .strategies import PRESETS, Workspace, build_strategies
 
 HERE = Path(__file__).parent
 STRUCTURES = HERE / "datasets" / "financebench" / "structures"
-VARIANTS = ["flat", "heuristic", "native", "llm", "oracle", "auto"]
+VARIANTS = ["flat", "heuristic", "native", "llm", "reference", "auto"]
 DEFAULT = ["fts", "tree_structure", "tree_lexical", "tree_lexical+fts"]
 
 
@@ -68,22 +70,39 @@ def similar(a: str, b: str) -> bool:
     return len(wa & wb) / min(len(wa), len(wb)) >= 0.6
 
 
-def heading_agreement(repo: Any, doc_id: str, ref: list[list]) -> tuple[int, int, int]:
-    """(matched reference headings, reference headings, produced headings)."""
+def heading_agreement(repo: Any, doc_id: str, ref: list[list]) -> tuple[int, int, int, int]:
+    """(matched reference headings, reference headings, produced headings, matched headings
+    whose parent is the reference parent). A reference heading matches a node that starts on
+    the same page with a similar title; hierarchy is right when the node's parent matches the
+    reference heading's parent (the nearest earlier heading of a higher level), or both are
+    top level."""
     nodes = [n for n in repo.get_document_nodes(doc_id) if n.node_type != "toc"]
+    by_id = {n.id: n for n in nodes}
     used: set[str] = set()
-    matched = 0
-    for _level, title, page, *anchor in ref:
+    matched = good_parent = 0
+    stack: list[tuple[int, str]] = []  # (level, title) of the open reference headings
+    for level, title, page, *anchor in ref:
+        while stack and stack[-1][0] >= int(level):
+            stack.pop()
+        ref_parent = stack[-1][1] if stack else None
+        stack.append((int(level), title))
         for n in nodes:
             if n.id in used or n.page_start is None:
                 continue
-            if abs(int(n.page_start) - int(page)) <= 0 and (
+            if int(n.page_start) == int(page) and (
                 similar(n.title, title) or (anchor and similar(n.title, anchor[0]))
             ):
                 used.add(n.id)
                 matched += 1
+                parent = by_id.get(n.parent_id or "")
+                if (ref_parent is None and parent is None) or (
+                    ref_parent is not None
+                    and parent is not None
+                    and similar(parent.title, ref_parent)
+                ):
+                    good_parent += 1
                 break
-    return matched, len(ref), len(nodes)
+    return matched, len(ref), len(nodes), good_parent
 
 
 def variant_corpus(docs: list[CorpusDoc], variant: str, llm: Any, quiet: bool) -> Any:
@@ -92,16 +111,16 @@ def variant_corpus(docs: list[CorpusDoc], variant: str, llm: Any, quiet: bool) -
     key = variant
     if variant in ("flat", "heuristic", "native", "llm"):
         cfg = replace(cfg, pdf_structure=variant, llm_structure_fallback=False)
-    elif variant == "oracle":
+    elif variant == "reference":
         cfg = replace(cfg, pdf_structure="native", llm_structure_fallback=False)
         refs = {d.name: reference(d.name) for d in docs}
         blob = json.dumps({k: v["outline"] for k, v in sorted(refs.items()) if v}, sort_keys=True)
-        key = "oracle-" + hashlib.sha256(blob.encode()).hexdigest()[:12]
+        key = "reference-" + hashlib.sha256(blob.encode()).hexdigest()[:12]
 
         def prepare(doc: Document, d: CorpusDoc) -> None:
             ref = refs.get(d.name)
             doc.metadata["_outline"] = ref["outline"] if ref else []
-            doc.metadata["_outline_source"] = "oracle"
+            doc.metadata["_outline_source"] = "reference"
 
     elif variant != "auto":
         raise SystemExit(f"unknown variant {variant!r}; choose from {VARIANTS}")
@@ -120,8 +139,9 @@ def variant_corpus(docs: list[CorpusDoc], variant: str, llm: Any, quiet: bool) -
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m benchmarks.run_structure")
-    ap.add_argument("--variants", default="flat,heuristic,native,oracle,auto")
+    ap.add_argument("--variants", default="flat,heuristic,native,reference,auto")
     ap.add_argument("--strategies", default=None)
+    ap.add_argument("--preset", default=None, help="e.g. scope_ablation, llm_tree")
     ap.add_argument("--reviewed-only", action="store_true")
     ap.add_argument("--vector", action="store_true")
     ap.add_argument("--embedder", default=None)
@@ -153,8 +173,18 @@ def main(argv: list[str] | None = None) -> int:
         if llm is None:
             print("skipping variant llm (pass --llm with TREEENGINE_LLM_* set)", file=sys.stderr)
             variants.remove("llm")
+    nav_llm = None
+    if args.llm or any(
+        n.startswith(("tree_llm", "managed_llm")) for n in (args.strategies or "").split(",")
+    ):
+        from .answer import llm_from_env
+
+        nav_llm = llm_from_env("TREEENGINE_LLM")
     spec = args.embedder or ("fastembed:jinaai/jina-embeddings-v2-base-zh" if args.vector else None)
-    names = args.strategies.split(",") if args.strategies else list(DEFAULT)
+    if args.preset:
+        names = list(PRESETS[args.preset])
+    else:
+        names = args.strategies.split(",") if args.strategies else list(DEFAULT)
     if spec and not args.strategies:
         names += ["tree_lexical+vector", "tree_lexical+fts+vector"]
 
@@ -167,7 +197,12 @@ def main(argv: list[str] | None = None) -> int:
         if problems:
             print(f"[{v}] ground truth problems: {problems[:3]}", file=sys.stderr)
         ws = Workspace(
-            corpus.repo, corpus.doc_ids, EngineConfig(), embed_spec=spec, cache_dir=CACHE
+            corpus.repo,
+            corpus.doc_ids,
+            EngineConfig(),
+            embed_spec=spec,
+            llm=nav_llm,
+            cache_dir=CACHE,
         )
         strategies = build_strategies(ws, names)
         for name, st in strategies.items():
@@ -188,13 +223,13 @@ def main(argv: list[str] | None = None) -> int:
             results[v][name + "@reviewed"] = aggregate(
                 [o for o in outs if o.document in reviewed], [5]
             )
-        m = r = p = 0
+        m = r = p = h = 0
         nodes = depth = 0.0
         methods: dict[str, int] = {}
         for d in docs:
             did = corpus.doc_ids[d.name]
-            a, b, c = heading_agreement(corpus.repo, did, refs[d.name]["outline"])
-            m, r, p = m + a, r + b, p + c
+            a, b, c, e = heading_agreement(corpus.repo, did, refs[d.name]["outline"])
+            m, r, p, h = m + a, r + b, p + c, h + e
             ns = corpus.repo.get_document_nodes(did)
             nodes += len(ns)
             depth += max((n.depth for n in ns), default=0)
@@ -208,6 +243,7 @@ def main(argv: list[str] | None = None) -> int:
             "heading P": prec,
             "heading R": rec,
             "heading F1": 2 * prec * rec / (prec + rec) if prec + rec else 0.0,
+            "hierarchy acc": h / m if m else 0.0,
             "methods": methods,  # type: ignore[dict-item]
         }
         if not args.quiet:
@@ -265,8 +301,8 @@ def render(
     parts += ["## Recall within 2,000 evidence tokens", ""]
     body = [[v, *[_fmt(results[v][n].get("recall@2k_tok")) for n in names]] for v in variants]
     parts += [_table(head, body), ""]
-    if reviewed and len(reviewed) < len(docs):
-        parts += [f"## Recall@5, reviewed documents only ({len(reviewed)})", ""]
+    if reviewed:
+        parts += [f"## human_oracle: Recall@5 on the {len(reviewed)} person-reviewed documents", ""]
         body = [
             [v, *[_fmt(results[v][n + "@reviewed"].get("recall@5")) for n in names]]
             for v in variants
@@ -280,6 +316,7 @@ def render(
         "heading P",
         "heading R",
         "heading F1",
+        "hierarchy acc",
         "structure method",
     ]
     sbody = [
@@ -290,21 +327,25 @@ def render(
             _fmt(shape[v]["heading P"]),
             _fmt(shape[v]["heading R"]),
             _fmt(shape[v]["heading F1"]),
+            _fmt(shape[v]["hierarchy acc"]),
             ", ".join(f"{k} {n}" for k, n in sorted(shape[v]["methods"].items())),
         ]
         for v in variants
     ]
     parts += [_table(shead, sbody), ""]
     main_strategy = "tree_lexical+fts" if "tree_lexical+fts" in names else names[-1]
-    if "oracle" in variants:
-        parts += [f"## {main_strategy}: each structure vs oracle (paired sign test, recall@5)", ""]
+    if "reference" in variants:
+        parts += [
+            f"## {main_strategy}: each structure vs reference (paired sign test, recall@5)",
+            "",
+        ]
         body = []
         for v in variants:
-            if v == "oracle":
+            if v == "reference":
                 continue
-            w, lost, p = sign_test(outcomes, f"oracle|{main_strategy}", f"{v}|{main_strategy}")
+            w, lost, p = sign_test(outcomes, f"reference|{main_strategy}", f"{v}|{main_strategy}")
             body.append([v, f"{w}:{lost}", f"{p:.3f}"])
-        parts += [_table(["structure", "oracle W:L", "p"], body), ""]
+        parts += [_table(["structure", "reference W:L", "p"], body), ""]
         if "flat" in variants and "fts" in names:
             parts += [
                 "## With the reference structure vs the best structure-free baseline (flat FTS)",
@@ -314,10 +355,10 @@ def render(
             for n in names:
                 if n == "fts":
                     continue
-                w, lost, p = sign_test(outcomes, f"oracle|{n}", "flat|fts")
-                body.append([f"oracle {n}", f"{w}:{lost}", f"{p:.3f}"])
+                w, lost, p = sign_test(outcomes, f"reference|{n}", "flat|fts")
+                body.append([f"reference {n}", f"{w}:{lost}", f"{p:.3f}"])
             parts += [_table(["strategy", "W:L vs flat fts", "p"], body), ""]
-        tree_or = results["oracle"][main_strategy].get("recall@5") or 0
+        tree_or = results["reference"][main_strategy].get("recall@5") or 0
         ref = (
             results.get("auto", results.get("heuristic", {})).get(main_strategy, {}).get("recall@5")
         )
@@ -326,8 +367,8 @@ def render(
             parts += [
                 "## Decision point",
                 "",
-                f"- {main_strategy}: current (auto) {ref * 100:.1f} → oracle {tree_or * 100:.1f} "
-                f"(**{(tree_or - ref) * 100:+.1f}** points)"
+                f"- {main_strategy}: current (auto) {ref * 100:.1f} → "
+                f"reference {tree_or * 100:.1f} (**{(tree_or - ref) * 100:+.1f}** points)"
                 + (f"; FTS without structure {fts * 100:.1f}" if fts is not None else ""),
                 "- design doc rule: a large gap → structure extraction is the bottleneck, "
                 "invest in a structure engine; a small gap → tree retrieval's own ceiling is "

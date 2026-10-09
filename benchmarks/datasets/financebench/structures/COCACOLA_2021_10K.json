@@ -13,13 +13,13 @@
    1,
    "Item 1A. Risk Factors",
    13,
-   "ITEM 1A. RISK FACTORS"
+   "ITEM 1A. RISK"
   ],
   [
    1,
    "Item 1B. Unresolved Staff Comments",
    26,
-   "ITEM 1B. UNRESOLVED STAFF"
+   "ITEM 1B. UNRESOLVED"
   ],
   [
    1,
@@ -31,25 +31,25 @@
    1,
    "Item 3. Legal Proceedings",
    27,
-   "ITEM 3. LEGAL PROCEEDINGS"
+   "ITEM 3. LEGAL"
   ],
   [
    1,
    "Item 4. Mine Safety Disclosures",
    30,
-   "ITEM 4. MINE SAFETY"
+   "ITEM 4. MINE"
   ],
   [
    1,
    "Item 5. Market for Registrant's Common Equity, Related Stockholder Matters and Issuer Purchases of Equity Securities",
    32,
-   "ITEM 5. MARKET FOR"
+   "ITEM 5. MARKET"
   ],
   [
    1,
    "Item 7. Management's Discussion and Analysis of Financial Condition and Results of Operations",
    34,
-   "ITEM 7. MANAGEMENT'S"
+   "ITEM 7. MANAGEMENT"
   ],
   [
    2,
@@ -66,14 +66,8 @@
   [
    2,
    "Critical Accounting Estimates",
-   34,
+   37,
    "Critical Accounting Policies and Estimates"
-  ],
-  [
-   2,
-   "Cash Flows",
-   53,
-   "Cash Flows"
   ],
   [
    2,
@@ -85,13 +79,13 @@
    1,
    "Item 7A. Quantitative and Qualitative Disclosures About Market Risk",
    59,
-   "ITEM 7A. QUANTITATIVE AND"
+   "ITEM 7A. QUANTITATIVE"
   ],
   [
    1,
    "Item 8. Financial Statements and Supplementary Data",
    61,
-   "ITEM 8. FINANCIAL STATEMENTS"
+   "ITEM 8. FINANCIAL"
   ],
   [
    2,
@@ -259,25 +253,25 @@
    1,
    "Item 13. Certain Relationships and Related Transactions, and Director Independence",
    132,
-   "ITEM 13. CERTAIN RELATIONSHIPS"
+   "ITEM 13. CERTAIN"
   ],
   [
    1,
    "Item 14. Principal Accountant Fees and Services",
    132,
-   "ITEM 14. PRINCIPAL ACCOUNTANT"
+   "ITEM 14. PRINCIPAL"
   ],
   [
    1,
    "Item 15. Exhibits and Financial Statement Schedules",
    132,
-   "ITEM 15. EXHIBITS AND"
+   "ITEM 15. EXHIBITS"
   ],
   [
    1,
    "Item 16. Form 10-K Summary",
    140,
-   "ITEM 16. FORM 10-K"
+   "ITEM 16. FORM"
   ]
  ]
 }

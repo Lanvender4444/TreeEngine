@@ -131,4 +131,4 @@ treeengine --db te.db --embedder fastembed:jinaai/jina-embeddings-v2-base-zh sem
 - **V0.1**：Ingest / Structure / SQLite / Tree / FTS / Planner / Evidence / Answer。
 - **V0.2**：Repository 边界、Navigation 原语、Benchmark、Trace & Stats、Factory。
 - **V0.3**：Corpus / In-document 拆分（`CorpusRetriever`）、Vector（EmbeddingProvider / VectorIndex / sqlite-vec / VectorRetriever）、RRF Evidence Fusion、Planner 与 Oracle 评测、LLM Tree 评测接线、语料与 heldout 扩容。结论见 benchmarks/README.md。
-- **V0.4（当前）— Evidence & Structure Validation**：检索代码已冻结（`benchmarks/freeze.py`）。新增结构质量实验（flat / heuristic / native / LLM / 参考结构）、Block Vector 消融、dev 上的 chunk 扫描、LLM 导航 + Vector 策略，以及 PDF 结构来源的强制模式（`EngineConfig.pdf_structure`）。向量矩阵和 QA 等 embedding API / LLM 到位后再跑。
+- **V0.4（当前）— Evidence & Structure Validation**：检索代码已冻结（`benchmarks/freeze.py`）。新增结构质量实验（flat / heuristic / native / LLM / 参考结构）、Block Vector 消融、dev 上的 chunk 扫描、LLM 导航 + Vector 策略，以及 PDF 结构来源的强制模式（`EngineConfig.pdf_structure`）。新增 Tree Scope 消融（hard filter / soft prior / structural rerank，只在 benchmark 中）：词法检索下，结构作为过滤或打分信号都没有带来增益，hard scope 在相同上下文预算下会丢证据。参考结构改名为 `reference`，人工校对后为 `human_oracle`。向量矩阵、QA、LLM 导航等 embedding API / LLM 到位后再跑。

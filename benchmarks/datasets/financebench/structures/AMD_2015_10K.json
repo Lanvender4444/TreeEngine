@@ -13,13 +13,13 @@
    1,
    "Item 1A. Risk Factors",
    15,
-   "ITEM 1A. RISK FACTORS"
+   "ITEM 1A. RISK"
   ],
   [
    1,
    "Item 1B. Unresolved Staff Comments",
    29,
-   "ITEM 1B. UNRESOLVED STAFF"
+   "ITEM 1B. UNRESOLVED"
   ],
   [
    1,
@@ -31,31 +31,31 @@
    1,
    "Item 3. Legal Proceedings",
    30,
-   "ITEM 3. LEGAL PROCEEDINGS"
+   "ITEM 3. LEGAL"
   ],
   [
    1,
    "Item 4. Mine Safety Disclosures",
    31,
-   "ITEM 4. MINE SAFETY"
+   "ITEM 4. MINE"
   ],
   [
    1,
    "Item 5. Market for Registrant's Common Equity, Related Stockholder Matters and Issuer Purchases of Equity Securities",
    32,
-   "ITEM 5. MARKET FOR"
+   "ITEM 5. MARKET"
   ],
   [
    1,
    "Item 6. Selected Financial Data",
    34,
-   "ITEM 6. SELECTED FINANCIAL"
+   "ITEM 6. SELECTED"
   ],
   [
    1,
    "Item 7. Management's Discussion and Analysis of Financial Condition and Results of Operations",
    36,
-   "ITEM 7.MANAGEMENT'S"
+   "ITEM 7.MANAGEMENT"
   ],
   [
    2,
@@ -91,13 +91,13 @@
    1,
    "Item 7A. Quantitative and Qualitative Disclosures About Market Risk",
    54,
-   "ITEM 7A. QUANTITATIVE AND"
+   "ITEM 7A. QUANTITATIVE"
   ],
   [
    1,
    "Item 8. Financial Statements and Supplementary Data",
    56,
-   "ITEM 8. FINANCIAL STATEMENTS"
+   "ITEM 8. FINANCIAL"
   ],
   [
    2,
@@ -247,43 +247,25 @@
    1,
    "Item 9. Changes in and Disagreements with Accountants on Accounting and Financial Disclosure",
    95,
-   "ITEM 9. CHANGES IN"
+   "ITEM 9. CHANGES"
   ],
   [
    1,
    "Item 9A. Controls and Procedures",
    95,
-   "ITEM 9A. CONTROLS AND"
+   "ITEM 9A. CONTROLS"
   ],
   [
    1,
    "Item 9B. Other Information",
    96,
-   "ITEM 9B. OTHER INFORMATION"
+   "ITEM 9B. OTHER"
   ],
   [
    1,
-   "Item 10. Directors, Executive Officers and Corporate Governance",
-   97,
-   "ITEM 10. DIRECTORS, EXECUTIVE"
-  ],
-  [
-   1,
-   "Item 11. Executive Compensation",
-   97,
-   "ITEM 11. EXECUTIVE COMPENSATION"
-  ],
-  [
-   1,
-   "Item 12. Security Ownership of Certain Beneficial Owners and Management and Related Stockholder Matters",
-   97,
-   "ITEM 12. SECURITY OWNERSHIP"
-  ],
-  [
-   1,
-   "Item 13. Certain Relationships and Related Transactions, and Director Independence",
-   97,
-   "ITEM 13. CERTAIN RELATIONSHIPS"
+   "Item 15. Exhibits and Financial Statement Schedules",
+   98,
+   "ITEM 15. EXHIBITS"
   ]
  ]
 }

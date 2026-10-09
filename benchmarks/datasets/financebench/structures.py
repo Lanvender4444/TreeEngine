@@ -113,6 +113,7 @@ STATEMENTS = [
     ),
 ]
 PAGE_REF = re.compile(r"^[ \t]*(\.{2,}[ \t]*)?(page[ \t]*)?\d{1,3}[ \t]*(\n|$)", re.I)
+BULLET = re.compile(r"[·•▪●◦]\s*$")
 APOS = str.maketrans({"’": "'", "‘": "'", "“": '"', "”": '"'})
 
 
@@ -122,20 +123,61 @@ def _flex(words: str) -> str:
     return r"\W*".join(re.escape(p) for p in parts)
 
 
+def _split_flex(words: str) -> str:
+    """Like ``_flex`` but also tolerates line breaks inside a word ("Busines\\n \\ns.")."""
+    parts = re.findall(r"[A-Za-z0-9']+", words)
+    return r"\W*".join(r"\s*".join(re.escape(c) for c in p) for p in parts)
+
+
 def _item_rx(key: str) -> re.Pattern[str]:
-    title_words = " ".join(ITEMS[key].replace("'", " ").split()[:2])
+    # the first title word only: filings vary the rest ("Exhibits, Financial Statement
+    # Schedules", "Principal Accounting Fees")
+    title_words = ITEMS[key].replace("'", " ").split()[0]
     return re.compile(
-        r"item\s*" + re.escape(key) + r"(?![0-9a-z])[\s.:\-—–]*" + _flex(title_words), re.I
+        r"item\s*" + re.escape(key) + r"(?![0-9a-z])[\s.:\-—–]*" + _split_flex(title_words),
+        re.I,
     )
+
+
+SPLIT = re.compile(r"(?<=[A-Za-z]{2})\n[ \t]*\n(?=([a-z]{1,2})(?![A-Za-z]))")
+SHORT_WORDS = {"a", "an", "as", "at", "be", "by", "if", "in", "is", "it", "of", "on", "or", "to"}
+
+
+def _repair(text: str) -> tuple[str, list[int]]:
+    """Undo pypdf's split of a word's last letters onto a new line ("Incom\\n \\ne" ->
+    "Income"). Returns the repaired text and, for every repaired character, its raw offset."""
+    out: list[str] = []
+    idx: list[int] = []
+    pos = 0
+    for m in SPLIT.finditer(text):
+        if m.group(1) in SHORT_WORDS:
+            continue
+        out.append(text[pos : m.start()])
+        idx.extend(range(pos, m.start()))
+        pos = m.end()
+    out.append(text[pos:])
+    idx.extend(range(pos, len(text)))
+    return "".join(out), idx
 
 
 class _Doc:
     def __init__(self, pages: list[tuple[int, list[str]]]) -> None:
-        self.text = ""
+        self.text = ""  # repaired text: every search runs on this
+        self.raw = ""  # page text as TreeEngine sees it: anchors are cut from this
+        self.raw_at: list[int] = []
         self.starts: list[tuple[int, int]] = []  # (offset, page)
         for no, lines in pages:
+            page = "\n".join(lines).translate(APOS) + "\n"
+            fixed, idx = _repair(page)
             self.starts.append((len(self.text), no))
-            self.text += "\n".join(lines).translate(APOS) + "\n"
+            self.raw_at.extend(len(self.raw) + i for i in idx)
+            self.text += fixed
+            self.raw += page
+
+    def raw_slice(self, start: int, end: int) -> str:
+        if start >= end:
+            return ""
+        return self.raw[self.raw_at[start] : self.raw_at[end - 1] + 1]
 
     def page(self, off: int) -> int:
         page = self.starts[0][1]
@@ -186,6 +228,8 @@ def _first(rx: re.Pattern[str], d: _Doc, lo: int, hi: int, toc: set[int]) -> re.
 
         if re.search(r"[a-z,]\s$", before) and not before.endswith("\n"):
             continue  # inside a sentence: "... as shown in the Consolidated Balance Sheets"
+        if BULLET.search(d.text[max(0, m.start() - 8) : m.start()]):
+            continue  # a bullet list of contents ("· Overview · Results of Operations ...")
         return m
     return None
 
@@ -207,8 +251,10 @@ def _top_of_page(
         pos = m.end()
 
 
-def _anchor(m: re.Match[str]) -> str:
-    return re.sub(r"\s+", " ", m.group(0)).strip()
+def _anchor(d: _Doc, m: re.Match[str]) -> str:
+    """The heading as it appears in TreeEngine's page text (split words included), so the
+    builder can place it."""
+    return re.sub(r"\s+", " ", d.raw_slice(m.start(), m.end())).strip()
 
 
 def _notes(d: _Doc, lo: int, hi: int, toc: set[int], style: str) -> list[tuple[int, list]]:
@@ -239,7 +285,7 @@ def _notes(d: _Doc, lo: int, hi: int, toc: set[int], style: str) -> list[tuple[i
         if len(name) > 80:
             name = name[:80].rsplit(" ", 1)[0]
         name = name.title() if name.isupper() else name
-        out.append((m.start(), [3, f"Note {n}. {name}", d.page(m.start()), _anchor(m)[:80]]))
+        out.append((m.start(), [3, f"Note {n}. {name}", d.page(m.start()), _anchor(d, m)[:80]]))
         cur = m.end()
     return out
 
@@ -257,7 +303,9 @@ def build_outline(pages: list[tuple[int, list[str]]]) -> list[list]:
             continue
         item_pos[key] = m.start()
         cursor = m.end()
-        found.append((m.start(), [1, f"Item {key}. {ITEMS[key]}", d.page(m.start()), _anchor(m)]))
+        found.append(
+            (m.start(), [1, f"Item {key}. {ITEMS[key]}", d.page(m.start()), _anchor(d, m)])
+        )
 
     def span(key: str) -> tuple[int, int] | None:
         if key not in item_pos:
@@ -269,9 +317,17 @@ def build_outline(pages: list[tuple[int, list[str]]]) -> list[list]:
     if mdna:
         lo, hi = mdna
         for title, rx in MDNA:
-            m = _first(re.compile(r"(?<![a-z])" + rx + r"(?![a-z])", re.I), d, lo, hi, toc)
+            pat = re.compile(r"(?<![a-z])" + rx + r"(?![a-z])", re.I)
+            m = _first(pat, d, lo, hi, toc)
+            # a heading is capitalised and ends its line ("Segment information presented
+            # herein ..." is a sentence)
+            while m is not None and (
+                not m.group(0)[0].isupper()
+                or not re.match(r"[ \t:.]*\n", d.text[m.end() : m.end() + 6])
+            ):
+                m = _first(pat, d, m.end(), hi, toc)
             if m is not None:
-                found.append((m.start(), [2, title, d.page(m.start()), _anchor(m)]))
+                found.append((m.start(), [2, title, d.page(m.start()), _anchor(d, m)]))
     fin = span("8")
     if fin:
         lo, hi = fin
@@ -279,7 +335,7 @@ def build_outline(pages: list[tuple[int, list[str]]]) -> list[list]:
         for title, rx in STATEMENTS:
             m = _top_of_page(re.compile(rx, re.I), d, lo, hi, toc)
             if m is not None:
-                found.append((m.start(), [2, title, d.page(m.start()), _anchor(m)]))
+                found.append((m.start(), [2, title, d.page(m.start()), _anchor(d, m)]))
                 if title.startswith("Notes to"):
                     notes_at = m.end()
         if notes_at is not None:

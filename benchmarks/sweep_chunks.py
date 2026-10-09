@@ -4,9 +4,9 @@
     python -m benchmarks.sweep_chunks --embedder openai:BAAI/bge-m3 --write   # + freeze choice
 
 The baseline must not be weakened by an arbitrary chunk size, and must not be tuned on the data
-it is evaluated on. So: sweep 300/50, 600/100, 1000/150 on the *controlled dev* split only,
-pick by a rule fixed in advance, write it to FROZEN.json; held-out, longdoc and FinanceBench
-only ever report the frozen configuration.
+it is evaluated on. So: sweep 300/50, 600/100, 1000/150, 1200/200 on the *controlled dev*
+split only, pick by a rule fixed in advance, write it to FROZEN.json; held-out, longdoc and
+FinanceBench only ever report the frozen configuration.
 
 Selection rule: highest rag_hybrid recall@2k_tok on dev - recall at an equal context of 2,000
 evidence tokens, the comparison point the design doc cares about. Recall@5 is not used: it grows
@@ -27,7 +27,7 @@ from .loader import CACHE, check_queries, load_corpus, load_queries, prepare_sui
 from .metrics.retrieval import aggregate, evaluate
 from .strategies import Workspace, build_strategies
 
-CONFIGS = [(300, 50), (600, 100), (1000, 150)]
+CONFIGS = [(300, 50), (600, 100), (1000, 150), (1200, 200)]
 
 
 def main(argv: list[str] | None = None) -> int:

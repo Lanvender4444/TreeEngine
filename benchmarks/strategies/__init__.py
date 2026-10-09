@@ -49,6 +49,8 @@ from treeengine.retrieval.tree import TreeRetriever
 from .base import BenchmarkStrategy, IndexStats, RetrievalRun, Search, Strategy
 from .chunk_rag import ChunkStore
 from .full_context import FullContext
+from .scope import BASES as SCOPE_BASES
+from .scope import ScopeBuilder
 from .workspace import Workspace
 
 LEXICAL = [
@@ -76,7 +78,10 @@ NEEDS_VECTOR = [
 NEEDS_LLM = ["tree_llm", "tree_llm+fts", "managed_llm", "tree_llm+vector", "tree_llm+fts+vector"]
 NEEDS_BOTH = ["tree_llm+vector", "tree_llm+fts+vector"]  # LLM navigation + embeddings
 QA_ONLY = ["full_context"]
-ALL = LEXICAL + NEEDS_VECTOR + NEEDS_LLM + QA_ONLY
+SCOPE_LEXICAL = list(SCOPE_BASES)
+SCOPE_VECTOR = [b + sfx for sfx in ("+vector", "+fts+vector") for b in SCOPE_BASES]
+NEEDS_VECTOR += SCOPE_VECTOR
+ALL = LEXICAL + SCOPE_LEXICAL + NEEDS_VECTOR + NEEDS_LLM + QA_ONLY
 RENAMED = {"tree": "tree_lexical", "tree+fts": "tree_lexical+fts"}  # V0.2 names
 PRESETS = {
     # benchmark design doc, first round: is Tree useful, does Vector add semantics, is the
@@ -112,6 +117,13 @@ PRESETS = {
         "vector",
         "tree_lexical+vector_raw",
         "tree_lexical+vector",
+    ],
+    # tree scope ablation: how should structure act on evidence retrieval? (FTS evidence)
+    "scope_ablation": [*SCOPE_BASES, "tree_lexical+fts"],
+    "scope_ablation_vector": [
+        *[b + "+fts+vector" for b in SCOPE_BASES],
+        "fts+vector",
+        "tree_lexical+fts+vector",
     ],
     "llm_tree": [
         "tree_structure",
@@ -274,6 +286,17 @@ def build_strategies(ws: Workspace, names: Sequence[str]) -> dict[str, Benchmark
         "rag_vector": (rag("vector"), ("chunks", "chunk_vectors")),
         "rag_hybrid": (rag("hybrid"), ("chunks", "chunk_vectors")),
     }
+    # scope ablation (benchmark only): hard scope / soft prior / structural rerank
+    scoper = ScopeBuilder(repo, r(tree_lex), r(corpus))
+    table.update(
+        scoper.table(
+            {
+                "": (fts_in, ()),
+                "+vector": (vec_in, ("block_vectors",)),
+                "+fts+vector": (fused_in, ("block_vectors",)),
+            }
+        )
+    )
     out: dict[str, BenchmarkStrategy] = {}
     for name in names:
         if name == "full_context":

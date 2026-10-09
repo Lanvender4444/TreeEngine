@@ -1,11 +1,11 @@
 {
- "frozen_at": "2026-10-09 20:00",
- "note": "V0.4: retrieval frozen before Phase 1 (re-frozen 2026-10-09 20:00: only the v04 preset list gained tree_lexical and managed+vector; no scorer / fusion / planner change); chunk size pending the dev sweep with embeddings",
- "fingerprint": "f3b045187897135d",
+ "frozen_at": "2026-10-09 22:40",
+ "note": "V0.4 phase 2: scope-ablation strategies added (benchmark only; existing strategies unchanged); fingerprints split into retrieval / dataset / evaluation; reference structures regenerated (split words, bullet lists)",
+ "fingerprint": "ab6d631e9a907420",
  "chunk": {
   "size": 600,
   "overlap": 100,
-  "selected_by": "default (design doc)"
+  "selected_by": "default (design doc); final choice waits for the embedding sweep"
  },
  "files": {
   "treeengine/core/__init__.py": "11ba79696dce575d",
@@ -42,10 +42,71 @@
   "treeengine/retrieval/vector.py": "e460b70ff224c6d6",
   "treeengine/embeddings/__init__.py": "0b5e16d9b873ea8d",
   "treeengine/embeddings/providers.py": "40428511d1654bc7",
-  "benchmarks/strategies/__init__.py": "da975d90bb4e413d",
+  "benchmarks/strategies/__init__.py": "6eb9c3efca40777b",
   "benchmarks/strategies/base.py": "22f941725e262a2a",
   "benchmarks/strategies/chunk_rag.py": "38d7ac8625166270",
   "benchmarks/strategies/full_context.py": "7b1cd566dfcbd4cc",
+  "benchmarks/strategies/scope.py": "a7b01d7c749b54e8",
   "benchmarks/strategies/workspace.py": "cfd89e1909eb5684"
+ },
+ "dataset": {
+  "fingerprint": "43deeb6d8bff0c1f",
+  "files": {
+   "benchmarks/datasets/controlled/manifest.json": "568b5f4f37242255",
+   "benchmarks/datasets/financebench/manifest.json": "fea7034147bf0eae",
+   "benchmarks/datasets/longdoc/manifest.json": "573b43f8aa6ea62d",
+   "benchmarks/datasets/controlled/queries.jsonl": "f0b1a813134db55c",
+   "benchmarks/datasets/financebench/queries.jsonl": "df531c506b5f1809",
+   "benchmarks/datasets/longdoc/queries.jsonl": "2edc75d833bc86cf",
+   "benchmarks/datasets/financebench/structures/3M_2018_10K.json": "80ebaa1699be5525",
+   "benchmarks/datasets/financebench/structures/3M_2022_10K.json": "5c585790ffc7eca7",
+   "benchmarks/datasets/financebench/structures/AES_2022_10K.json": "3073956cecd7227c",
+   "benchmarks/datasets/financebench/structures/AMAZON_2017_10K.json": "34dab7ff601bfa08",
+   "benchmarks/datasets/financebench/structures/AMAZON_2019_10K.json": "402153270167eca9",
+   "benchmarks/datasets/financebench/structures/AMCOR_2020_10K.json": "44f1d116c1b00061",
+   "benchmarks/datasets/financebench/structures/AMCOR_2023_10K.json": "5b6b1e38fbbdb337",
+   "benchmarks/datasets/financebench/structures/AMD_2015_10K.json": "563c883493673618",
+   "benchmarks/datasets/financebench/structures/AMD_2022_10K.json": "a46526d3c5adbf1b",
+   "benchmarks/datasets/financebench/structures/AMERICANWATERWORKS_2021_10K.json": "1197f2396313bf9a",
+   "benchmarks/datasets/financebench/structures/COCACOLA_2017_10K.json": "11a39308d1ff8678",
+   "benchmarks/datasets/financebench/structures/COCACOLA_2021_10K.json": "aaa14d4e5d52299b",
+   "benchmarks/datasets/financebench/structures/COCACOLA_2022_10K.json": "0549bf9a96cee1a2",
+   "benchmarks/datasets/financebench/structures/COSTCO_2021_10K.json": "0ca2c8d1e3b8db4a",
+   "benchmarks/datasets/financebench/structures/GENERALMILLS_2019_10K.json": "e0ddfe3bec7ea078",
+   "benchmarks/datasets/financebench/structures/GENERALMILLS_2020_10K.json": "770c60a111eb0da3",
+   "benchmarks/datasets/financebench/structures/GENERALMILLS_2022_10K.json": "1d5cf8f7f94646ae",
+   "benchmarks/datasets/financebench/structures/JOHNSON_JOHNSON_2022_10K.json": "1dbd774bd6fbec63",
+   "benchmarks/datasets/financebench/structures/LOCKHEEDMARTIN_2020_10K.json": "120617f5137f9bc6",
+   "benchmarks/datasets/financebench/structures/LOCKHEEDMARTIN_2021_10K.json": "b105f9b4775a23e6",
+   "benchmarks/datasets/financebench/structures/LOCKHEEDMARTIN_2022_10K.json": "117a830f01ac1f6b",
+   "benchmarks/datasets/financebench/structures/MGMRESORTS_2018_10K.json": "67b73c012f48828a",
+   "benchmarks/datasets/financebench/structures/MGMRESORTS_2020_10K.json": "b5c064b35140c787",
+   "benchmarks/datasets/financebench/structures/MGMRESORTS_2022_10K.json": "f272a3cb4c104e00",
+   "benchmarks/datasets/financebench/structures/NIKE_2018_10K.json": "2680e37d8a66affb",
+   "benchmarks/datasets/financebench/structures/NIKE_2019_10K.json": "6a51f3201976ca68",
+   "benchmarks/datasets/financebench/structures/NIKE_2021_10K.json": "dbc113d165281d2e",
+   "benchmarks/datasets/financebench/structures/NIKE_2023_10K.json": "f4d34ec53a6cf0b5",
+   "benchmarks/datasets/financebench/structures/PFIZER_2021_10K.json": "fd19a9f7c6c7536f",
+   "benchmarks/datasets/financebench/structures/VERIZON_2022_10K.json": "189b218bfb70017b",
+   "benchmarks/datasets/financebench/structures/WALMART_2018_10K.json": "a83c13c02787d823",
+   "benchmarks/datasets/financebench/structures/WALMART_2019_10K.json": "f2695b2f98b57bdf",
+   "benchmarks/datasets/financebench/structures/WALMART_2020_10K.json": "694f1aa390cf2625"
+  }
+ },
+ "evaluation": {
+  "fingerprint": "418fff9069d62ec4",
+  "files": {
+   "benchmarks/metrics/__init__.py": "93dab04a69f3aefa",
+   "benchmarks/metrics/cost.py": "a406c1605156aaab",
+   "benchmarks/metrics/qa.py": "ae4f46a6d0506e0a",
+   "benchmarks/metrics/retrieval.py": "6a6478c988eae690",
+   "benchmarks/judges/__init__.py": "de2bb271abbbce49",
+   "benchmarks/judges/exact.py": "539f493f167c08f5",
+   "benchmarks/judges/human_audit.py": "8c8d9b33679b49e8",
+   "benchmarks/judges/semantic.py": "227838d8a81ba0bf",
+   "benchmarks/answer.py": "e2ed76a3b8298a8b",
+   "benchmarks/loader.py": "1c9b26ff6d7d0065",
+   "benchmarks/datasets/__init__.py": "538de764583c789d"
+  }
  }
 }

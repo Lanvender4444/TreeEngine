@@ -13,13 +13,13 @@
    1,
    "Item 1A. Risk Factors",
    10,
-   "ITEM 1A. Risk Factors"
+   "ITEM 1A. Risk"
   ],
   [
    1,
    "Item 1B. Unresolved Staff Comments",
    23,
-   "ITEM 1B. Unresolved Staff"
+   "ITEM 1B. Unresolved"
   ],
   [
    1,
@@ -31,61 +31,37 @@
    1,
    "Item 3. Legal Proceedings",
    24,
-   "ITEM 3. Legal Proceedings"
+   "ITEM 3. Legal"
   ],
   [
    1,
    "Item 4. Mine Safety Disclosures",
    24,
-   "ITEM 4. Mine Safety"
+   "ITEM 4. Mine"
   ],
   [
    1,
    "Item 5. Market for Registrant's Common Equity, Related Stockholder Matters and Issuer Purchases of Equity Securities",
    26,
-   "ITEM 5. Market for"
+   "ITEM 5. Market"
   ],
   [
    1,
    "Item 6. Selected Financial Data",
    28,
-   "ITEM 6. Selected Financial"
+   "ITEM 6. Selected"
   ],
   [
    1,
    "Item 7. Management's Discussion and Analysis of Financial Condition and Results of Operations",
    30,
-   "ITEM 7. Management's"
-  ],
-  [
-   2,
-   "Contractual Obligations",
-   33,
-   "contractual obligations"
+   "ITEM 7. Management"
   ],
   [
    2,
    "Results of Operations",
    34,
    "Consolidated Results of Operations"
-  ],
-  [
-   2,
-   "Segment Results",
-   38,
-   "Business Segment Results"
-  ],
-  [
-   2,
-   "Non-GAAP Financial Measures",
-   46,
-   "Non-GAAP Financial Measure"
-  ],
-  [
-   2,
-   "Cash Flows",
-   46,
-   "cash flow"
   ],
   [
    2,
@@ -103,13 +79,13 @@
    1,
    "Item 7A. Quantitative and Qualitative Disclosures About Market Risk",
    58,
-   "ITEM 7A. Quantitative and"
+   "ITEM 7A. Quantitative"
   ],
   [
    1,
    "Item 8. Financial Statements and Supplementary Data",
    60,
-   "ITEM 8. Financial Statements"
+   "ITEM 8. Financial"
   ],
   [
    2,
@@ -253,61 +229,67 @@
    1,
    "Item 9. Changes in and Disagreements with Accountants on Accounting and Financial Disclosure",
    103,
-   "ITEM 9. Changes in"
+   "ITEM 9. Changes"
   ],
   [
    1,
    "Item 9A. Controls and Procedures",
    103,
-   "ITEM 9A. Controls and"
+   "ITEM 9A. Controls"
   ],
   [
    1,
    "Item 9B. Other Information",
    105,
-   "ITEM 9B. Other Information"
+   "ITEM 9B. Other"
   ],
   [
    1,
    "Item 9C. Disclosure Regarding Foreign Jurisdictions that Prevent Inspections",
    105,
-   "ITEM 9C. Disclosure Regarding"
+   "ITEM 9C. Disclosure"
   ],
   [
    1,
    "Item 10. Directors, Executive Officers and Corporate Governance",
    105,
-   "ITEM 10. Directors, Executive"
+   "ITEM 10. Directors"
   ],
   [
    1,
    "Item 11. Executive Compensation",
    105,
-   "ITEM 11. Executive Compensation"
+   "ITEM 11. Executive"
   ],
   [
    1,
    "Item 12. Security Ownership of Certain Beneficial Owners and Management and Related Stockholder Matters",
    106,
-   "ITEM 12. Security Ownership"
+   "ITEM 12. Security"
   ],
   [
    1,
    "Item 13. Certain Relationships and Related Transactions, and Director Independence",
    106,
-   "ITEM 13. Certain Relationships"
+   "ITEM 13. Certain"
+  ],
+  [
+   1,
+   "Item 14. Principal Accountant Fees and Services",
+   106,
+   "ITEM 14. Principal"
   ],
   [
    1,
    "Item 15. Exhibits and Financial Statement Schedules",
    107,
-   "ITEM 15. Exhibits and"
+   "ITEM 15. Exhibits"
   ],
   [
    1,
    "Item 16. Form 10-K Summary",
    110,
-   "ITEM 16. Form 10-K"
+   "ITEM 16. Form"
   ]
  ]
 }

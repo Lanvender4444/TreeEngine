@@ -13,13 +13,13 @@
    1,
    "Item 1A. Risk Factors",
    8,
-   "ITEM 1A - Risk Factors"
+   "ITEM 1A - Risk"
   ],
   [
    1,
    "Item 1B. Unresolved Staff Comments",
    14,
-   "ITEM 1B - Unresolved Staff"
+   "ITEM 1B - Unresolved"
   ],
   [
    1,
@@ -31,43 +31,37 @@
    1,
    "Item 3. Legal Proceedings",
    15,
-   "ITEM 3 - Legal Proceedings"
+   "ITEM 3 - Legal"
   ],
   [
    1,
    "Item 4. Mine Safety Disclosures",
    15,
-   "ITEM 4 - Mine Safety"
+   "ITEM 4 - Mine"
   ],
   [
    1,
    "Item 5. Market for Registrant's Common Equity, Related Stockholder Matters and Issuer Purchases of Equity Securities",
    15,
-   "ITEM 5 - Market for"
+   "ITEM 5 - Market"
   ],
   [
    1,
    "Item 7. Management's Discussion and Analysis of Financial Condition and Results of Operations",
    17,
-   "ITEM 7 - Management's"
+   "ITEM 7 - Management"
   ],
   [
    2,
    "Results of Operations",
    18,
-   "Consolidated Results of Operations"
+   "CONSOLIDATED RESULTS OF OPERATIONS"
   ],
   [
    2,
    "Liquidity and Capital Resources",
    25,
    "LIQUIDITY AND CAPITAL RESOURCES"
-  ],
-  [
-   2,
-   "Cash Flows",
-   26,
-   "Cash Flows"
   ],
   [
    2,
@@ -91,13 +85,13 @@
    1,
    "Item 7A. Quantitative and Qualitative Disclosures About Market Risk",
    40,
-   "ITEM 7A - QUANTITATIVE AND"
+   "ITEM 7A - QUANTITATIVE"
   ],
   [
    1,
    "Item 8. Financial Statements and Supplementary Data",
    42,
-   "ITEM 8 - Financial Statements"
+   "ITEM 8 - Financial"
   ],
   [
    2,
@@ -253,31 +247,31 @@
    1,
    "Item 9. Changes in and Disagreements with Accountants on Accounting and Financial Disclosure",
    91,
-   "ITEM 9 - Changes in"
+   "ITEM 9 - Changes"
   ],
   [
    1,
    "Item 9A. Controls and Procedures",
    91,
-   "ITEM 9A - Controls and"
+   "ITEM 9A - Controls"
   ],
   [
    1,
    "Item 9B. Other Information",
    91,
-   "ITEM 9B - Other Information"
+   "ITEM 9B - Other"
   ],
   [
    1,
    "Item 9C. Disclosure Regarding Foreign Jurisdictions that Prevent Inspections",
    91,
-   "ITEM 9C - Disclosure Regarding"
+   "ITEM 9C - Disclosure"
   ],
   [
    1,
    "Item 16. Form 10-K Summary",
    95,
-   "ITEM 16 - Form 10-K"
+   "ITEM 16 - Form"
   ]
  ]
 }

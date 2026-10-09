@@ -24,9 +24,10 @@ pip install -e '.[bench,vector]'            # pypdf, sqlite-vec, tiktoken, matpl
 python -m benchmarks.run_retrieval                                  # controlled，词法策略
 python -m benchmarks.run_retrieval --suite longdoc --vector --embedder openai:BAAI/bge-m3
 python -m benchmarks.run_retrieval --suite financebench --preset v04 --embedder openai:BAAI/bge-m3
-python -m benchmarks.run_structure                                  # 结构质量（flat/heuristic/native/oracle/auto）
+python -m benchmarks.run_structure                                  # 结构质量（flat/heuristic/native/reference/auto）
+python -m benchmarks.run_retrieval --suite longdoc --preset scope_ablation   # 结构以什么方式参与检索
 python -m benchmarks.sweep_chunks --embedder openai:BAAI/bge-m3     # 传统 RAG chunk 大小（只用 dev）
-python -m benchmarks.freeze --check                                 # 检索代码是否仍是冻结版本
+python -m benchmarks.freeze --check                                 # 检索 / 数据 / 评测是否仍是冻结版本
 
 # Layer B：端到端 QA（需要 LLM）
 export TREEENGINE_LLM_MODEL=... TREEENGINE_LLM_API_KEY=... TREEENGINE_LLM_BASE_URL=...
@@ -48,9 +49,9 @@ python -m benchmarks.run_qa --stub-llm --suite longdoc               # 离线测
 ```text
 benchmarks/
 ├── datasets/            controlled/ longdoc/ financebench/：manifest.json + queries.jsonl (+ build.py)
-│                        financebench/structures/：32 份 10-K 参考结构
+│                        financebench/structures/：33 份 10-K 参考结构（structures.py 生成，review.py 出人工校对表）
 ├── strategies/          base.py (BenchmarkStrategy / RetrievalRun / IndexStats) · workspace.py（共享索引）
-│                        chunk_rag.py（传统 RAG）· full_context.py · __init__.py（全部策略）
+│                        chunk_rag.py（传统 RAG）· full_context.py · scope.py（Scope 消融）· __init__.py（全部策略）
 ├── metrics/             retrieval.py · qa.py · cost.py
 ├── judges/              exact.py · semantic.py · human_audit.py
 ├── answer.py            统一 Answerer（同模型、同 prompt、temperature 0）
@@ -91,14 +92,17 @@ benchmarks/
 | H | `tree_lexical+vector` | TreeEngine | Tree 定范围 → 范围内 Vector |
 | I | `tree_lexical+fts+vector` | TreeEngine | Tree 定范围 → 范围内 RRF(FTS, Vector) |
 | J | `managed` / `managed+vector` | TreeEngine | 规则 Planner（后者在词法步骤融合 Vector） |
-| K | oracle | 仅评测 | 每题事后选最好的策略，代表完美路由的上限 |
+| K | oracle | 仅评测 | 每题事后选最好的策略，代表完美路由的上限（和参考结构 `reference` 无关） |
 | – | `vector`, `fts+vector`, `tree_semantic*`, `tree_llm*`, `managed_llm` | TreeEngine | block 级向量、融合、语义子树信号、LLM 导航 / Planner |
+| – | `scope_*`, `prior_<λ>`, `rerank_structure`（各带 `+vector`、`+fts+vector` 后缀） | 仅评测 | Scope 消融：同一个导航结果，以 hard filter / soft prior / rerank 的方式作用于证据检索（`strategies/scope.py`，不改 TreeEngine 的 scorer） |
 
 预设组合：
 - `round1`：benchmark 方案第 38 节的第一轮。
 - `v04`：V0.4 Phase 1 的完整矩阵，包括 fts、rag_bm25、rag_vector、rag_hybrid、vector（block 向量）、fts+vector、tree_lexical、tree→fts、tree→vector、tree→fts+vector、managed、managed+vector。
 - `vector_ablation`：rag_vector、`vector_raw`（只 embed 正文）、`vector`（标题 + 正文），以及两者各自加上 Tree scope。用来拆开分块粒度、标题元数据和 Tree scope 各自的贡献。
 - `llm_tree`：tree_structure、tree_lexical、tree_llm、tree_llm+fts、tree_llm+vector。
+- `scope_ablation`：scope_global、scope_node、scope_subtree、scope_siblings、scope_parent、prior_0.25/0.5/1、rerank_structure，以及 TreeEngine 自己的 tree_lexical+fts。证据检索器是 FTS。
+- `scope_ablation_vector`：同上，证据检索器换成 Vector 和 RRF(FTS, Vector)，要 embedding。
 
 **传统 RAG 只看原始抽取文本**：没有标题、没有树、也没有 block。它的 BM25 和 TreeEngine 用同一个 FTS5 tokenizer 和同样的 CJK 切分，向量侧用同一个 embedding 模型。所以两族之间只有单元（chunk 还是 block）和结构这两个差异。chunk 只在**评测**时才映射回页码和章节。
 
@@ -138,29 +142,40 @@ benchmarks/
 
 ## V0.4 — Evidence & Structure Validation
 
-执行顺序按 V0.4 方案第 33 节。
+执行顺序按《V0.4 下一步执行计划》第 17 节。原则：不再证明“Tree 能不能搜”，而是弄清楚“结构信息该以什么方式参与检索”。
 
 | 步骤 | 状态 |
 | --- | --- |
 | P0-1 用 BGE-M3 全量重算 embedding | **等 embedding API** |
-| P0-2 三个数据集的完整 Vector 矩阵（`--preset v04`） | 代码就绪；词法部分已在冻结后跑完（见下） |
-| P0-3 冻结检索代码 | **已冻结**：`FROZEN.json`，指纹 `f3b045187897135d`（20:00 重新冻结过一次，只是给 `v04` 预设补了 tree_lexical 和 managed+vector，评分、融合、Planner 都没改） |
-| P0-4/5 longdoc、FinanceBench 的 QA | 代码就绪，你在本地跑 |
-| P1-6 Block Vector 消融（raw vs title × 有无 Tree scope） | 策略就绪（`--preset vector_ablation`），等 embedding |
-| P1-7 Chunk 大小扫描（只在 dev 上） | 脚本就绪；词法部分已跑，最终选择要等 embedding |
-| P1-8 结构质量 / Oracle Tree | **已完成（词法）**，见下 |
-| P1-9 LLM 树导航（`--preset llm_tree`） | 策略就绪，等 LLM |
-| P2-10 Oracle Planner | 报告里自动计算 “oracle − planner” 差距 |
+| P0-2 v04 Vector 矩阵（`--preset v04`） | 代码就绪；词法部分已在冻结后跑完（见下） |
+| P0-3 Vector 消融（`--preset vector_ablation`） | 策略就绪，等 embedding |
+| P0-4/5 longdoc、FinanceBench 的 QA | 代码就绪，你在本地跑；报告新增 `ctx tokens/correct` |
+| P1-6 `oracle` → `reference` | **已完成**：参考结构在报告和缓存里都叫 `reference`，人工校对过的才叫 `human_oracle` |
+| P1-7 人工校对 20 份参考树 | 校对表已生成（`review.py`），**等人工** |
+| P1-8/9 Tree Scope 消融、Hard vs Soft | **已完成（词法）**，见下；向量版 `--preset scope_ablation_vector` 等 embedding |
+| P1-10 参考树 + LLM 导航 | 就绪：`run_structure --preset llm_tree --llm`，等 LLM |
+| P1-11 Chunk 扫描 / 冻结 | 加入 1200/200；词法部分已跑，定稿等 embedding |
+| P2-12 Oracle Planner | 报告自动计算；“planner choices” 里加入了 Tree Hybrid（tree_lexical+fts+vector） |
 
 ### 冻结机制
 
 ```bash
-python -m benchmarks.freeze --check     # 冻结之后检索相关代码有没有改动
+python -m benchmarks.freeze --check     # 冻结之后有没有改动
 ```
 
-`FROZEN.json` 记录这些文件的哈希：`treeengine/{core,ingest,structure,storage,retrieval,embeddings}`、`benchmarks/strategies`，以及传统 RAG 的 chunk 配置。每份报告的头部都会写明 “frozen system (...)” 或 “**CHANGED since the freeze**”，所以 held-out 的数字不会悄悄来自一个按 held-out 失败案例调过的系统。
+`FROZEN.json` 现在记录三组指纹（执行计划第 14 节）：
 
-冻结之前做的最后一处解析器改动：PDF 标题被抽取工具和正文粘在同一行时（pypdf 很常见），以前整行都会被当成标题，正文丢失；现在在该行之前开新章节，整行保留为正文。这处改动是在搭建参考结构时发现的，**不是**根据任何检索失败案例做的。controlled 和 longdoc 的数字因此有小幅变化（±1–2 点）。
+| 指纹 | 覆盖 |
+| --- | --- |
+| retrieval | `treeengine/{core,ingest,structure,storage,retrieval,embeddings}`、`benchmarks/strategies`、传统 RAG 的 chunk 配置 |
+| dataset | 每个数据集的 manifest、queries、参考结构 |
+| evaluation | metrics、judges、Answerer、loader |
+
+报告、图表、运行脚本不在任何一组里：改展示方式不会改数字。报告头部写 “frozen retrieval system (...)” 或 “**retrieval CHANGED**”；数据或评测有改动时另起一句列出，不影响 retrieval 的冻结状态。所以 held-out 的数字不会悄悄来自一个按 held-out 失败案例调过的系统。
+
+当前冻结：retrieval `ab6d631e9a907420`（chunk 600/100）。这次重新冻结只加了 benchmark 侧的 Scope 消融策略（`strategies/scope.py`）；已有策略、评分、融合、Planner、解析都没改，所以 `v0.4-lexical-*` 仍然有效。
+
+PDF 标题粘行的解析修复（冻结前最后一处解析器改动）：pypdf 常把标题和正文抽到同一行，以前整行都会被当成标题、正文丢失；现在在该行之前开新章节，整行保留为正文。这处改动是在搭建参考结构时发现的，**不是**根据任何检索失败案例做的。
 
 ### Chunk 大小扫描（controlled dev，115 条）
 
@@ -171,8 +186,9 @@ python -m benchmarks.freeze --check     # 冻结之后检索相关代码有没�
 | 300 / 50 | 96.5 | **92.2** | **96.5** | 1,394 |
 | 600 / 100 | 95.7 | 75.7 | 93.0 | 2,727 |
 | 1000 / 150 | **99.1** | 75.7 | 95.7 | 4,419 |
+| 1200 / 200 | 98.3 | 13.0 | 82.6 | 5,220 |
 
-只看词法部分时，规则会选 1000/150（2k token 召回与 300/50 相差不到 1 点，再按 R@5 取高）。但规则针对的是 `rag_hybrid`，所以等 embedding 到位后用 `python -m benchmarks.sweep_chunks --embedder openai:BAAI/bge-m3 --write` 定稿；目前冻结的仍是 600/100。
+1200/200 的单个 chunk 就超过 1,000 token，所以 1k 预算下几乎放不进证据。只看词法时规则仍选 1000/150；但规则针对的是 `rag_hybrid`，所以等 embedding 到位后用 `sweep_chunks --embedder ... --write` 定稿。目前冻结的仍是 600/100。
 
 ### 冻结后的词法结果
 
@@ -192,66 +208,133 @@ python -m benchmarks.freeze --check     # 冻结之后检索相关代码有没�
 - `tree_lexical` 在 financebench 上显著差于 FTS（7:32）。longdoc 上 Tree→FTS 也显著更差（2:10，p=0.039）。
 - Planner 的 routing 上限（oracle − rule planner）在三个数据集上是 +5.7 / +3.7 / +2.7 点，属于中等偏小。注意目前只能在词法策略之间路由；加入向量策略后要重新算。
 
-### 结构质量实验（Phase 3，`results/v0.4-structure-financebench.md`）
+### 结构质量实验（`results/v0.4-structure-financebench.md`）
 
 ```bash
-python -m benchmarks.run_structure            # flat / heuristic / native / oracle / auto
-python -m benchmarks.run_structure --llm      # + LLM 结构（需要 TREEENGINE_LLM_*）
+python -m benchmarks.run_structure                       # flat / heuristic / native / reference / auto
+python -m benchmarks.run_structure --preset scope_ablation --variants flat,auto,reference
+python -m benchmarks.run_structure --llm                 # + LLM 结构（需要 TREEENGINE_LLM_*）
+python -m benchmarks.run_structure --reviewed-only       # 只用人工校对过的（human_oracle）
 ```
 
-**参考结构**：`datasets/financebench/structures/*.json`，共 32 份 10-K。
+**参考结构（reference）**：`datasets/financebench/structures/*.json`，共 33 份 10-K。
 - 10-K 的结构由 SEC Form 10-K 规定：Item 1–16；Item 7 下是 MD&A 小节；Item 8 下是审计报告、主报表和 Notes，Notes 下是 Note 1…N。所以可以用一个 schema 从页面文本里半自动抽出来（`structures.py`）。
 - 抽取只读文档，不读问题和证据页。“抽取完整”的文档（≥12 个 Item、≥5 个小节、≥10 个 Note）才入选，入选与否和题目无关。
-- 全部 32 份都通过了自动一致性检查（页码单调、条目数量、可疑标题），我也看过其中大部分的大纲摘要，**但没有经过人工逐份校对**（每个文件 `reviewed: false`）。人工校对后把 `reviewed` 改成 `true`，再用 `--reviewed-only` 跑一遍，就是方案所说的真正 Oracle。
-- 它在自己的变体里被如实还原：heading F1 为 98.9%。
+- 之前叫 `oracle`，现在改叫 `reference`：它是自动恢复的，**没人校对过**（`reviewed: false`）。
+- 生成校对表时发现了三类抽取错误，已修复后重新生成（33 份，原来 32 份）：
+  1. pypdf 把单词最后几个字母拆到下一行（`Busines⏎ ⏎s.`、`Incom⏎ ⏎e`），导致 Item 1–3 等标题漏掉。现在先修复这种断词再匹配，锚点仍取原始文本，保证 TreeEngine 能定位。
+  2. MD&A 开头的目录式项目符号列表（`· Overview · Results of Operations …`）被当成小节标题。现在跳过项目符号后的匹配，并要求 MD&A 小节标题首字母大写、独占一行。
+  3. 校对表里的撇号（’ 与 '）不一致导致 “anchor not found”。
+- 这些修复只依据结构本身，和检索结果、题目无关。代价是 MD&A 小节召回变低（宁缺毋滥），人工校对时补。
 
-同样 32 份文档、54 道题、同样的检索算法，只换文档树：
+**人工校对（reference → human_oracle）**：
 
-| 结构 | heading F1（对参考结构） | fts | tree_structure | tree_lexical | tree→fts |
-| --- | --- | --- | --- | --- | --- |
-| flat（无结构） | 0 | **25.0** | 1.9 | 3.7 | 25.0 |
-| heuristic（当前启发式） | 8.4 | 19.4 | 10.2 | 13.9 | 19.4 |
-| native（只用书签，32 份里只有 3 份有） | 11.1 | 24.1 | 1.9 | 3.7 | 24.1 |
-| **auto（TreeEngine 现状）** | 13.1 | 19.4 | 8.3 | 11.1 | 16.7 |
-| **reference（10-K schema）** | 98.9 | 18.5 | **31.5** | **32.4** | 25.0 |
+```bash
+python -m benchmarks.datasets.financebench.review      # 20 份校对表 → structures/review/*.md（不入库）
+```
 
-R@2k tokens 下：flat FTS 43.5，reference tree_lexical 37.0，reference tree→fts 34.3，auto tree→fts 27.8。
+样本按文件名的 sha256 取前 20 份，可复现，和检索结果无关。每张表有 7 项检查（标题是否真实、层级、页码、缺失、误报、Notes 层级、Item 边界），以及每个标题在页面上的原文片段。校对人直接改 JSON，然后设 `"reviewed": true, "review": {"by", "date", "notes"}`。重新生成时 `reviewed: true` 的文件不会被覆盖。`run_structure` 会把校对过的文档单独列为 `human_oracle`，报告 Heading P / R / F1、Hierarchy Accuracy、Tree→FTS 和导航召回。
 
-**解读（n=54，统计功效低，下面是方向，不是定论）：**
-1. **结构质量确实是 Tree 的瓶颈。** 把树从现状换成参考结构，Tree 作为检索器（`tree_lexical`）从 11.1 升到 32.4，Tree→FTS 从 16.7 升到 25.0（对 auto 8:2，p=0.11）。现状的启发式结构和真实结构几乎不重合（F1 8–13%）。
-2. **但好的树也没有超过“不要结构的 FTS”。** reference 下的 `tree_lexical` 对 flat FTS 是 8:5（p=0.58）；在相同 2k token 预算下 flat FTS 反而更高（43.5 vs 37.0）。按方案第 27 节的判据，这是 “Native 52 / Oracle 53” 那一类，而不是 “Current 30 / Oracle 60”：Tree 自身的上限有限。
-3. **坏结构会连累 FTS。** 同样是 FTS，flat 25.0，在启发式结构下只有 19.4。可能的原因（尚未单独验证）是：标题会被当作独立列参与 BM25 打分，而且会把段落切碎。这意味着 TreeEngine 现在的默认解析会让它自己的 FTS 在长 PDF 上变差。
+同样 33 份文档、55 道题、同样的检索算法，只换文档树（R@5）：
 
-**建议（等向量结果出来再定）：**
-- 不要投入大型 PDF 结构引擎去追 Tree 的召回。
-- 低成本的修正值得做：对启发式结构加置信度门槛，结构质量差时退回 flat，至少不让它拖累 FTS。这属于 parser 改动，要先在 dev 上做，再用新的 held-out 验证；现在这批 FinanceBench 题已经看过结果，不能用来调。
-- Tree 的价值更可能在“读得少”（visited_ratio）和显式导航上。这要看 LLM 树导航（P1-9）和 QA 的 context/cost 结果。
+| 结构 | heading F1 | hierarchy acc | fts | tree_structure | tree_lexical | tree→fts |
+| --- | --- | --- | --- | --- | --- | --- |
+| flat（无结构） | 0 | 0 | **24.5** | 1.8 | 3.6 | 24.5 |
+| **auto（TreeEngine 现状）** | 13.3 | 26.9 | 19.1 | 8.2 | 10.9 | 16.4 |
+| **reference（10-K schema）** | 98.9 | 99.9 | 18.2 | **31.8** | 29.1 | 23.6 |
+
+R@2k tokens：flat FTS **43.6**；reference 下 tree_structure 38.2、tree_lexical 31.8、tree→fts 29.1；auto 下 tree→fts 28.2。
+
+**解读（n=55，统计功效低，下面是方向，不是定论）：**
+1. **结构质量是 Tree 导航的瓶颈。** 现状 → 参考结构，`tree_lexical` 10.9 → 29.1，Tree→FTS 16.4 → 23.6（9:3，p=0.15）。
+2. **但好的树也没有超过“不要结构的 FTS”。** reference tree→fts 对 flat FTS 是 5:6；2k token 下 flat FTS 43.6，最好的结构化策略 38.2。
+3. **结构会伤害 FTS 本身。** 同一套 FTS，flat 24.5，auto 19.1，reference 18.2；2k token 下 43.6 → 30.0 / 29.1。参考结构上 Tree scope 带来的提升（18.2 → 23.6）大部分只是在弥补结构对 FTS 的伤害。可能原因：标题被当作独立列参与 BM25，以及按章节切分把段落切碎。这一点还没单独验证，但它直接指向第 13 节的候选架构：**证据索引不依赖树，树只提供结构信号**。
+
+### Tree Scope 消融：结构以什么方式参与检索（词法）
+
+```bash
+python -m benchmarks.run_retrieval --suite controlled --split dev --preset scope_ablation   # 先在 dev 上选 λ
+python -m benchmarks.run_retrieval --suite controlled --split heldout --preset scope_ablation
+python -m benchmarks.run_retrieval --suite longdoc --preset scope_ablation
+python -m benchmarks.run_retrieval --suite financebench --preset scope_ablation
+```
+
+同一个导航器（`tree_lexical`）、同一个证据检索器（FTS），只改导航结果的用法（`strategies/scope.py`，只在 benchmark 里，不改 TreeEngine 的 scorer）：
+
+| 方式 | 策略 | 做法 |
+| --- | --- | --- |
+| 无结构 | `scope_global` | 全文档 FTS（= `fts`） |
+| Hard filter | `scope_node` | 只搜目标节点自己的正文 |
+| | `scope_subtree` | 目标节点的完整子树 |
+| | `scope_siblings` | 目标 + 兄弟节点的子树 |
+| | `scope_parent` | 目标父节点的整棵子树 |
+| | `tree_lexical+fts` | TreeEngine 现在的做法：按自身正文入选的章节只搜正文，其余搜子树 |
+| Soft boost | `prior_<λ>` | 全局取 50 个候选，`归一化 FTS 分数 + λ × prior`；prior = 1（目标子树内）/ 0.5（父节点子树内）/ 0 |
+| Structural rerank | `rerank_structure` | 全局候选按 prior 优先、FTS 分数其次排序（λ → ∞） |
+
+λ 预先规定在 controlled dev 上按 R@5 选（平局取小的）：dev 上 prior_1 86.1，prior_0.25 / 0.5 都是 85.2，所以选 **λ = 1**。其余 λ 照常报告，但不作为结论依据。
+
+完整报告：`results/v0.4-scope-{controlled-dev,controlled-heldout,longdoc,financebench}.md`。
+
+| 策略 | heldout R@5 | R@2k | longdoc R@5 | R@2k | financebench R@5 | R@2k |
+| --- | --- | --- | --- | --- | --- | --- |
+| scope_global（无结构） | 78.6 | 91.0 | 65.4 | 80.8 | **34.7** | **46.0** |
+| scope_node | 77.6 | 82.4 | 58.8 ▼ | 69.6 | 32.0 | 38.9 |
+| scope_subtree | 78.6 | 84.3 | 59.2 | 70.5 | 32.0 | 38.9 |
+| scope_siblings | 76.2 | 87.1 | 64.3 | 80.8 | 34.3 | 44.7 |
+| scope_parent | 77.1 | 89.0 | 64.3 | 80.8 | 34.3 | 44.7 |
+| tree_lexical+fts（现状） | 77.6 | 82.9 | 58.8 ▼ | 70.7 | 32.0 | 38.9 |
+| prior_0.25 | 78.6 | **91.9** | **66.1** | 81.9 | **34.7** | 45.0 |
+| prior_0.5 | 79.5 | 91.4 | 63.6 | **82.1** | 34.0 | 44.3 |
+| **prior_1（dev 选定）** | **80.0** | 90.0 | 59.9 | 80.2 | 32.7 | 43.7 |
+| rerank_structure | 78.6 | 89.0 | 59.2 | 76.0 | 32.0 | 42.3 |
+
+▼ = 对 scope_global 的配对符号检验 p < 0.05（longdoc 2:10，p=0.039）。其余差异都不显著；prior_1 对 scope_global：heldout 11:8、longdoc 2:9（p=0.065）、financebench 5:10。
+
+**回答执行计划第 8 节的四个问题：**
+1. **Hard scope 会损失证据召回吗？会。** 在相同 2k token 预算下，三个数据集上只搜目标（node / subtree / 现状）都比全局低 7–11 点；longdoc 上显著。放宽到兄弟或父节点能收回大部分损失，但从没超过全局：范围越大越接近全局，说明这个范围本身没有带来正向信息。
+2. **Soft boost 更稳吗？更稳，但也没有收益。** λ 小（0.25）时在三个数据集上都和全局持平，不伤害；λ 一变大就向 hard scope 靠拢，开始丢召回。dev 上选出的 λ = 1 在 heldout 上略好（+1.4，不显著），在 longdoc 和 financebench 上变差。没有一个 λ 在任何数据集上显著好于全局。
+3. **结构适合做 rerank 信号吗？在词法检索下不适合。** `rerank_structure` 基本等于 hard scope 的效果。
+4. **Tree 应该只负责导航吗？就目前的词法证据，是。** 结构作为检索过滤或打分信号都没有带来增益；结合上面的结构实验（结构还会伤害 FTS 本身），Tree 更适合作为 Agent 的导航接口和可解释的范围，而证据检索在不依赖树的索引上进行。
+
+**还没回答的部分：**
+- 向量和融合检索下的结论可能不同：词法 FTS 已经很精确，结构信号可能对语义检索的“近而不准”更有用。要跑 `--preset scope_ablation_vector`，等 embedding。
+- 导航器是启发式的 `tree_lexical`。好的树 + LLM 导航（`run_structure --preset llm_tree --llm`）可能让 hard scope 更准，等 LLM。
+- 上述 prior 只有两档（子树 / 父节点）。祖先上下文、邻域扩展这些信号（第 13 节）还没测。
 
 ## 待完成
 
 | 实验 | 需要 |
 | --- | --- |
-| P0 向量矩阵：`--preset v04`；三个数据集；BGE-M3 | embedding API（约 900 万 tokens，再加 chunk 扫描约 450 万） |
-| P1 Chunk 扫描定稿：`sweep_chunks --write` | embedding API |
-| P1 Block Vector 消融：`--preset vector_ablation` | embedding API |
+| P0 Chunk 扫描定稿（`sweep_chunks --write`），然后向量矩阵 `--preset v04`；三个数据集；BGE-M3 | embedding API（约 900 万 tokens，再加 chunk 扫描约 600 万） |
+| P0 Vector 消融：`--preset vector_ablation` | embedding API |
 | P0 QA：`run_qa`（longdoc、financebench，含 full context） | Answer LLM（可选独立 Judge） |
-| P1 LLM 树导航：`--preset llm_tree`；`run_structure --llm`（LLM 结构） | LLM |
-| 参考结构人工校对 | 人工，按需 |
+| P1 参考树人工校对（20 份） | 人工 |
+| P1 向量 Scope 消融：`--preset scope_ablation_vector` | embedding API |
+| P1 参考树 + LLM 导航：`run_structure --preset llm_tree --llm`；LLM 结构：`run_structure --llm` | LLM |
 
 拿到 API 之后的运行顺序：
 
 ```bash
 export TREEENGINE_EMBED_BASE_URL=... TREEENGINE_EMBED_API_KEY=...
 E=openai:BAAI/bge-m3
-python -m benchmarks.sweep_chunks --embedder $E --write        # dev 上定 chunk，写入 FROZEN.json
+python -m benchmarks.sweep_chunks --embedder $E --write        # 先在 dev 上定 chunk，写入 FROZEN.json
 python -m benchmarks.run_retrieval --suite controlled --split heldout --preset v04 --embedder $E
 python -m benchmarks.run_retrieval --suite longdoc --preset v04 --embedder $E
 python -m benchmarks.run_retrieval --suite financebench --preset v04 --embedder $E
 python -m benchmarks.run_retrieval --suite financebench --preset vector_ablation --embedder $E
-python -m benchmarks.run_structure --embedder $E               # 结构 × 向量
+python -m benchmarks.run_retrieval --suite longdoc --preset vector_ablation --embedder $E
 # QA（本地，需要 TREEENGINE_LLM_*）：先 --limit 10 看成本
 python -m benchmarks.run_qa --suite longdoc --embedder $E --limit 10
+python -m benchmarks.run_qa --suite longdoc --embedder $E
 python -m benchmarks.run_qa --suite financebench --embedder $E
+# Scope × 向量：先 dev 选 λ，再 heldout / longdoc / financebench
+python -m benchmarks.run_retrieval --suite controlled --split dev --preset scope_ablation_vector --embedder $E
+python -m benchmarks.run_retrieval --suite longdoc --preset scope_ablation_vector --embedder $E
+python -m benchmarks.run_retrieval --suite financebench --preset scope_ablation_vector --embedder $E
+python -m benchmarks.run_structure --preset scope_ablation_vector --embedder $E
+# 参考树 + LLM 导航
+python -m benchmarks.run_structure --preset llm_tree --llm --variants auto,reference
 ```
 
 ## 历史

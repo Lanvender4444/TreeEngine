@@ -88,6 +88,14 @@ def grouped_table(
     return _table([label, "n", *strategies], body)
 
 
+def base_of(strategies: Sequence[str]) -> str:
+    """The no-structure reference: FTS, or its scope-ablation twin ``scope_global``."""
+    for b in ("fts", "scope_global"):
+        if b in strategies:
+            return b
+    return strategies[0] if strategies else "fts"
+
+
 def significance(outcomes: Sequence[QueryOutcome], strategies: Sequence[str], base: str) -> str:
     if base not in strategies:
         return ""
@@ -149,6 +157,7 @@ PLANNER_VIEW = [
     ("always_tree→fts", "tree_lexical+fts"),
     ("always_tree→vector", "tree_lexical+vector"),
     ("always_hybrid_rag", "rag_hybrid"),
+    ("always_tree_hybrid", "tree_lexical+fts+vector"),
     ("rule_planner", "managed"),
     ("rule_planner+vector", "managed+vector"),
     ("llm_planner", "managed_llm"),
@@ -157,7 +166,14 @@ ORACLES = [
     ("oracle(fts|tree|tree→fts)", ["fts", "tree_lexical", "tree_lexical+fts"]),
     (
         "oracle(planner choices)",  # design doc V0.4 §30: what a router could choose from
-        ["fts", "vector", "rag_hybrid", "tree_lexical+fts", "tree_lexical+vector"],
+        [
+            "fts",
+            "vector",
+            "rag_hybrid",
+            "tree_lexical+fts",
+            "tree_lexical+vector",
+            "tree_lexical+fts+vector",
+        ],
     ),
 ]
 PLANNERS = ["rule_planner", "rule_planner+vector", "llm_planner"]
@@ -363,7 +379,7 @@ def render(
         "",
         "## Significance (paired sign test on recall@5)",
         "",
-        significance(outcomes, strategies, "fts"),
+        significance(outcomes, strategies, base_of(strategies)),
         "",
     ]
     if "rag_hybrid" in strategies:
@@ -416,7 +432,7 @@ def render(
     parts += [
         f"## Head-to-head at k={k}",
         "",
-        head_to_head(outcomes, strategies, k),
+        head_to_head(outcomes, strategies, k, base_of(strategies)),
         "",
         f"## Missed by every strategy at k={k}",
         "",
