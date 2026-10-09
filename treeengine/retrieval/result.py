@@ -30,6 +30,7 @@ class SearchStats:
     llm_tokens_estimated: bool = True
     llm_calls_by_purpose: dict[str, int] = field(default_factory=dict)
     fts_queries: int = 0
+    vector_queries: int = 0
     tree_searches: int = 0
     visited_nodes: int = 0  # nodes loaded during tree traversal (summed over documents)
     total_nodes: int = 0  # size of the trees that were traversed

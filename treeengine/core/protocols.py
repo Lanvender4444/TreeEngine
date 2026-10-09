@@ -97,3 +97,46 @@ class Retriever(Protocol):
         node_id: str | None = None,
         limit: int | None = None,
     ) -> list[Evidence]: ...
+
+
+@runtime_checkable
+class EmbeddingProvider(Protocol):
+    """Text -> vector. Implementations decide query/passage prefixes and normalisation."""
+
+    model_name: str
+
+    def embed_texts(self, texts: Sequence[str]) -> list[list[float]]: ...
+
+    def embed_query(self, query: str) -> list[float]: ...
+
+
+@runtime_checkable
+class VectorIndex(Protocol):
+    """Block-level vector index. Stores only ``block_id`` -> embedding (+ document_id for
+    filtering); block text stays in the Repository, which remains the source of truth."""
+
+    def upsert(self, items: Sequence[tuple[str, str, Sequence[float]]]) -> None:
+        """Insert or replace ``(block_id, document_id, embedding)`` rows."""
+        ...
+
+    def delete(self, block_ids: Sequence[str]) -> None: ...
+
+    def delete_document(self, document_id: str) -> None: ...
+
+    def search(
+        self,
+        vector: Sequence[float],
+        *,
+        k: int = 10,
+        document_id: str | None = None,
+        block_ids: Sequence[str] | None = None,
+    ) -> list[tuple[str, float]]:
+        """Top-k ``(block_id, cosine_similarity)``, best first, optionally restricted to a
+        document or an explicit set of blocks (e.g. a tree scope)."""
+        ...
+
+    def rebuild(self) -> None:
+        """Drop all vectors (the caller re-embeds blocks from the Repository)."""
+        ...
+
+    def count(self) -> int: ...

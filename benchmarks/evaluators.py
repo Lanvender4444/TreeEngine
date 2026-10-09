@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 import statistics
+import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -23,7 +24,7 @@ _WS = re.compile(r"\s+")
 
 
 def norm(text: str) -> str:
-    return _WS.sub("", text).lower()
+    return _WS.sub("", unicodedata.normalize("NFKC", text)).lower()
 
 
 @dataclass
@@ -145,6 +146,11 @@ class QueryOutcome:
     llm_tokens: int
     top_nodes: list[str] = field(default_factory=list)
     error: str | None = None
+    llm_input_tokens: int = 0
+    llm_output_tokens: int = 0
+
+    def hit(self, k: int = 5) -> bool:
+        return bool(self.recall) and self.recall.get(k, 0.0) > 0
 
 
 def evaluate(
@@ -158,6 +164,8 @@ def evaluate(
     visited_ratio: float | None,
     llm_calls: int = 0,
     llm_tokens: int = 0,
+    llm_input_tokens: int = 0,
+    llm_output_tokens: int = 0,
 ) -> QueryOutcome:
     recall: dict[int, float] = {}
     rr = 0.0
@@ -192,6 +200,8 @@ def evaluate(
         latency_ms=latency_ms,
         llm_calls=llm_calls,
         llm_tokens=llm_tokens,
+        llm_input_tokens=llm_input_tokens,
+        llm_output_tokens=llm_output_tokens,
         top_nodes=[" > ".join(paths.path(e.node_id)[-2:]) for e in evidence[:3]],
     )
 
@@ -227,6 +237,30 @@ def aggregate(outcomes: Sequence[QueryOutcome], ks: Sequence[int]) -> dict[str, 
     row["p50_ms"] = _pct(lat, 50)
     row["p95_ms"] = _pct(lat, 95)
     row["llm_calls/q"] = _mean([float(o.llm_calls) for o in outcomes])
+    row["llm_in_tokens/q"] = _mean([float(o.llm_input_tokens) for o in outcomes])
+    row["llm_out_tokens/q"] = _mean([float(o.llm_output_tokens) for o in outcomes])
     row["llm_tokens/q"] = _mean([float(o.llm_tokens) for o in outcomes])
+    successes = sum(1 for o in judged if o.hit(5))
+    total_tokens = sum(o.llm_tokens for o in outcomes)
+    # LLM tokens spent per query whose evidence reached the top 5
+    row["tokens/success"] = (total_tokens / successes) if successes and total_tokens else None
     row["errors"] = sum(1 for o in outcomes if o.error)
     return row
+
+
+def oracle(
+    outcomes: Sequence[QueryOutcome], strategies: Sequence[str], name: str, k: int = 5
+) -> list[QueryOutcome]:
+    """Per query, the best of ``strategies`` judged against the ground truth (evaluation only):
+    what a perfect router choosing among them could reach."""
+    by_q: dict[str, list[QueryOutcome]] = {}
+    for o in outcomes:
+        if o.strategy in strategies:
+            by_q.setdefault(o.query_id, []).append(o)
+    out = []
+    for outs in by_q.values():
+        best = max(outs, key=lambda o: (o.recall.get(k, 0.0) if o.recall else 0.0, o.rr))
+        from dataclasses import replace as _replace
+
+        out.append(_replace(best, strategy=name))
+    return out

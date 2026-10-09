@@ -91,6 +91,168 @@
       "kind": "PDF manual with bookmarks"
     },
     {
+      "name": "fed_annual_report_2023.pdf",
+      "url": "https://raw.githubusercontent.com/VectifyAI/PageIndex/1a060dfc5c512ece03aeaa9cb80d76dbb5358bdf/examples/documents/2023-annual-report.pdf",
+      "sha256": "aacf44d05ebbc21f5e78d029864dc69871f88364b61a2ae405ad4ca43143f666",
+      "source": "https://github.com/VectifyAI/PageIndex/blob/1a060dfc5c512ece03aeaa9cb80d76dbb5358bdf/examples/documents/2023-annual-report.pdf",
+      "license": "MIT repo; public filings/papers",
+      "lang": "en",
+      "kind": "annual report PDF (222 pages, bookmarks)"
+    },
+    {
+      "name": "q1_fy25_earnings.pdf",
+      "url": "https://raw.githubusercontent.com/VectifyAI/PageIndex/1a060dfc5c512ece03aeaa9cb80d76dbb5358bdf/examples/documents/q1-fy25-earnings.pdf",
+      "sha256": "edb5d4c78cc2c403f2387a7b8aa7134c1a96018acb489722d13aa6a968ae93bb",
+      "source": "https://github.com/VectifyAI/PageIndex/blob/1a060dfc5c512ece03aeaa9cb80d76dbb5358bdf/examples/documents/q1-fy25-earnings.pdf",
+      "license": "MIT repo; public filings/papers",
+      "lang": "en",
+      "kind": "earnings release PDF (no bookmarks)"
+    },
+    {
+      "name": "reg_bi_interpretive.pdf",
+      "url": "https://raw.githubusercontent.com/VectifyAI/PageIndex/1a060dfc5c512ece03aeaa9cb80d76dbb5358bdf/examples/documents/Regulation%20Best%20Interest_Interpretive%20release.pdf",
+      "sha256": "b1f896c166dace5e1314af16b5c4709a16a2aa6dccd6955d2779ceba11113d15",
+      "source": "https://github.com/VectifyAI/PageIndex/blob/1a060dfc5c512ece03aeaa9cb80d76dbb5358bdf/examples/documents/Regulation Best Interest_Interpretive release.pdf",
+      "license": "MIT repo; public filings/papers",
+      "lang": "en",
+      "kind": "regulatory release PDF"
+    },
+    {
+      "name": "reg_bi_proposed.pdf",
+      "url": "https://raw.githubusercontent.com/VectifyAI/PageIndex/1a060dfc5c512ece03aeaa9cb80d76dbb5358bdf/examples/documents/Regulation%20Best%20Interest_proposed%20rule.pdf",
+      "sha256": "d8611d968d8ba9542ec775f43b80953b365758599701fd9c438383a6b82cd58f",
+      "source": "https://github.com/VectifyAI/PageIndex/blob/1a060dfc5c512ece03aeaa9cb80d76dbb5358bdf/examples/documents/Regulation Best Interest_proposed rule.pdf",
+      "license": "MIT repo; public filings/papers",
+      "lang": "en",
+      "kind": "regulatory rule PDF (408 pages, 160+ nodes)"
+    },
+    {
+      "name": "attention_residuals.pdf",
+      "url": "https://raw.githubusercontent.com/VectifyAI/PageIndex/1a060dfc5c512ece03aeaa9cb80d76dbb5358bdf/examples/documents/attention-residuals.pdf",
+      "sha256": "444673994328f7be8aee9d96fb240596b6f254f06ebaa53a2673413a244198c9",
+      "source": "https://github.com/VectifyAI/PageIndex/blob/1a060dfc5c512ece03aeaa9cb80d76dbb5358bdf/examples/documents/attention-residuals.pdf",
+      "license": "MIT repo; public filings/papers",
+      "lang": "en",
+      "kind": "research paper PDF"
+    },
+    {
+      "name": "earthmover.pdf",
+      "url": "https://raw.githubusercontent.com/VectifyAI/PageIndex/1a060dfc5c512ece03aeaa9cb80d76dbb5358bdf/examples/documents/earthmover.pdf",
+      "sha256": "b28ea18276ce6ebb0ba1298813ce96fa812bb70ec8851933f07d18424813d74d",
+      "source": "https://github.com/VectifyAI/PageIndex/blob/1a060dfc5c512ece03aeaa9cb80d76dbb5358bdf/examples/documents/earthmover.pdf",
+      "license": "MIT repo; public filings/papers",
+      "lang": "en",
+      "kind": "research paper PDF (no bookmarks, heuristic)"
+    },
+    {
+      "name": "prml.pdf",
+      "url": "https://raw.githubusercontent.com/VectifyAI/PageIndex/1a060dfc5c512ece03aeaa9cb80d76dbb5358bdf/examples/documents/PRML.pdf",
+      "sha256": "4ee767e0a6b04fa05ba7e599e9dbb4637a94a4407ccedf0b4d316b1fd7c8ec64",
+      "source": "https://github.com/VectifyAI/PageIndex/blob/1a060dfc5c512ece03aeaa9cb80d76dbb5358bdf/examples/documents/PRML.pdf",
+      "license": "MIT repo; public filings/papers",
+      "lang": "en",
+      "kind": "textbook PDF (758 pages, 285 nodes)"
+    },
+    {
+      "name": "openapi_3_1_0.md",
+      "url": "https://raw.githubusercontent.com/OAI/OpenAPI-Specification/aebfd1370825c08f605681f0b3e87bf604c731f4/versions/3.1.0.md",
+      "sha256": "ee99bcc50c7610f4876ce77b2f746036d4095e0909968bb6839259f955bac022",
+      "source": "https://github.com/OAI/OpenAPI-Specification/blob/aebfd1370825c08f605681f0b3e87bf604c731f4/versions/3.1.0.md",
+      "license": "Apache-2.0",
+      "lang": "en",
+      "kind": "specification (140+ nodes)"
+    },
+    {
+      "name": "graphql_type_system.md",
+      "url": "https://raw.githubusercontent.com/graphql/graphql-spec/3f1ef846019884a8c9c3a32b65ea03168f24ecff/spec/Section%203%20--%20Type%20System.md",
+      "sha256": "794a8382fe7bebaee3b2b7727642bc0634c62ea8ef494176aebfe77c2f20b265",
+      "source": "https://github.com/graphql/graphql-spec/blob/3f1ef846019884a8c9c3a32b65ea03168f24ecff/spec/Section 3 -- Type System.md",
+      "license": "OWFa-1.0",
+      "lang": "en",
+      "kind": "specification"
+    },
+    {
+      "name": "graphql_validation.md",
+      "url": "https://raw.githubusercontent.com/graphql/graphql-spec/3f1ef846019884a8c9c3a32b65ea03168f24ecff/spec/Section%205%20--%20Validation.md",
+      "sha256": "8a5c03f466db13d97da746f2cad8327291b968a422e4abbe27c5160d959d90a2",
+      "source": "https://github.com/graphql/graphql-spec/blob/3f1ef846019884a8c9c3a32b65ea03168f24ecff/spec/Section 5 -- Validation.md",
+      "license": "OWFa-1.0",
+      "lang": "en",
+      "kind": "specification"
+    },
+    {
+      "name": "system_design_primer.md",
+      "url": "https://raw.githubusercontent.com/donnemartin/system-design-primer/ae9bbd7b02d90b9866215de185217d33f39ab733/README.md",
+      "sha256": "390a8cad315d703c10cfbdf6832c2f320882bd4c3feaf2cea78c820995903cf1",
+      "source": "https://github.com/donnemartin/system-design-primer/blob/ae9bbd7b02d90b9866215de185217d33f39ab733/README.md",
+      "license": "CC-BY-4.0",
+      "lang": "en",
+      "kind": "large handbook (170+ nodes)"
+    },
+    {
+      "name": "go_spec.html",
+      "url": "https://raw.githubusercontent.com/golang/go/5d8f28c94de903cf00cfa365a789494ba91e82a9/doc/go_spec.html",
+      "sha256": "89ccf315ba33c5786ffac6d49bdfcce385b524b13db2be217f7a9c94022ebcdc",
+      "source": "https://github.com/golang/go/blob/5d8f28c94de903cf00cfa365a789494ba91e82a9/doc/go_spec.html",
+      "license": "BSD-3-Clause",
+      "lang": "en",
+      "kind": "language specification HTML (170 nodes)"
+    },
+    {
+      "name": "node_fs.md",
+      "url": "https://raw.githubusercontent.com/nodejs/node/855e3f74b5868bd9a560e95dd82d70da92e307e3/doc/api/fs.md",
+      "sha256": "4ff6d69267d5e978fbd0a4d1b36c8b9edecac97bcd02af80f9ab8ee609f123fd",
+      "source": "https://github.com/nodejs/node/blob/855e3f74b5868bd9a560e95dd82d70da92e307e3/doc/api/fs.md",
+      "license": "MIT",
+      "lang": "en",
+      "kind": "API reference (320+ nodes)"
+    },
+    {
+      "name": "node_http.md",
+      "url": "https://raw.githubusercontent.com/nodejs/node/855e3f74b5868bd9a560e95dd82d70da92e307e3/doc/api/http.md",
+      "sha256": "a2ca0e41620e09ef804f50edb59903e1b9ceba2e8205d24649dec0b2aed88207",
+      "source": "https://github.com/nodejs/node/blob/855e3f74b5868bd9a560e95dd82d70da92e307e3/doc/api/http.md",
+      "license": "MIT",
+      "lang": "en",
+      "kind": "API reference (180+ nodes)"
+    },
+    {
+      "name": "javaguide_mysql_zh.md",
+      "url": "https://raw.githubusercontent.com/Snailclimb/JavaGuide/9eab7aaf1a538dc139e6886cb2237b6c61e9a000/docs/database/mysql/mysql-questions-01.md",
+      "sha256": "c21b712d24ccb813663580f10fab009a021d09238d054a313600e148691dbb7e",
+      "source": "https://github.com/Snailclimb/JavaGuide/blob/9eab7aaf1a538dc139e6886cb2237b6c61e9a000/docs/database/mysql/mysql-questions-01.md",
+      "license": "Apache-2.0",
+      "lang": "zh",
+      "kind": "Q&A handbook"
+    },
+    {
+      "name": "javaguide_concurrent_zh.md",
+      "url": "https://raw.githubusercontent.com/Snailclimb/JavaGuide/9eab7aaf1a538dc139e6886cb2237b6c61e9a000/docs/java/concurrent/java-concurrent-questions-02.md",
+      "sha256": "26df165679b5708ecb8f5b44f0d352e1e534c0af480ecd0afbf9973b4b66ed68",
+      "source": "https://github.com/Snailclimb/JavaGuide/blob/9eab7aaf1a538dc139e6886cb2237b6c61e9a000/docs/java/concurrent/java-concurrent-questions-02.md",
+      "license": "Apache-2.0",
+      "lang": "zh",
+      "kind": "Q&A handbook"
+    },
+    {
+      "name": "javaguide_network_zh.md",
+      "url": "https://raw.githubusercontent.com/Snailclimb/JavaGuide/9eab7aaf1a538dc139e6886cb2237b6c61e9a000/docs/cs-basics/network/other-network-questions.md",
+      "sha256": "94e311ae6b4d28b8dc0342b3e3f1c4920b9d5208c427946980734f419eebae3d",
+      "source": "https://github.com/Snailclimb/JavaGuide/blob/9eab7aaf1a538dc139e6886cb2237b6c61e9a000/docs/cs-basics/network/other-network-questions.md",
+      "license": "Apache-2.0",
+      "lang": "zh",
+      "kind": "Q&A handbook"
+    },
+    {
+      "name": "javaguide_redis_zh.md",
+      "url": "https://raw.githubusercontent.com/Snailclimb/JavaGuide/9eab7aaf1a538dc139e6886cb2237b6c61e9a000/docs/database/redis/redis-questions-01.md",
+      "sha256": "e7a93d038d08697bd5c032b8053cb3056aa820c2d1f7a77a54af323a7b60f18d",
+      "source": "https://github.com/Snailclimb/JavaGuide/blob/9eab7aaf1a538dc139e6886cb2237b6c61e9a000/docs/database/redis/redis-questions-01.md",
+      "license": "Apache-2.0",
+      "lang": "zh",
+      "kind": "Q&A handbook"
+    },
+    {
       "name": "annual_report.md",
       "path": "tests/fixtures/annual_report.md",
       "synthetic": true,

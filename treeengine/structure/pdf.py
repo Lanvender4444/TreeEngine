@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import bisect
 import re
 
 from ..core.models import Document
@@ -21,16 +22,27 @@ _HEURISTICS: list[tuple[re.Pattern[str], int | None]] = [
     (re.compile(r"^(?:Section|SECTION)\s+\d+(?:\.\d+)*\b.*$"), 2),
     (re.compile(r"^(\d{1,2}(?:\.\d{1,2}){0,3})\.?\s+\S.*$"), None),  # level = number of parts
     (re.compile(rf"^[{_ZH_NUM}]+、\s*\S.*$"), 1),
-    (re.compile(r"^[A-Z][A-Z0-9 &/\-]{3,}$"), 1),
+    (re.compile(r"^[A-Z][A-Z0-9 &/\-]{5,}$"), 1),
 ]
 _END_PUNCT = tuple("。．.，,；;：:!！?？")
 
 
+class _PageLookup:
+    """offset -> 1-based page number in O(log pages)."""
+
+    def __init__(self, pages: list[tuple[int, int, int]]) -> None:
+        self.pages = pages
+        self.starts = [p[1] for p in pages]
+
+    def __call__(self, offset: int) -> int | None:
+        i = bisect.bisect_right(self.starts, offset) - 1
+        if 0 <= i < len(self.pages) and self.pages[i][1] <= offset <= self.pages[i][2]:
+            return self.pages[i][0]
+        return None
+
+
 def _page_of(pages: list[tuple[int, int, int]], offset: int) -> int | None:
-    for no, start, end in pages:
-        if start <= offset <= end:
-            return no
-    return None
+    return _PageLookup(pages)(offset)
 
 
 def _lines(text: str) -> list[tuple[int, str]]:
@@ -53,9 +65,10 @@ def running_lines(
     if len(pages) < 4:
         return set()
     by_page: dict[int, list[int]] = {}
+    page_of = _PageLookup(pages)
     for idx, (off, ln) in enumerate(lines):
         if ln.strip():
-            no = _page_of(pages, off)
+            no = page_of(off)
             if no is not None:
                 by_page.setdefault(no, []).append(idx)
     seen: dict[str, set[int]] = {}
@@ -77,6 +90,9 @@ def heuristic_heading(line: str) -> int | None:
     s = line.strip()
     if not s or len(s) > 60 or s.endswith(_END_PUNCT) or len(s) < 2:
         return None
+    letters = sum(1 for ch in s if ch.isalpha())
+    if letters < 2 or letters < 0.5 * len(s.replace(" ", "")):
+        return None  # figure axes, table rows, formulas ("0 500 1000", "4 sp4 = ...")
     for pat, level in _HEURISTICS:
         m = pat.match(s)
         if m:
@@ -98,6 +114,7 @@ def pdf_elements(doc: Document) -> tuple[list[Element], str]:
         (int(lv), str(t), pg) for lv, t, pg in doc.metadata.get("_outline", [])
     ]
     lines = _lines(doc.text)
+    page_of = _PageLookup(pages)
     noise = running_lines(lines, pages)
 
     headings: dict[int, tuple[int, str]] = {}  # line index -> (level, title)
@@ -106,15 +123,24 @@ def pdf_elements(doc: Document) -> tuple[list[Element], str]:
         method = "native"
         anchors: list[tuple[int, int, str]] = []  # (offset, level, title)
         used: set[int] = set()
+        # index lines by page once: matching each bookmark is then O(lines on its page)
+        normed = [_norm(ln) for _, ln in lines]
+        line_page = [page_of(off) for off, _ in lines]
+        by_page: dict[int | None, list[int]] = {}
+        for idx, pg in enumerate(line_page):
+            by_page.setdefault(pg, []).append(idx)
         for level, title, page in outline:
             target = _norm(title)
             found = None
-            for idx, (off, ln) in enumerate(lines):
-                if idx in used:
+            pool = (
+                by_page.get(page, []) + by_page.get(None, [])
+                if page is not None
+                else range(len(lines))
+            )
+            for idx in pool:
+                if idx in used or not target or not normed[idx]:
                     continue
-                if page is not None and _page_of(pages, off) not in (page, None):
-                    continue
-                if target and _norm(ln) and (_norm(ln) == target or _norm(ln).startswith(target)):
+                if normed[idx] == target or normed[idx].startswith(target):
                     found = idx
                     break
             if found is not None:
@@ -146,7 +172,7 @@ def pdf_elements(doc: Document) -> tuple[list[Element], str]:
             content = " ".join(lines[i][1].strip() for i in para if lines[i][1].strip())
             content = re.sub(r"(?<=[一-鿿]) (?=[一-鿿])", "", content)
             if content:
-                elements.append(Element("block", content, start, end, page=_page_of(pages, start)))
+                elements.append(Element("block", content, start, end, page=page_of(start)))
         para = []
 
     extra_sorted = sorted(extra)
@@ -158,14 +184,14 @@ def pdf_elements(doc: Document) -> tuple[list[Element], str]:
             flush()
             a_off, a_lvl, a_title = extra_sorted[ei]
             elements.append(
-                Element("heading", a_title, a_off, a_off, level=a_lvl, page=_page_of(pages, a_off))
+                Element("heading", a_title, a_off, a_off, level=a_lvl, page=page_of(a_off))
             )
             ei += 1
         if idx in headings:
             flush()
             lvl, title = headings[idx]
             elements.append(
-                Element("heading", title, off, off + len(ln), level=lvl, page=_page_of(pages, off))
+                Element("heading", title, off, off + len(ln), level=lvl, page=page_of(off))
             )
             continue
         if not ln.strip():

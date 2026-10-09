@@ -12,3 +12,4 @@ build/
 dist/
 benchmarks/corpus/files/
 benchmarks/results/*.json
+benchmarks/.cache/

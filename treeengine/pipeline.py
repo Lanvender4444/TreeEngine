@@ -11,15 +11,22 @@ from .core.protocols import Repository
 from .ingest.base import detect_source_type, get_adapter
 from .ingest.html import HTMLAdapter
 from .ingest.markdown import MarkdownAdapter
+from .retrieval.vector import VectorIndexer
 from .structure.builder import StructureBuilder
 
 log = logging.getLogger(__name__)
 
 
 class IngestionPipeline:
-    def __init__(self, repo: Repository, builder: StructureBuilder) -> None:
+    def __init__(
+        self,
+        repo: Repository,
+        builder: StructureBuilder,
+        indexer: VectorIndexer | None = None,
+    ) -> None:
         self.repo = repo
         self.builder = builder
+        self.indexer = indexer
 
     def ingest(self, source: str | Path, source_type: str | None = None) -> Document:
         """Ingest a file (Markdown / HTML / PDF). Re-ingesting the same path replaces it in
@@ -27,6 +34,11 @@ class IngestionPipeline:
         src = str(source)
         stype = source_type or detect_source_type(src)
         return self.store(get_adapter(stype).load(src))
+
+    def delete_document(self, document_id: str) -> None:
+        self.repo.delete_document(document_id)
+        if self.indexer is not None:
+            self.indexer.delete_document(document_id)
 
     def ingest_text(
         self,
@@ -55,6 +67,8 @@ class IngestionPipeline:
                 doc.id = existing.id
         nodes, blocks = self.builder.build(doc)
         self.repo.save_document(doc, nodes, blocks)
+        if self.indexer is not None:
+            self.indexer.index_document(doc.id)
         stored = self.repo.get_document(doc.id)
         assert stored is not None
         return stored

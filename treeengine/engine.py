@@ -4,7 +4,7 @@ It owns no retrieval logic; it only delegates to wired components (see ``factory
 
 * Ingest:            ingest / ingest_text / delete_document
 * Agent Navigation:  list_documents / get_document / get_roots / get_children / get_node /
-                     get_ancestors / read_node / read_blocks / search_text
+                     get_ancestors / read_node / read_blocks / search_text / search_semantic
 * Managed Retrieval: retrieve (SearchResult with plan/trace/stats) / search (Evidence[])
 * Convenience:       ask (answer with citations) / get_tree / format_tree
 """
@@ -16,7 +16,7 @@ from typing import Any
 
 from .core.config import EngineConfig
 from .core.models import AnswerResult, Block, Document, Evidence, Node, NodeView
-from .core.protocols import LLMProvider, Repository
+from .core.protocols import EmbeddingProvider, LLMProvider, Repository
 from .factory import Components, build_local_components
 from .retrieval.planner import QueryType, RetrievalPlan
 from .retrieval.result import SearchResult
@@ -33,14 +33,18 @@ class TreeEngine:
         *,
         llm_tree_navigation: bool = True,
         llm_planner: bool = False,
+        embedder: EmbeddingProvider | None = None,
+        use_vector: bool = False,
         components: Components | None = None,
     ) -> None:
         c = components or build_local_components(
             db_path,
             llm,
             config,
+            embedder=embedder,
             llm_tree_navigation=llm_tree_navigation,
             llm_planner=llm_planner,
+            use_vector=use_vector,
         )
         self.components = c
         self.config = c.config
@@ -82,7 +86,7 @@ class TreeEngine:
         return self.components.pipeline.ingest_text(text, source_type, title, uri)
 
     def delete_document(self, document_id: str) -> None:
-        self.repo.delete_document(document_id)
+        self.components.pipeline.delete_document(document_id)
 
     # ------------------------------------------------------------------ agent navigation
     def list_documents(self) -> list[Document]:
@@ -120,6 +124,26 @@ class TreeEngine:
         return self.fts.fts_search(query, document_id=document_id, node_id=node_id, limit=limit)
 
     fts_search = search_text  # V0.1 name
+
+    def search_semantic(
+        self,
+        query: str,
+        document_id: str | None = None,
+        node_id: str | None = None,
+        limit: int = 10,
+    ) -> list[Evidence]:
+        """Embedding search over blocks (needs an embedder; see ``create_local_engine``)."""
+        if self.components.vector is None:
+            raise RuntimeError("no embedder configured: create the engine with embedder=...")
+        return self.components.vector.search(
+            query, document_id=document_id, node_id=node_id, limit=limit
+        )
+
+    def reindex_vectors(self) -> int:
+        """Re-embed every block (e.g. after changing the embedding model)."""
+        if self.components.pipeline.indexer is None:
+            raise RuntimeError("no embedder configured")
+        return self.components.pipeline.indexer.reindex_all()
 
     # ------------------------------------------------------------------ managed retrieval
     def retrieve(

@@ -10,14 +10,20 @@ from .core.models import (
     Node,
     NodeView,
 )
-from .core.protocols import LLMProvider, Repository, Retriever
+from .core.protocols import (
+    EmbeddingProvider,
+    LLMProvider,
+    Repository,
+    Retriever,
+    VectorIndex,
+)
 from .engine import TreeEngine
 from .factory import build_components, create_local_engine
 from .llm.base import CallableLLM, MeteredLLM, OpenAICompatibleLLM
 from .retrieval.planner import QueryType
 from .retrieval.result import SearchResult, SearchStats
 
-__version__ = "0.2.0.dev0"
+__version__ = "0.3.0.dev0"
 
 __all__ = [
     "AnswerResult",
@@ -25,6 +31,7 @@ __all__ = [
     "CallableLLM",
     "Citation",
     "Document",
+    "EmbeddingProvider",
     "EngineConfig",
     "Evidence",
     "LLMProvider",
@@ -38,6 +45,7 @@ __all__ = [
     "SearchResult",
     "SearchStats",
     "TreeEngine",
+    "VectorIndex",
     "build_components",
     "create_local_engine",
 ]

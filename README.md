@@ -12,14 +12,17 @@ TreeEngine 不替 Agent 思考，它负责：知识进入 → 结构化 → 持�
 - **零运行时依赖**：Python 3.11+、标准库 `sqlite3`（FTS5）和 `html.parser`；PDF 需要可选的 `pypdf`。
 - **结构与证据分离**：`Node` 是导航单元，`Block` 是证据单元；每条 Evidence 都能追溯到 document / node / block / page / offset。
 - **两种用法**：Managed Retrieval（Planner 替你决定怎么搜）和 Agent Navigation（Agent 用原语自己走）。
-- **可度量**：`benchmarks/` 在 10 篇真实文档 + 140 条标注 query 上比较各检索策略，结论见 [benchmarks/README.md](benchmarks/README.md)。
+- **语义检索（可选）**：Block 级 embedding（本地 fastembed 模型或任意 OpenAI 兼容 `/v1/embeddings`），默认存在同一个 SQLite 文件里（sqlite-vec），通过 RRF 与 FTS 融合；是否进入 Managed Retrieval 由 benchmark 决定，默认关闭。
+- **可度量**：`benchmarks/` 在 28 篇真实文档（7 篇 100+ 节点）+ 325 条标注 query（210 条 heldout）上比较各检索策略，结论见 [benchmarks/README.md](benchmarks/README.md)。V0.3 held-out 结论：FTS+Vector RRF 融合是唯一显著的提升（R@5 78.1 → 85.2）；启发式 Tree 与 FTS 打平，定位为 Navigation Layer + 显式 Scope，而不是默认检索路径上的自动过滤器。
 
 ## 安装
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[dev]"            # 核心 + 测试工具
+pip install -e ".[vector]"         # 可选：fastembed + sqlite-vec
 pytest
-python -m benchmarks.run
+python -m benchmarks.run           # 词法策略
+python -m benchmarks.run --vector  # + 向量策略（首次会下载模型并为全部 block 生成 embedding，有缓存）
 ```
 
 ## 用法
@@ -61,6 +64,18 @@ result = engine.ask("为什么利润率下降？", document_id=doc.id)
 result.answer, result.citations   # 每条引用带 document_id / node_id / block_id / page / offset
 ```
 
+**语义检索**
+
+```python
+from treeengine import create_local_engine
+from treeengine.embeddings import FastEmbedProvider   # 或 OpenAICompatibleEmbedding(model, api_key, base_url)
+
+engine = create_local_engine("treeengine.db", embedder=FastEmbedProvider())  # ingest 时自动 embed
+engine.search_semantic("机器宕机后 Pod 会怎样", document_id=doc.id)          # Agent 原语，可加 node_id 限定子树
+engine.reindex_vectors()                                                     # 换模型后重建
+# use_vector=True 时 Managed Retrieval 会把 FTS 与 Vector 用 RRF 融合（trace 中有 vector / fusion 步骤）
+```
+
 LLM 通过 `LLMProvider` Protocol 接入，自带基于 urllib 的 `OpenAICompatibleLLM`（OpenAI / new-api / vLLM / Ollama）。所有 LLM 调用都经过 `MeteredLLM` 计数，按用途统计（tree_navigation / answer / summary / structure / planner）；provider 返回真实 usage 时用真实值，否则估算。没有 LLM 时一切照常工作（启发式导航 + 抽取式回答）。
 
 命令行：
@@ -69,6 +84,8 @@ LLM 通过 `LLMProvider` Protocol 接入，自带基于 urllib 的 `OpenAICompat
 treeengine --db te.db ingest docs/*.md
 treeengine --db te.db tree <document_id>
 treeengine --db te.db search "风险章节里哪些地方提到供应链？" --trace
+treeengine --db te.db --embedder fastembed:jinaai/jina-embeddings-v2-base-zh ingest docs/*.md
+treeengine --db te.db --embedder fastembed:jinaai/jina-embeddings-v2-base-zh semantic "节点宕机"
 ```
 
 ## 架构
@@ -82,7 +99,7 @@ treeengine --db te.db search "风险章节里哪些地方提到供应链？" --t
           App   (factory → TreeEngine facade, pipeline, answer, cli)
 ```
 
-- `core/protocols.py` 定义 `Repository`、`LLMProvider`、`Retriever`（Evidence 契约）。
+- `core/protocols.py` 定义 `Repository`、`LLMProvider`、`Retriever`（Evidence 契约）、`EmbeddingProvider`、`VectorIndex`。
 - `storage/` 实现 `Repository`（SQLite + FTS5）；FTS5 的查询语法和中文切字只在 `storage/fts5.py` 里。
 - `retrieval/` 只依赖 Protocol，从不 import `storage`；Planner 只调用 Retriever 的 API。
 - `factory.py` 是唯一组装具体实现的地方（CLI、测试、benchmark 都从这里建引擎）；`TreeEngine` 只做委托。
@@ -93,8 +110,9 @@ treeengine --db te.db search "风险章节里哪些地方提到供应链？" --t
 | `core/` | `Document` / `Node` / `Block` / `Evidence` / `NodeView` / `Citation`，Protocols，`EngineConfig`，词项抽取与打分 |
 | `ingest/` | Markdown / HTML（过滤导航、脚本、隐藏元素、permalink 锚点，优先 main/article）/ PDF（文本 + 书签） |
 | `structure/` | 统一的 Element → Node/Block 组装；Native → Heuristic → LLM fallback；Markdown HTML 注释屏蔽、`{#anchor}` 清理；PDF 页眉页脚去除、目录识别 |
-| `storage/` | schema v2（`PRAGMA user_version` 迁移；v2 = FTS5 porter 词干）、事务、FTS 同步、`rebuild_fts()` |
-| `retrieval/` | `Navigator`（原语）、`TreeRetriever`、`FTSRetriever`、`RetrievalPlanner`、`SearchResult` / `Trace` / `SearchStats` |
+| `storage/` | schema v2（`PRAGMA user_version` 迁移；v2 = FTS5 porter 词干）、事务、FTS 同步、`rebuild_fts()`；`vectors.py`：`SQLiteVectorIndex`（sqlite-vec，表 `block_vectors` 只存 block_id + embedding）、`MemoryVectorIndex` |
+| `retrieval/` | `Navigator`（原语）、`CorpusRetriever`（选文档）、`TreeRetriever`（文档内导航 / 定 scope）、`FTSRetriever`、`VectorRetriever`、`EvidenceMerger`（RRF）、`tree_scoped_search`（Tree 定范围 → 证据检索）、`RetrievalPlanner`、`SearchResult` / `Trace` / `SearchStats` |
+| `embeddings/` | `FastEmbedProvider`、`OpenAICompatibleEmbedding`、`HashingEmbedding`（测试用）、`CachedEmbedding` |
 | `pipeline.py` / `answer.py` / `treeview.py` | ingest 流水线、回答层、整树渲染（仅供查看） |
 | `benchmarks/` | 语料清单、ground truth、策略、指标、报告 |
 
@@ -110,5 +128,5 @@ treeengine --db te.db search "风险章节里哪些地方提到供应链？" --t
 ## 版本
 
 - **V0.1**：Ingest / Structure / SQLite / Tree / FTS / Planner / Evidence / Answer。
-- **V0.2（当前）**：Repository 边界、Navigation 原语、Benchmark、Trace & Stats、Factory。
-- **V0.3**：由 benchmark 决定。当前数据指向 LLM 导航评测和 paraphrase 方向的 `Tree → 子树内 Vector`（见 benchmarks/README.md）。
+- **V0.2**：Repository 边界、Navigation 原语、Benchmark、Trace & Stats、Factory。
+- **V0.3（当前）**：Corpus / In-document 拆分（`CorpusRetriever`）、Vector（EmbeddingProvider / VectorIndex / sqlite-vec / VectorRetriever）、RRF Evidence Fusion、Planner 与 Oracle 评测、LLM Tree 评测接线、语料与 heldout 扩容。结论见 benchmarks/README.md。

@@ -14,6 +14,7 @@ class EngineConfig:
     # tree retrieval
     tree_beam: int = 2  # nodes kept per level (1-3)
     tree_use_fts_signal: bool = True  # heuristic scorer also uses subtree FTS hits
+    tree_use_vector_signal: bool = True  # ...and subtree vector hits, if a VectorRetriever is wired
     tree_max_depth: int = 8
     tree_max_evidence: int = 6
     read_node_max_chars: int = 2000

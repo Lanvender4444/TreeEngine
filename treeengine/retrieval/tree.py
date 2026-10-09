@@ -18,8 +18,10 @@ from ..core.protocols import LLMProvider, Repository
 from ..core.text import lexical_score, query_terms, truncate
 from ..llm import prompts
 from ..llm.base import extract_json
+from .corpus import CorpusRetriever
 from .navigation import Navigator
 from .result import Trace
+from .vector import VectorRetriever
 
 log = logging.getLogger(__name__)
 
@@ -68,8 +70,13 @@ class TreeRetriever:
         llm: LLMProvider | None = None,
         config: EngineConfig | None = None,
         use_llm: bool = True,
+        corpus: CorpusRetriever | None = None,
+        vector: VectorRetriever | None = None,
     ) -> None:
         self.repo = repo
+        self.vector = vector  # optional semantic navigation signal
+        # document routing for document_id=None lives in CorpusRetriever, not here
+        self.corpus = corpus or CorpusRetriever(repo)
         self.llm = llm if use_llm else None
         self.config = config or EngineConfig()
         self.nav = Navigator(repo, self.config)
@@ -99,7 +106,8 @@ class TreeRetriever:
     ) -> list[Evidence]:
         if document_id is None:
             out: list[Evidence] = []
-            for doc_id in self.candidate_documents(query, trace=trace):
+            for cand in self.corpus.route(query, trace=trace):
+                doc_id = cand.document_id
                 out += self.locate(query, doc_id, limit=limit, trace=trace).evidence
             out.sort(key=lambda e: -(e.score or 0))
             return out[: limit or self.config.tree_max_evidence]
@@ -126,7 +134,7 @@ class TreeRetriever:
     ) -> TreeSearchResult:
         cfg = self.config
         terms = query_terms(query)
-        sig = self._fts_signal(terms, document_id) if cfg.tree_use_fts_signal else _Signal({}, {})
+        sig = self._signal(query, terms, document_id, trace)
         result = TreeSearchResult(
             document_id, [], [], total_nodes=self.repo.count_nodes(document_id)
         )
@@ -212,6 +220,7 @@ class TreeRetriever:
                 visited_nodes=result.visited_nodes,
                 total_nodes=result.total_nodes,
                 fts_signal=cfg.tree_use_fts_signal,
+                vector_signal=self.vector is not None and cfg.tree_use_vector_signal,
             )
         return result
 
@@ -277,30 +286,42 @@ class TreeRetriever:
         return chosen, bool(data.get("stop", False))
 
     # ------------------------------------------------------------------ scoring
-    def _fts_signal(self, terms: list[str], document_id: str) -> _Signal:
-        """One FTS query, mapped onto the tree without loading it.
+    def _signal(
+        self, query: str, terms: list[str], document_id: str, trace: Trace | None = None
+    ) -> _Signal:
+        """Retrieval hits mapped onto the tree without loading it (one query per signal).
 
-        ``own[n]``     = best normalised block score directly inside n
-        ``subtree[n]`` = best normalised block score anywhere under n (max, not sum: a big
-                         section with many weak mentions must not beat a small precise one)
+        ``own[n]``     = best normalised hit directly inside n
+        ``subtree[n]`` = best normalised hit anywhere under n (max, not sum: a big section with
+                         many weak mentions must not beat a small precise one)
+
+        Lexical hits come from FTS (score / best score); with a vector retriever attached,
+        semantic hits are added (cosine, min-max normalised over the hit list). Each node keeps
+        the stronger of the two.
         """
-        if not terms:
-            return _Signal({}, {})
-        hits = self.repo.fts_query(terms, mode="or", document_id=document_id, limit=50)
-        if not hits:
-            return _Signal({}, {})
-        top = max(s for _, s in hits) or 1.0
+        weighted: list[tuple[str, float]] = []
+        if self.config.tree_use_fts_signal and terms:
+            hits = self.repo.fts_query(terms, mode="or", document_id=document_id, limit=50)
+            if hits:
+                top = max(s for _, s in hits) or 1.0
+                weighted += [(b.node_id, max(s, 0.0) / top) for b, s in hits if b.node_id]
+        if self.vector is not None and self.config.tree_use_vector_signal:
+            vhits = self.vector.vector_search(query, document_id=document_id, limit=50, trace=trace)
+            if vhits:
+                sims = [e.score or 0.0 for e in vhits]
+                lo, hi = min(sims), max(sims)
+                span = (hi - lo) or 1.0
+                weighted += [
+                    (e.node_id, ((e.score or 0.0) - lo) / span) for e in vhits if e.node_id
+                ]
         own: dict[str, float] = {}
         subtree: dict[str, float] = {}
         ancestors: dict[str, list[str]] = {}
-        for block, score in hits:
-            if not block.node_id:
-                continue
-            w = max(score, 0.0) / top
-            own[block.node_id] = max(own.get(block.node_id, 0.0), w)
-            if block.node_id not in ancestors:
-                ancestors[block.node_id] = [a.id for a in self.repo.get_ancestors(block.node_id)]
-            for nid in [block.node_id, *ancestors[block.node_id]]:
+        for node_id, w in weighted:
+            own[node_id] = max(own.get(node_id, 0.0), w)
+            if node_id not in ancestors:
+                ancestors[node_id] = [a.id for a in self.repo.get_ancestors(node_id)]
+            for nid in [node_id, *ancestors[node_id]]:
                 subtree[nid] = max(subtree.get(nid, 0.0), w)
         return _Signal(own, subtree)
 
@@ -371,28 +392,6 @@ class TreeRetriever:
                 )
             )
         return out
-
-    def candidate_documents(
-        self, query: str, max_docs: int = 3, trace: Trace | None = None
-    ) -> list[str]:
-        """Coarse step of coarse-to-fine: which documents are worth navigating."""
-        docs = self.repo.list_documents()
-        if len(docs) <= max_docs:
-            chosen = [d.id for d in docs]
-        else:
-            terms = query_terms(query)
-            hits = self.repo.fts_query(terms, mode="or", limit=50) if terms else []
-            # rank documents by their best few hits, not by volume: long documents would
-            # otherwise win every query on sheer number of weak matches
-            per_doc: dict[str, list[float]] = {}
-            for b, s in hits:
-                per_doc.setdefault(b.document_id, []).append(s)
-            weight = {d: sum(sorted(v, reverse=True)[:3]) for d, v in per_doc.items()}
-            ranked = sorted(weight, key=lambda d: -weight[d])
-            chosen = ranked[:max_docs] or [d.id for d in docs[:max_docs]]
-        if trace is not None:
-            trace.add("select_documents", candidates=len(docs), chosen=chosen)
-        return chosen
 
 
 def _unique_ids(ids: list[str]) -> list[str]:

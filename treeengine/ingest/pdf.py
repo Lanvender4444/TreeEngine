@@ -7,6 +7,7 @@ Scanned PDFs / OCR are out of scope for V0.1.
 
 from __future__ import annotations
 
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,9 @@ class PDFAdapter:
         pos = 0
         for i, page in enumerate(reader.pages, start=1):
             t = (page.extract_text() or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+            # NFKC folds typographic ligatures ("ﬁ" -> "fi") and full-width forms so the
+            # text is searchable; PDF extraction emits them verbatim
+            t = unicodedata.normalize("NFKC", t)
             if parts:
                 pos += 2
             start = pos
@@ -70,7 +74,7 @@ def _walk_outline(
         if isinstance(item, list):
             _walk_outline(reader, item, level + 1, out)
             continue
-        title = str(getattr(item, "title", "") or "").strip()
+        title = unicodedata.normalize("NFKC", str(getattr(item, "title", "") or "")).strip()
         if not title:
             continue
         try:

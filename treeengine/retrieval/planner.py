@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -14,9 +15,13 @@ from ..core.models import Evidence
 from ..core.protocols import LLMProvider
 from ..llm import prompts
 from .base import dedupe
+from .corpus import CorpusRetriever
 from .fts import FTSRetriever
+from .fusion import EvidenceMerger
 from .result import SearchResult, SearchStats, Trace
+from .scoped import tree_scoped_search
 from .tree import TreeRetriever
+from .vector import VectorRetriever
 
 log = logging.getLogger(__name__)
 
@@ -63,11 +68,19 @@ class RetrievalPlanner:
         llm: LLMProvider | None = None,
         config: EngineConfig | None = None,
         use_llm: bool = False,
+        *,
+        corpus: CorpusRetriever | None = None,
+        vector: VectorRetriever | None = None,
+        use_vector: bool = False,
     ) -> None:
         self.tree = tree
         self.fts = fts
         self.llm = llm if use_llm else None
         self.config = config or EngineConfig()
+        self.corpus = corpus or tree.corpus
+        # Vector joins managed retrieval only when explicitly enabled (benchmark-gated)
+        self.vector = vector if use_vector else None
+        self.merger = EvidenceMerger()
 
     # ------------------------------------------------------------------ classification
     @staticmethod
@@ -137,7 +150,7 @@ class RetrievalPlanner:
         qt = plan.query_type
         ev: list[Evidence]
         if qt is QueryType.LOOKUP:
-            ev = self.fts.fts_search(query, document_id=document_id, limit=limit, trace=trace)
+            ev = self._lexical(query, document_id, limit, trace)
             if not ev:
                 trace.add("fallback", frm="fts", to="tree", reason="no fts hits")
                 ev = self.tree.search(query, document_id=document_id, limit=limit, trace=trace)
@@ -145,7 +158,7 @@ class RetrievalPlanner:
             ev = self.tree.search(query, document_id=document_id, limit=limit, trace=trace)
             if not ev:
                 trace.add("fallback", frm="tree", to="fts", reason="no tree evidence")
-                ev = self.fts.fts_search(query, document_id=document_id, limit=limit, trace=trace)
+                ev = self._lexical(query, document_id, limit, trace)
         else:
             ev = self._hybrid(query, document_id, limit, trace)
         for e in ev:
@@ -154,6 +167,7 @@ class RetrievalPlanner:
 
         stats = SearchStats(latency_ms=(time.perf_counter() - t0) * 1000)
         stats.fts_queries = len(trace.of("fts"))
+        stats.vector_queries = len(trace.of("vector"))
         for step in trace.of("tree"):
             stats.tree_searches += 1
             stats.visited_nodes += step["visited_nodes"]
@@ -161,26 +175,37 @@ class RetrievalPlanner:
         trace.add("result", evidence=len(ev))
         return SearchResult(query, ev, plan, trace.steps, stats)
 
+    def _lexical(
+        self,
+        query: str,
+        document_id: str | None,
+        limit: int,
+        trace: Trace,
+        node_ids: Sequence[str] | None = None,
+    ) -> list[Evidence]:
+        """FTS, fused with vector search (RRF) when vector retrieval is enabled."""
+        fts = self.fts.fts_search(
+            query, document_id=document_id, node_ids=node_ids, limit=limit, trace=trace
+        )
+        if self.vector is None:
+            return fts
+        vec = self.vector.vector_search(
+            query, document_id=document_id, node_ids=node_ids, limit=limit, trace=trace
+        )
+        return self.merger.rrf({"fts": fts, "vector": vec}, limit=limit, trace=trace)
+
     def _hybrid(
         self, query: str, document_id: str | None, limit: int, trace: Trace
     ) -> list[Evidence]:
         doc_ids = (
-            [document_id] if document_id else self.tree.candidate_documents(query, trace=trace)
+            [document_id]
+            if document_id
+            else [c.document_id for c in self.corpus.route(query, trace=trace)]
         )
-        scoped: list[Evidence] = []
-        tree_ev: list[Evidence] = []
-        for doc_id in doc_ids:
-            loc = self.tree.locate(query, doc_id, limit=limit, trace=trace)
-            tree_ev += loc.evidence
-            if loc.scope_node_ids:
-                scoped += self.fts.fts_search(
-                    query,
-                    document_id=doc_id,
-                    node_ids=loc.scope_node_ids,
-                    limit=limit,
-                    trace=trace,
-                )
-        for e in scoped:
-            e.metadata["scoped_by"] = "tree"
-        scoped.sort(key=lambda e: -(e.score or 0))
-        return dedupe(scoped + sorted(tree_ev, key=lambda e: -(e.score or 0)))
+
+        def inner(
+            q: str, doc: str, scope: Sequence[str], k: int, t: Trace | None
+        ) -> list[Evidence]:
+            return self._lexical(q, doc, k, trace, node_ids=scope)
+
+        return tree_scoped_search(self.tree, query, doc_ids, limit, inner, trace)

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "treeengine"
-version = "0.2.0.dev0"
+version = "0.3.0.dev0"
 description = "Local-first structured retrieval engine for AI agents (Tree + FTS on SQLite)"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -13,7 +13,8 @@ dependencies = []
 
 [project.optional-dependencies]
 pdf = ["pypdf>=4.0"]
-dev = ["pytest>=7", "ruff>=0.4", "mypy>=1.8", "pypdf>=4.0", "reportlab>=4.0"]
+vector = ["fastembed>=0.4", "sqlite-vec>=0.1.6"]
+dev = ["pytest>=7", "ruff>=0.4", "mypy>=1.8", "pypdf>=4.0", "reportlab>=4.0", "sqlite-vec>=0.1.6"]
 
 [project.scripts]
 treeengine = "treeengine.cli:main"
@@ -31,6 +32,7 @@ pythonpath = ["."]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+extend-exclude = ["*.md"]  # prose docs: keep hand-aligned code comments
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
