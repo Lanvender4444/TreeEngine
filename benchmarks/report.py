@@ -148,6 +148,7 @@ PLANNER_VIEW = [
     ("always_tree", "tree_lexical"),
     ("always_tree→fts", "tree_lexical+fts"),
     ("always_tree→vector", "tree_lexical+vector"),
+    ("always_hybrid_rag", "rag_hybrid"),
     ("rule_planner", "managed"),
     ("rule_planner+vector", "managed+vector"),
     ("llm_planner", "managed_llm"),
@@ -155,10 +156,11 @@ PLANNER_VIEW = [
 ORACLES = [
     ("oracle(fts|tree|tree→fts)", ["fts", "tree_lexical", "tree_lexical+fts"]),
     (
-        "oracle(planner choices)",  # what Managed may route between (design doc §14)
-        ["fts", "vector", "fts+vector", "tree_lexical+fts", "tree_lexical+vector"],
+        "oracle(planner choices)",  # design doc V0.4 §30: what a router could choose from
+        ["fts", "vector", "rag_hybrid", "tree_lexical+fts", "tree_lexical+vector"],
     ),
 ]
+PLANNERS = ["rule_planner", "rule_planner+vector", "llm_planner"]
 
 
 def planner_section(
@@ -180,10 +182,28 @@ def planner_section(
     names.append("oracle(all strategies)")
     allv = view + extra
     rows = {n: aggregate([o for o in allv if o.strategy == n], ks) for n in names}
+    gaps = []
+    ref = "oracle(planner choices)" if "oracle(planner choices)" in rows else None
+    for p in PLANNERS:
+        if ref and p in rows and rows[p].get("recall@5") is not None:
+            gap = (rows[ref]["recall@5"] - rows[p]["recall@5"]) * 100
+            verdict = (
+                "routing has large headroom: worth investing in the planner"
+                if gap >= 10
+                else "small headroom: not worth a complex planner"
+                if gap <= 2
+                else "moderate headroom"
+            )
+            gaps.append(f"- {ref} − {p}: **{gap:+.1f}** recall@5 points ({verdict})")
     return "\n".join(
         [
             summary_table(rows, ks, raw=False),
             "",
+            *(
+                ["Routing headroom (design doc: ≥10 points → invest, ≤2 → don't):", "", *gaps, ""]
+                if gaps
+                else []
+            ),
             "recall@5 by query type:",
             "",
             grouped_table(allv, names, lambda o: o.query_type, "recall@5", "type"),
@@ -276,6 +296,18 @@ def length_section(
             grouped_table(outcomes, strategies, key, "ctx_tokens@5", label, order),
             "",
         ]
+
+    def skey(o: QueryOutcome) -> str | None:
+        d = docs.get(o.document or "")
+        return getattr(d, "structure", None) if d is not None else None
+
+    if len({skey(o) for o in outcomes} - {None}) > 1:
+        parts += [
+            "recall@5 by structure source of the document (how its tree was built):",
+            "",
+            grouped_table(outcomes, strategies, skey, "recall@5", "structure"),
+            "",
+        ]
     return "\n".join(parts) or "(no single-document queries)"
 
 
@@ -304,6 +336,7 @@ def render(
         f"- strategies: {', '.join(strategies)}",
         f"- skipped: {meta.get('skipped') or 'none'}",
         f"- tokens counted with {meta.get('tokenizer', '?')}; context = top {k} evidence items",
+        f"- retrieval code: {meta.get('freeze', 'unknown')}",
     ]
     if meta.get("embedder"):
         q_ms = meta.get("query_embed_ms")

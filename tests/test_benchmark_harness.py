@@ -258,3 +258,20 @@ def test_openai_embedding_retries_and_batches() -> None:
         assert len(vecs) == 3 and calls == [2, 2, 1] and emb.usage_tokens == 14
     finally:
         srv.shutdown()
+
+
+def test_freeze_detects_changes(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from benchmarks import freeze
+
+    monkeypatch.setattr(freeze, "FROZEN", tmp_path / "FROZEN.json")
+    assert not freeze.status()["frozen"]
+    assert freeze.main(["--note", "t", "--chunk-size", "300", "--chunk-overlap", "50"]) == 0
+    st = freeze.status()
+    assert st["frozen"] and freeze.chunk_config() == (300, 50)
+    data = json.loads((tmp_path / "FROZEN.json").read_text(encoding="utf-8"))
+    some = next(iter(data["files"]))
+    data["files"][some] = "0" * 16  # pretend that file was different at freeze time
+    (tmp_path / "FROZEN.json").write_text(json.dumps(data), encoding="utf-8")
+    st = freeze.status()
+    assert not st["frozen"] and st["changed"] == [some]
+    assert "CHANGED" in freeze.describe(st)

@@ -1,0 +1,235 @@
+{
+ "source": "10-K schema (semi-automatic, see structures.py)",
+ "reviewed": false,
+ "checked": "automatic consistency checks + spot check by Claude; not reviewed by a person",
+ "outline": [
+  [
+   1,
+   "Item 1. Business",
+   7,
+   "ITEM 1. BUSINESS"
+  ],
+  [
+   1,
+   "Item 1A. Risk Factors",
+   14,
+   "ITEM 1A.RISK FACTORS"
+  ],
+  [
+   1,
+   "Item 1B. Unresolved Staff Comments",
+   23,
+   "ITEM 1B.UNRESOLVED STAFF"
+  ],
+  [
+   1,
+   "Item 2. Properties",
+   24,
+   "ITEM 2. PROPERTIES"
+  ],
+  [
+   1,
+   "Item 3. Legal Proceedings",
+   28,
+   "ITEM 3. LEGAL PROCEEDINGS"
+  ],
+  [
+   1,
+   "Item 4. Mine Safety Disclosures",
+   28,
+   "ITEM 4.MINE SAFETY"
+  ],
+  [
+   1,
+   "Item 5. Market for Registrant's Common Equity, Related Stockholder Matters and Issuer Purchases of Equity Securities",
+   29,
+   "ITEM 5.MARKET FOR"
+  ],
+  [
+   1,
+   "Item 6. Selected Financial Data",
+   30,
+   "ITEM 6.SELECTED FINANCIAL"
+  ],
+  [
+   1,
+   "Item 7. Management's Discussion and Analysis of Financial Condition and Results of Operations",
+   31,
+   "ITEM 7. MANAGEMENT'S"
+  ],
+  [
+   2,
+   "Results of Operations",
+   36,
+   "Results of Operations"
+  ],
+  [
+   1,
+   "Item 7A. Quantitative and Qualitative Disclosures About Market Risk",
+   45,
+   "ITEM 7A.QUANTITATIVE AND"
+  ],
+  [
+   1,
+   "Item 8. Financial Statements and Supplementary Data",
+   47,
+   "ITEM 8. FINANCIAL STATEMENTS"
+  ],
+  [
+   2,
+   "Report of Independent Registered Public Accounting Firm",
+   47,
+   "Report of Independent Registered Public Accounting Firm"
+  ],
+  [
+   2,
+   "Consolidated Statements of Income",
+   51,
+   "Consolidated Statements of Incom"
+  ],
+  [
+   2,
+   "Consolidated Statements of Comprehensive Income",
+   52,
+   "Consolidated Statements of Comprehensive Income"
+  ],
+  [
+   2,
+   "Consolidated Balance Sheets",
+   53,
+   "Consolidated Balance Shee"
+  ],
+  [
+   2,
+   "Consolidated Statements of Equity",
+   55,
+   "Consolidated Statements of Shareholders' Equit"
+  ],
+  [
+   2,
+   "Consolidated Statements of Cash Flows",
+   56,
+   "Consolidated Statements of Cash Flo"
+  ],
+  [
+   2,
+   "Notes to Consolidated Financial Statements",
+   58,
+   "Notes to Consolidated Financial Statement"
+  ],
+  [
+   3,
+   "Note 1. Summary of Significant Accounting Policies",
+   58,
+   "Note 1. Summary of Significant Accounting PoliciesGeneralWalmart Inc"
+  ],
+  [
+   3,
+   "Note 2. Net Income Per Common Share",
+   63,
+   "Note 2. Net Income Per Common ShareBasic net income per common share attributabl"
+  ],
+  [
+   3,
+   "Note 3. Shareholders' Equity",
+   64,
+   "Note 3. Shareholders' EquityThe total authorized shares of"
+  ],
+  [
+   3,
+   "Note 4. Accumulated Other Comprehensive Loss",
+   66,
+   "Note 4. Accumulated Other Comprehensive Loss"
+  ],
+  [
+   3,
+   "Note 5. Accrued Liabilities",
+   66,
+   "Note 5. Accrued LiabilitiesThe Company's accrued liabilities consist of the foll"
+  ],
+  [
+   3,
+   "Note 6. Short-term Borrowings and Long-term Debt",
+   67,
+   "Note 6. Short-term Borrowings and Long-term Debt"
+  ],
+  [
+   3,
+   "Note 7. Leases",
+   70,
+   "Note 7. LeasesThe Company leases certain retail locations, distribution and fulf"
+  ],
+  [
+   3,
+   "Note 8. Fair Value Measurements",
+   72,
+   "Note 8. Fair Value MeasurementsAssets and liabilities recorded at fair value are"
+  ],
+  [
+   3,
+   "Note 9. Taxes",
+   74,
+   "Note 9. Taxes"
+  ],
+  [
+   3,
+   "Note 10. Contingencies",
+   78,
+   "Note 10. ContingenciesLegal ProceedingsThe Company is involved in a number of le"
+  ],
+  [
+   3,
+   "Note 11. Retirement-Related Benefits",
+   79,
+   "Note 11. Retirement-Related BenefitsThe Company offers a 401(k) plan for associa"
+  ],
+  [
+   3,
+   "Note 12. Disposals, Acquisitions and Related Items",
+   80,
+   "Note 12. Disposals, Acquisitions and Related ItemsThe following material disposa"
+  ],
+  [
+   3,
+   "Note 13. Segments and Disaggregated Revenue",
+   81,
+   "Note 13. Segments and Disaggregated RevenueSegmentsThe Company is engaged in the"
+  ],
+  [
+   3,
+   "Note 14. Subsequent Event",
+   83,
+   "Note 14. Subsequent Event"
+  ],
+  [
+   3,
+   "Note 15. Quarterly Financial Data (Unaudited) Fiscal Year Ended January 31, 2020",
+   83,
+   "Note 15. Quarterly Financial Data (Unaudited) Fiscal Year Ended January 31, 2020"
+  ],
+  [
+   1,
+   "Item 9. Changes in and Disagreements with Accountants on Accounting and Financial Disclosure",
+   84,
+   "ITEM 9. CHANGES IN"
+  ],
+  [
+   1,
+   "Item 9A. Controls and Procedures",
+   84,
+   "ITEM 9A.CONTROLS AND"
+  ],
+  [
+   1,
+   "Item 9B. Other Information",
+   84,
+   "ITEM 9B.OTHER INFORMATION"
+  ],
+  [
+   1,
+   "Item 16. Form 10-K Summary",
+   88,
+   "ITEM 16.FORM 10-K"
+  ]
+ ]
+}

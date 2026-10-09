@@ -8,12 +8,15 @@ import shutil
 import sys
 import time
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from treeengine.core.config import EngineConfig
+from treeengine.core.models import Document
 from treeengine.factory import build_components
+from treeengine.ingest.base import detect_source_type, get_adapter
 from treeengine.storage.sqlite import SQLiteRepository
 
 from .datasets import CorpusDoc, Suite, fetch, load_suite
@@ -61,12 +64,28 @@ def _meta(repo: SQLiteRepository, key: str, value: Any = None) -> Any:
     return json.loads(row[0]) if row else None
 
 
-def load_corpus(docs: list[CorpusDoc], use_cache: bool = True, quiet: bool = True) -> Corpus:
-    """Ingest (or reuse) the documents with TreeEngine's default pipeline."""
+def load_corpus(
+    docs: list[CorpusDoc],
+    use_cache: bool = True,
+    quiet: bool = True,
+    *,
+    config: EngineConfig | None = None,
+    llm: Any = None,
+    prepare: Callable[[Document, CorpusDoc], None] | None = None,
+    variant: str = "",
+) -> Corpus:
+    """Ingest (or reuse) the documents with TreeEngine's pipeline.
+
+    ``config`` / ``llm`` / ``prepare`` (a hook that may edit the parsed Document before the
+    structure is built, e.g. inject a reference outline) define structure-quality variants;
+    ``variant`` must name them so each variant gets its own cache file."""
     path = None
     if use_cache:
         CACHE.mkdir(exist_ok=True)
-        path = CACHE / f"corpus-{corpus_key(docs)}.db"
+        key = corpus_key(docs)
+        if variant:
+            key = hashlib.sha256(f"{key}:{variant}".encode()).hexdigest()[:16]
+        path = CACHE / f"corpus-{key}.db"
         if path.exists():
             repo = SQLiteRepository(path)
             by_uri = {Path(d.uri or "").name: d.id for d in repo.list_documents()}
@@ -81,13 +100,18 @@ def load_corpus(docs: list[CorpusDoc], use_cache: bool = True, quiet: bool = Tru
         repo = SQLiteRepository(tmp)
     else:
         repo = SQLiteRepository(":memory:")
-    comps = build_components(repo, None, EngineConfig())
+    comps = build_components(repo, llm, config or EngineConfig())
     t0 = time.perf_counter()
     ids = {}
     for d in docs:
         if not quiet:
-            print(f"ingesting {d.name}", file=sys.stderr)
-        ids[d.name] = comps.pipeline.ingest(d.path).id
+            print(f"ingesting {d.name}{' [' + variant + ']' if variant else ''}", file=sys.stderr)
+        if prepare is None:
+            ids[d.name] = comps.pipeline.ingest(d.path).id
+        else:
+            parsed = get_adapter(detect_source_type(str(d.path))).load(str(d.path))
+            prepare(parsed, d)
+            ids[d.name] = comps.pipeline.store(parsed).id
     secs = time.perf_counter() - t0
     if path is not None:
         _meta(repo, "ingest_s", secs)
@@ -121,6 +145,7 @@ class DocStats:
     pages: int | None
     nodes: int
     tokens: int
+    structure: str | None = None  # native / heuristic / flat / llm / oracle ...
 
 
 def doc_stats(corpus: Corpus) -> dict[str, DocStats]:
@@ -130,8 +155,13 @@ def doc_stats(corpus: Corpus) -> dict[str, DocStats]:
         if name not in cached:
             doc = corpus.repo.get_document(did)
             cached[name] = count_tokens(doc.text or "") if doc else 0
+        doc = corpus.repo.get_document(did)
         out[name] = DocStats(
-            name, page_count(corpus.repo, did), corpus.repo.count_nodes(did), cached[name]
+            name,
+            page_count(corpus.repo, did),
+            corpus.repo.count_nodes(did),
+            cached[name],
+            (doc.metadata or {}).get("structure_method") if doc else None,
         )
     try:
         _meta(corpus.repo, "doc_tokens", cached)

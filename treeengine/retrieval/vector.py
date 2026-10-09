@@ -24,12 +24,18 @@ class VectorIndexer:
     """Keeps a VectorIndex in step with the Repository (blocks stay the source of truth)."""
 
     def __init__(
-        self, repo: Repository, index: VectorIndex, embedder: EmbeddingProvider, batch: int = 64
+        self,
+        repo: Repository,
+        index: VectorIndex,
+        embedder: EmbeddingProvider,
+        batch: int = 64,
+        with_title: bool = True,
     ) -> None:
         self.repo = repo
         self.index = index
         self.embedder = embedder
         self.batch = batch
+        self.with_title = with_title  # False: embed block.content only (ablation)
 
     def index_document(self, document_id: str) -> int:
         self.index.delete_document(document_id)
@@ -41,7 +47,10 @@ class VectorIndexer:
                 titles[b.node_id] = n.title if n else ""
         for i in range(0, len(blocks), self.batch):
             chunk = blocks[i : i + self.batch]
-            texts = [block_embedding_text(b, titles.get(b.node_id or "")) for b in chunk]
+            texts = [
+                block_embedding_text(b, titles.get(b.node_id or "") if self.with_title else None)
+                for b in chunk
+            ]
             vecs = self.embedder.embed_texts(texts)
             self.index.upsert([(b.id, b.document_id, v) for b, v in zip(chunk, vecs, strict=True)])
         return len(blocks)

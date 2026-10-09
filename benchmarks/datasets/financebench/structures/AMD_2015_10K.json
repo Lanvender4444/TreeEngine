@@ -1,0 +1,289 @@
+{
+ "source": "10-K schema (semi-automatic, see structures.py)",
+ "reviewed": false,
+ "checked": "automatic consistency checks + spot check by Claude; not reviewed by a person",
+ "outline": [
+  [
+   1,
+   "Item 1. Business",
+   3,
+   "ITEM 1. BUSINESS"
+  ],
+  [
+   1,
+   "Item 1A. Risk Factors",
+   15,
+   "ITEM 1A. RISK FACTORS"
+  ],
+  [
+   1,
+   "Item 1B. Unresolved Staff Comments",
+   29,
+   "ITEM 1B. UNRESOLVED STAFF"
+  ],
+  [
+   1,
+   "Item 2. Properties",
+   29,
+   "ITEM 2. PROPERTIES"
+  ],
+  [
+   1,
+   "Item 3. Legal Proceedings",
+   30,
+   "ITEM 3. LEGAL PROCEEDINGS"
+  ],
+  [
+   1,
+   "Item 4. Mine Safety Disclosures",
+   31,
+   "ITEM 4. MINE SAFETY"
+  ],
+  [
+   1,
+   "Item 5. Market for Registrant's Common Equity, Related Stockholder Matters and Issuer Purchases of Equity Securities",
+   32,
+   "ITEM 5. MARKET FOR"
+  ],
+  [
+   1,
+   "Item 6. Selected Financial Data",
+   34,
+   "ITEM 6. SELECTED FINANCIAL"
+  ],
+  [
+   1,
+   "Item 7. Management's Discussion and Analysis of Financial Condition and Results of Operations",
+   36,
+   "ITEM 7.MANAGEMENT'S"
+  ],
+  [
+   2,
+   "Results of Operations",
+   36,
+   "RESULTS OF OPERATIONS"
+  ],
+  [
+   2,
+   "Overview",
+   36,
+   "Overview"
+  ],
+  [
+   2,
+   "Critical Accounting Estimates",
+   39,
+   "Critical Accounting Estimates"
+  ],
+  [
+   2,
+   "Contractual Obligations",
+   49,
+   "Contractual Obligations"
+  ],
+  [
+   2,
+   "Off-Balance Sheet Arrangements",
+   53,
+   "Off-Balance Sheet Arrangements"
+  ],
+  [
+   1,
+   "Item 7A. Quantitative and Qualitative Disclosures About Market Risk",
+   54,
+   "ITEM 7A. QUANTITATIVE AND"
+  ],
+  [
+   1,
+   "Item 8. Financial Statements and Supplementary Data",
+   56,
+   "ITEM 8. FINANCIAL STATEMENTS"
+  ],
+  [
+   2,
+   "Consolidated Statements of Income",
+   56,
+   "Consolidated Statements of Operation"
+  ],
+  [
+   2,
+   "Consolidated Statements of Comprehensive Income",
+   57,
+   "Consolidated Statements of Comprehensive Loss"
+  ],
+  [
+   2,
+   "Consolidated Balance Sheets",
+   58,
+   "Consolidated Balance Shee"
+  ],
+  [
+   2,
+   "Consolidated Statements of Equity",
+   59,
+   "Consolidated Statements of Stockholders' Equit"
+  ],
+  [
+   2,
+   "Consolidated Statements of Cash Flows",
+   60,
+   "Consolidated Statements of Cash Flo"
+  ],
+  [
+   2,
+   "Notes to Consolidated Financial Statements",
+   61,
+   "Notes to Consolidated Financial Statement"
+  ],
+  [
+   3,
+   "Note 1. Nature of Operations",
+   61,
+   "NOTE 1: Nature of Operations"
+  ],
+  [
+   3,
+   "Note 2. Summary of Significant Accounting Policies",
+   61,
+   "NOTE 2: Summary of Significant Accounting Policies"
+  ],
+  [
+   3,
+   "Note 3. Globalfoundries",
+   66,
+   "NOTE 3: GLOBALFOUNDRIES"
+  ],
+  [
+   3,
+   "Note 4. Equity Interest Purchase Agreement On October 15, 2015, the Company entered",
+   67,
+   "NOTE 4: Equity Interest Purchase Agreement On October 15, 2015, the Company ente"
+  ],
+  [
+   3,
+   "Note 5. Supplemental Balance Sheet Information",
+   68,
+   "NOTE 5: Supplemental Balance Sheet Information"
+  ],
+  [
+   3,
+   "Note 6. Goodwill and Acquired Intangible Assets",
+   69,
+   "NOTE 6: Goodwill and Acquired Intangible Assets"
+  ],
+  [
+   3,
+   "Note 7. Financial Instruments",
+   70,
+   "NOTE 7: Financial Instruments"
+  ],
+  [
+   3,
+   "Note 8. Concentrations of Credit and Operation Risk",
+   73,
+   "NOTE 8: Concentrations of Credit and Operation Risk"
+  ],
+  [
+   3,
+   "Note 9. Income Taxes",
+   74,
+   "NOTE 9: Income Taxes"
+  ],
+  [
+   3,
+   "Note 10. Debt and Other Obligations",
+   77,
+   "NOTE 10: Debt and Other Obligations"
+  ],
+  [
+   3,
+   "Note 11. Other Expense, Net",
+   82,
+   "NOTE 11: Other Expense, Net"
+  ],
+  [
+   3,
+   "Note 12. Segment Reporting",
+   83,
+   "NOTE 12: Segment Reporting"
+  ],
+  [
+   3,
+   "Note 13. Stock-Based Incentive Compensation Plans",
+   84,
+   "NOTE 13: Stock-Based Incentive Compensation Plans"
+  ],
+  [
+   3,
+   "Note 14. Other Employee Benefit Plans",
+   87,
+   "NOTE 14: Other Employee Benefit Plans"
+  ],
+  [
+   3,
+   "Note 15. Commitments and Guarantees",
+   87,
+   "NOTE 15: Commitments and Guarantees"
+  ],
+  [
+   3,
+   "Note 16. Contingencies",
+   89,
+   "NOTE 16: Contingencies"
+  ],
+  [
+   3,
+   "Note 17. Restructuring and Other Special Charges, Net",
+   90,
+   "NOTE 17: Restructuring and Other Special Charges, Net"
+  ],
+  [
+   2,
+   "Report of Independent Registered Public Accounting Firm",
+   92,
+   "Report of Independent Registered Public Accounting Firm"
+  ],
+  [
+   1,
+   "Item 9. Changes in and Disagreements with Accountants on Accounting and Financial Disclosure",
+   95,
+   "ITEM 9. CHANGES IN"
+  ],
+  [
+   1,
+   "Item 9A. Controls and Procedures",
+   95,
+   "ITEM 9A. CONTROLS AND"
+  ],
+  [
+   1,
+   "Item 9B. Other Information",
+   96,
+   "ITEM 9B. OTHER INFORMATION"
+  ],
+  [
+   1,
+   "Item 10. Directors, Executive Officers and Corporate Governance",
+   97,
+   "ITEM 10. DIRECTORS, EXECUTIVE"
+  ],
+  [
+   1,
+   "Item 11. Executive Compensation",
+   97,
+   "ITEM 11. EXECUTIVE COMPENSATION"
+  ],
+  [
+   1,
+   "Item 12. Security Ownership of Certain Beneficial Owners and Management and Related Stockholder Matters",
+   97,
+   "ITEM 12. SECURITY OWNERSHIP"
+  ],
+  [
+   1,
+   "Item 13. Certain Relationships and Related Transactions, and Director Independence",
+   97,
+   "ITEM 13. CERTAIN RELATIONSHIPS"
+  ]
+ ]
+}

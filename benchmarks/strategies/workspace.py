@@ -136,18 +136,25 @@ class Workspace:
 
     # ------------------------------------------------------------------ resources
     def block_vectors(self) -> Any:
-        """TreeEngine's VectorRetriever over one embedding per block."""
-        if "block_vectors" not in self._resources:
+        """TreeEngine's VectorRetriever over one embedding per block ("section title\ntext")."""
+        return self._block_vectors("block_vectors", with_title=True)
+
+    def block_vectors_raw(self) -> Any:
+        """Ablation: one embedding per block of its text only (no section title)."""
+        return self._block_vectors("block_vectors_raw", with_title=False)
+
+    def _block_vectors(self, name: str, with_title: bool) -> Any:
+        if name not in self._resources:
             from treeengine.retrieval.vector import VectorIndexer, VectorRetriever
 
-            index = self._vector_index("block_vectors")
+            index = self._vector_index(name)
             emb = self.embedder
             before, t0 = emb.usage.snapshot(), time.perf_counter()
-            self.log("embedding blocks ...")
-            n = VectorIndexer(self.repo, index, emb).reindex_all()
-            self._embed_stats("block_vectors", n, before, t0, index)
-            self._resources["block_vectors"] = VectorRetriever(self.repo, index, emb, self.config)
-        return self._resources["block_vectors"]
+            self.log(f"embedding blocks ({name}) ...")
+            n = VectorIndexer(self.repo, index, emb, with_title=with_title).reindex_all()
+            self._embed_stats(name, n, before, t0, index)
+            self._resources[name] = VectorRetriever(self.repo, index, emb, self.config)
+        return self._resources[name]
 
     def chunks(self) -> Any:
         if "chunks" not in self._resources:

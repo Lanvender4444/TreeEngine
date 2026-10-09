@@ -362,6 +362,7 @@ def render_qa(
         f"- full_context budget: {meta['max_context_tokens']:,} tokens",
         f"- embeddings: `{meta.get('embedder') or 'none'}`; tokens: {meta.get('tokenizer')}",
         f"- judge tokens (evaluation cost, excluded below): {meta['judge_tokens']:,}",
+        f"- retrieval code: {meta.get('freeze', 'unknown')}",
     ]
     if meta.get("stub"):
         parts.append("- **STUB MODELS: pipeline test only, accuracy is meaningless**")

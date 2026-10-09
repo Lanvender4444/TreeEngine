@@ -27,6 +27,8 @@ from pathlib import Path
 from treeengine.core.config import EngineConfig
 
 from .datasets import SUITES
+from .freeze import chunk_config, describe
+from .freeze import status as freeze_status
 from .loader import (
     CACHE,
     breakdown,
@@ -44,6 +46,7 @@ from .strategies import (
     ALL,
     FAMILY,
     LEXICAL,
+    NEEDS_BOTH,
     NEEDS_LLM,
     NEEDS_VECTOR,
     PRESETS,
@@ -72,8 +75,11 @@ def common_args(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--llm", action="store_true", help="enable LLM strategies (TREEENGINE_LLM_*)")
     ap.add_argument("--vector", action="store_true", help="enable embedding-based strategies")
     ap.add_argument("--embedder", default=None, help="fastembed:<m> | openai:<m> | hashing")
-    ap.add_argument("--chunk-size", type=int, default=600, help="traditional RAG chunk tokens")
-    ap.add_argument("--chunk-overlap", type=int, default=100)
+    size, overlap = chunk_config()
+    ap.add_argument(
+        "--chunk-size", type=int, default=size, help="traditional RAG chunk tokens (FROZEN.json)"
+    )
+    ap.add_argument("--chunk-overlap", type=int, default=overlap)
     ap.add_argument("--price-llm-input", type=float, default=None, help="USD / 1M tokens")
     ap.add_argument("--price-llm-output", type=float, default=None, help="USD / 1M tokens")
     ap.add_argument("--price-embedding", type=float, default=None, help="USD / 1M tokens")
@@ -129,8 +135,9 @@ def choose_strategies(
         skipped += [f"{s} (no LLM)" for s in wanted if s in NEEDS_LLM]
         wanted = [s for s in wanted if s not in NEEDS_LLM]
     if not spec:
-        skipped += [f"{s} (no embedder)" for s in wanted if s in NEEDS_VECTOR]
-        wanted = [s for s in wanted if s not in NEEDS_VECTOR]
+        need_emb = NEEDS_VECTOR + NEEDS_BOTH
+        skipped += [f"{s} (no embedder)" for s in wanted if s in need_emb]
+        wanted = [s for s in wanted if s not in need_emb]
     return wanted, skipped
 
 
@@ -199,6 +206,7 @@ def base_meta(suite, docs, queries, corpus, ws, wanted, skipped, llm, spec):
         "skipped": ", ".join(skipped),
         "llm_model": getattr(llm, "model", None),
         "tokenizer": tokenizer_name(),
+        "freeze": describe(freeze_status()),
     }
     if spec:
         meta["embedder"] = spec

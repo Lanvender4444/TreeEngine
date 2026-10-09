@@ -1,0 +1,313 @@
+{
+ "source": "10-K schema (semi-automatic, see structures.py)",
+ "reviewed": false,
+ "checked": "automatic consistency checks + spot check by Claude; not reviewed by a person",
+ "outline": [
+  [
+   1,
+   "Item 1. Business",
+   3,
+   "ITEM 1. Business"
+  ],
+  [
+   1,
+   "Item 1A. Risk Factors",
+   10,
+   "ITEM 1A. Risk Factors"
+  ],
+  [
+   1,
+   "Item 1B. Unresolved Staff Comments",
+   23,
+   "ITEM 1B. Unresolved Staff"
+  ],
+  [
+   1,
+   "Item 2. Properties",
+   23,
+   "ITEM 2. Properties"
+  ],
+  [
+   1,
+   "Item 3. Legal Proceedings",
+   24,
+   "ITEM 3. Legal Proceedings"
+  ],
+  [
+   1,
+   "Item 4. Mine Safety Disclosures",
+   24,
+   "ITEM 4. Mine Safety"
+  ],
+  [
+   1,
+   "Item 5. Market for Registrant's Common Equity, Related Stockholder Matters and Issuer Purchases of Equity Securities",
+   26,
+   "ITEM 5. Market for"
+  ],
+  [
+   1,
+   "Item 6. Selected Financial Data",
+   28,
+   "ITEM 6. Selected Financial"
+  ],
+  [
+   1,
+   "Item 7. Management's Discussion and Analysis of Financial Condition and Results of Operations",
+   30,
+   "ITEM 7. Management's"
+  ],
+  [
+   2,
+   "Contractual Obligations",
+   33,
+   "contractual obligations"
+  ],
+  [
+   2,
+   "Results of Operations",
+   34,
+   "Consolidated Results of Operations"
+  ],
+  [
+   2,
+   "Segment Results",
+   38,
+   "Business Segment Results"
+  ],
+  [
+   2,
+   "Non-GAAP Financial Measures",
+   46,
+   "Non-GAAP Financial Measure"
+  ],
+  [
+   2,
+   "Cash Flows",
+   46,
+   "cash flow"
+  ],
+  [
+   2,
+   "Critical Accounting Estimates",
+   50,
+   "Critical Accounting Policies"
+  ],
+  [
+   2,
+   "Overview",
+   53,
+   "Overview"
+  ],
+  [
+   1,
+   "Item 7A. Quantitative and Qualitative Disclosures About Market Risk",
+   58,
+   "ITEM 7A. Quantitative and"
+  ],
+  [
+   1,
+   "Item 8. Financial Statements and Supplementary Data",
+   60,
+   "ITEM 8. Financial Statements"
+  ],
+  [
+   2,
+   "Report of Independent Registered Public Accounting Firm",
+   60,
+   "Report of Independent Registered Public Accounting Firm"
+  ],
+  [
+   2,
+   "Consolidated Statements of Income",
+   63,
+   "Consolidated Statements of Earning"
+  ],
+  [
+   2,
+   "Consolidated Statements of Comprehensive Income",
+   64,
+   "Consolidated Statements of Comprehensive Income"
+  ],
+  [
+   2,
+   "Consolidated Balance Sheets",
+   65,
+   "Consolidated Balance Shee"
+  ],
+  [
+   2,
+   "Consolidated Statements of Cash Flows",
+   66,
+   "Consolidated Statements of Cash Flo"
+  ],
+  [
+   2,
+   "Consolidated Statements of Equity",
+   67,
+   "Consolidated Statements of Equit"
+  ],
+  [
+   2,
+   "Notes to Consolidated Financial Statements",
+   68,
+   "Notes to Consolidated Financial Statement"
+  ],
+  [
+   3,
+   "Note 1. Organization and Significant Accounting Policies",
+   68,
+   "Note 1 – Organization and Significant Accounting Policies"
+  ],
+  [
+   3,
+   "Note 2. Earnings Per Share",
+   76,
+   "Note 2 – Earnings Per Share"
+  ],
+  [
+   3,
+   "Note 3. Information on Business Segments",
+   76,
+   "Note 3 – Information on Business Segments"
+  ],
+  [
+   3,
+   "Note 4. Receivables, net, Contract Assets and Contract Liabilities",
+   81,
+   "Note 4 – Receivables, net, Contract Assets and Contract Liabilities"
+  ],
+  [
+   3,
+   "Note 5. Inventories",
+   81,
+   "Note 5 – Inventories"
+  ],
+  [
+   3,
+   "Note 6. Property, Plant and Equipment, net",
+   82,
+   "Note 6 – Property, Plant and Equipment, net"
+  ],
+  [
+   3,
+   "Note 7. Goodwill and Acquired Intangibles",
+   82,
+   "Note 7 – Goodwill and Acquired Intangibles"
+  ],
+  [
+   3,
+   "Note 8. Leases",
+   83,
+   "Note 8 – Leases"
+  ],
+  [
+   3,
+   "Note 9. Income Taxes",
+   83,
+   "Note 9 – Income Taxes"
+  ],
+  [
+   3,
+   "Note 10. Debt",
+   86,
+   "Note 10 – Debt"
+  ],
+  [
+   3,
+   "Note 11. Postretirement Benefit Plans",
+   87,
+   "Note 11 – Postretirement Benefit Plans"
+  ],
+  [
+   3,
+   "Note 12. Stockholders' Equity",
+   95,
+   "Note 12 – Stockholders' Equity"
+  ],
+  [
+   3,
+   "Note 13. Stock-Based Compensation",
+   97,
+   "Note 13 – Stock-Based Compensation"
+  ],
+  [
+   3,
+   "Note 14. Legal Proceedings, Commitments and Contingencies",
+   97,
+   "Note 14 – Legal Proceedings, Commitments and Contingencies"
+  ],
+  [
+   3,
+   "Note 15. Fair Value Measurements",
+   100,
+   "Note 15 – Fair Value Measurements"
+  ],
+  [
+   3,
+   "Note 16. Severance and Other Charges",
+   102,
+   "Note 16 – Severance and Other Charges"
+  ],
+  [
+   1,
+   "Item 9. Changes in and Disagreements with Accountants on Accounting and Financial Disclosure",
+   103,
+   "ITEM 9. Changes in"
+  ],
+  [
+   1,
+   "Item 9A. Controls and Procedures",
+   103,
+   "ITEM 9A. Controls and"
+  ],
+  [
+   1,
+   "Item 9B. Other Information",
+   105,
+   "ITEM 9B. Other Information"
+  ],
+  [
+   1,
+   "Item 9C. Disclosure Regarding Foreign Jurisdictions that Prevent Inspections",
+   105,
+   "ITEM 9C. Disclosure Regarding"
+  ],
+  [
+   1,
+   "Item 10. Directors, Executive Officers and Corporate Governance",
+   105,
+   "ITEM 10. Directors, Executive"
+  ],
+  [
+   1,
+   "Item 11. Executive Compensation",
+   105,
+   "ITEM 11. Executive Compensation"
+  ],
+  [
+   1,
+   "Item 12. Security Ownership of Certain Beneficial Owners and Management and Related Stockholder Matters",
+   106,
+   "ITEM 12. Security Ownership"
+  ],
+  [
+   1,
+   "Item 13. Certain Relationships and Related Transactions, and Director Independence",
+   106,
+   "ITEM 13. Certain Relationships"
+  ],
+  [
+   1,
+   "Item 15. Exhibits and Financial Statement Schedules",
+   107,
+   "ITEM 15. Exhibits and"
+  ],
+  [
+   1,
+   "Item 16. Form 10-K Summary",
+   110,
+   "ITEM 16. Form 10-K"
+  ]
+ ]
+}

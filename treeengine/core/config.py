@@ -10,6 +10,11 @@ class EngineConfig:
     summary_chars: int = 240  # heuristic summary length
     llm_summaries: bool = False  # ask the LLM to summarise nodes at ingest time
     llm_structure_fallback: bool = True  # allow LLM structure fallback when no structure found
+    # PDF structure source. "auto" = bookmarks -> heuristic headings -> (LLM) -> flat. The other
+    # modes force one source (structure-quality experiments): "native" (bookmarks or an outline
+    # supplied in metadata["_outline"]), "heuristic", "llm", "flat".
+    pdf_structure: str = "auto"
+    llm_structure_window: int = 200  # blocks per LLM structure call (long documents: several)
 
     # tree retrieval
     tree_beam: int = 2  # nodes kept per level (1-3)

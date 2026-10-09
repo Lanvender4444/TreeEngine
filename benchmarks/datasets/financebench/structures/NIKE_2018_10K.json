@@ -1,0 +1,265 @@
+{
+ "source": "10-K schema (semi-automatic, see structures.py)",
+ "reviewed": false,
+ "checked": "automatic consistency checks + spot check by Claude; not reviewed by a person",
+ "outline": [
+  [
+   1,
+   "Item 1. Business",
+   3,
+   "ITEM 1. Business"
+  ],
+  [
+   1,
+   "Item 1A. Risk Factors",
+   8,
+   "ITEM 1A. Risk Factors"
+  ],
+  [
+   1,
+   "Item 1B. Unresolved Staff Comments",
+   17,
+   "ITEM 1B. Unresolved Staff"
+  ],
+  [
+   1,
+   "Item 2. Properties",
+   17,
+   "ITEM 2. Properties"
+  ],
+  [
+   1,
+   "Item 3. Legal Proceedings",
+   17,
+   "ITEM 3. Legal Proceedings"
+  ],
+  [
+   1,
+   "Item 4. Mine Safety Disclosures",
+   17,
+   "ITEM 4. Mine Safety"
+  ],
+  [
+   1,
+   "Item 5. Market for Registrant's Common Equity, Related Stockholder Matters and Issuer Purchases of Equity Securities",
+   18,
+   "ITEM 5. Market for"
+  ],
+  [
+   1,
+   "Item 6. Selected Financial Data",
+   20,
+   "ITEM 6. Selected Financial"
+  ],
+  [
+   1,
+   "Item 7. Management's Discussion and Analysis of Financial Condition and Results of Operations",
+   22,
+   "ITEM 7. Management's"
+  ],
+  [
+   2,
+   "Non-GAAP Financial Measures",
+   22,
+   "non-GAAP financial measures"
+  ],
+  [
+   2,
+   "Results of Operations",
+   23,
+   "Results of Operations"
+  ],
+  [
+   2,
+   "Cash Flows",
+   34,
+   "cash flows"
+  ],
+  [
+   1,
+   "Item 7A. Quantitative and Qualitative Disclosures About Market Risk",
+   42,
+   "ITEM 7A. Quantitative and"
+  ],
+  [
+   1,
+   "Item 8. Financial Statements and Supplementary Data",
+   43,
+   "ITEM 8. Financial Statements"
+  ],
+  [
+   2,
+   "Report of Independent Registered Public Accounting Firm",
+   45,
+   "Report of Independent Registered Public Accounting Firm"
+  ],
+  [
+   2,
+   "Consolidated Statements of Income",
+   46,
+   "Consolidated Statements of Incom"
+  ],
+  [
+   2,
+   "Consolidated Statements of Comprehensive Income",
+   47,
+   "Consolidated Statements of Comprehensive Income"
+  ],
+  [
+   2,
+   "Consolidated Balance Sheets",
+   48,
+   "Consolidated Balance Shee"
+  ],
+  [
+   2,
+   "Consolidated Statements of Cash Flows",
+   49,
+   "Consolidated Statements of Cash Flo"
+  ],
+  [
+   2,
+   "Consolidated Statements of Equity",
+   50,
+   "Consolidated Statements of Shareholders' Equit"
+  ],
+  [
+   2,
+   "Notes to Consolidated Financial Statements",
+   51,
+   "Notes to Consolidated Financial Statement"
+  ],
+  [
+   3,
+   "Note 1. Summary of Significant Accounting Policies Description of BusinessNIKE, Inc",
+   52,
+   "NOTE 1 — Summary of Significant Accounting Policies Description of BusinessNIKE,"
+  ],
+  [
+   3,
+   "Note 2. Inventories",
+   57,
+   "NOTE 2 — InventoriesInventory balances of"
+  ],
+  [
+   3,
+   "Note 3. Property, Plant and Equipment",
+   57,
+   "NOTE 3 — Property, Plant and EquipmentProperty, plant and equipment, net include"
+  ],
+  [
+   3,
+   "Note 4. Identifiable Intangible Assets and Goodwill",
+   57,
+   "NOTE 4 — Identifiable Intangible Assets and GoodwillIdentifiable intangible asse"
+  ],
+  [
+   3,
+   "Note 5. Accrued Liabilities",
+   58,
+   "NOTE 5 — Accrued LiabilitiesAccrued liabilities included the following: As of Ma"
+  ],
+  [
+   3,
+   "Note 6. Fair Value Measurements",
+   58,
+   "NOTE 6 — Fair Value MeasurementsThe following tables present information about t"
+  ],
+  [
+   3,
+   "Note 7. Short-Term Borrowings and Credit Lines",
+   60,
+   "NOTE 7 — Short-Term Borrowings and Credit LinesNotes payable and interest-bearin"
+  ],
+  [
+   3,
+   "Note 8. Long-Term Debt",
+   61,
+   "NOTE 8 — Long-Term DebtLong-term debt , net of unamortized premiums, discounts a"
+  ],
+  [
+   3,
+   "Note 9. Income Taxes",
+   61,
+   "NOTE 9 — Income TaxesIncome before income taxes is as follows: Year Ended May 31"
+  ],
+  [
+   3,
+   "Note 10. Redeemable Preferred Stock",
+   64,
+   "NOTE 10 — Redeemable Preferred StockSojitz America is the sole owner of the Comp"
+  ],
+  [
+   3,
+   "Note 11. Common Stock and Stock-Based Compensation",
+   64,
+   "NOTE 11 — Common Stock and Stock-Based CompensationThe authorized number of shar"
+  ],
+  [
+   3,
+   "Note 12. Earnings Per Share",
+   66,
+   "NOTE 12 — Earnings Per ShareThe following is a reconciliation from basic earning"
+  ],
+  [
+   3,
+   "Note 13. Benefit Plans",
+   66,
+   "NOTE 13 — Benefit PlansThe Company has a qualified 401(k) Savings and Profit Sha"
+  ],
+  [
+   3,
+   "Note 14. Accumulated Other Comprehensive Income",
+   67,
+   "NOTE 14 — Accumulated Other Comprehensive IncomeThe changes in Accumulated other"
+  ],
+  [
+   3,
+   "Note 15. Commitments and Contingencies",
+   68,
+   "NOTE 15 — Commitments and ContingenciesThe Company leases retail store space, ce"
+  ],
+  [
+   3,
+   "Note 16. Risk Management and Derivatives",
+   68,
+   "NOTE 16 — Risk Management and DerivativesThe Company is exposed to global market"
+  ],
+  [
+   3,
+   "Note 17. Operating Segments and Related Information",
+   71,
+   "NOTE 17 — Operating Segments and Related InformationThe Company's operating segm"
+  ],
+  [
+   1,
+   "Item 9. Changes in and Disagreements with Accountants on Accounting and Financial Disclosure",
+   75,
+   "ITEM 9. Changes in"
+  ],
+  [
+   1,
+   "Item 9A. Controls and Procedures",
+   75,
+   "ITEM 9A. Controls and"
+  ],
+  [
+   1,
+   "Item 9B. Other Information",
+   75,
+   "ITEM 9B. Other Information"
+  ],
+  [
+   1,
+   "Item 15. Exhibits and Financial Statement Schedules",
+   77,
+   "ITEM 15. Exhibits and"
+  ],
+  [
+   1,
+   "Item 16. Form 10-K Summary",
+   80,
+   "ITEM 16. Form 10-K"
+  ]
+ ]
+}

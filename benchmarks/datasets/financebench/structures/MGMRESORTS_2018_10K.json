@@ -1,0 +1,295 @@
+{
+ "source": "10-K schema (semi-automatic, see structures.py)",
+ "reviewed": false,
+ "checked": "automatic consistency checks + spot check by Claude; not reviewed by a person",
+ "outline": [
+  [
+   1,
+   "Item 1. Business",
+   3,
+   "ITEM 1.BUSINESS"
+  ],
+  [
+   1,
+   "Item 1A. Risk Factors",
+   13,
+   "ITEM 1A.RISK FACTORS"
+  ],
+  [
+   1,
+   "Item 1B. Unresolved Staff Comments",
+   26,
+   "ITEM 1B. UNRESOLVED STAFF"
+  ],
+  [
+   1,
+   "Item 2. Properties",
+   27,
+   "ITEM 2.PROPERTIES"
+  ],
+  [
+   1,
+   "Item 3. Legal Proceedings",
+   28,
+   "ITEM 3.LEGAL PROCEEDINGS"
+  ],
+  [
+   1,
+   "Item 4. Mine Safety Disclosures",
+   28,
+   "ITEM 4.MINE SAFETY"
+  ],
+  [
+   1,
+   "Item 5. Market for Registrant's Common Equity, Related Stockholder Matters and Issuer Purchases of Equity Securities",
+   29,
+   "ITEM 5.MARKET FOR"
+  ],
+  [
+   1,
+   "Item 6. Selected Financial Data",
+   31,
+   "ITEM 6.SELECTED FINANCIAL"
+  ],
+  [
+   1,
+   "Item 7. Management's Discussion and Analysis of Financial Condition and Results of Operations",
+   33,
+   "ITEM 7.MANAGEMENT'S"
+  ],
+  [
+   2,
+   "Results of Operations",
+   33,
+   "RESULTS OF OPERATIONS"
+  ],
+  [
+   2,
+   "Overview",
+   33,
+   "Executive Overview"
+  ],
+  [
+   2,
+   "Non-GAAP Financial Measures",
+   41,
+   "Non-GAAP Measures"
+  ],
+  [
+   2,
+   "Liquidity and Capital Resources",
+   45,
+   "Liquidity and Capital Resources"
+  ],
+  [
+   2,
+   "Cash Flows",
+   45,
+   "Cash Flows"
+  ],
+  [
+   2,
+   "Off-Balance Sheet Arrangements",
+   48,
+   "Off Balance Sheet Arrangements"
+  ],
+  [
+   2,
+   "Contractual Obligations",
+   49,
+   "Contractual Obligations"
+  ],
+  [
+   2,
+   "Critical Accounting Estimates",
+   49,
+   "Critical Accounting Policies and Estimates"
+  ],
+  [
+   1,
+   "Item 7A. Quantitative and Qualitative Disclosures About Market Risk",
+   53,
+   "ITEM 7A. QUANTITATIVE AND"
+  ],
+  [
+   1,
+   "Item 8. Financial Statements and Supplementary Data",
+   54,
+   "ITEM 8. FINANCIAL STATEMENTS"
+  ],
+  [
+   2,
+   "Report of Independent Registered Public Accounting Firm",
+   54,
+   "Report of Independent Registered Public Accounting Firm"
+  ],
+  [
+   2,
+   "Consolidated Balance Sheets",
+   57,
+   "CONSOLIDATED BALANCE SHEE"
+  ],
+  [
+   2,
+   "Consolidated Statements of Income",
+   58,
+   "CONSOLIDATED STATEMENTS OF OPERATION"
+  ],
+  [
+   2,
+   "Consolidated Statements of Comprehensive Income",
+   59,
+   "CONSOLIDATED STATEMENTS OF COMPREHENSIVE INCOME"
+  ],
+  [
+   2,
+   "Consolidated Statements of Cash Flows",
+   60,
+   "CONSOLIDATED STATEMENTS OF CASH FLO"
+  ],
+  [
+   2,
+   "Consolidated Statements of Equity",
+   61,
+   "CONSOLIDATED STATEMENTS OF STOCKHOLDERS' EQUIT"
+  ],
+  [
+   2,
+   "Notes to Consolidated Financial Statements",
+   62,
+   "NOTES TO CONSOLIDATED FINANCIAL STATEMENT"
+  ],
+  [
+   3,
+   "Note 1. Organization",
+   62,
+   "NOTE 1 — ORGANIZATION"
+  ],
+  [
+   3,
+   "Note 2. Basis",
+   63,
+   "NOTE 2 — BASIS"
+  ],
+  [
+   3,
+   "Note 3. Accounts",
+   69,
+   "NOTE 3 — ACCOUNTS"
+  ],
+  [
+   3,
+   "Note 4. Acquisition",
+   69,
+   "NOTE 4 — ACQUISITION"
+  ],
+  [
+   3,
+   "Note 5. Property",
+   71,
+   "NOTE 5 — PROPERTY"
+  ],
+  [
+   3,
+   "Note 6. Investments",
+   71,
+   "NOTE 6 — INVESTMENTS"
+  ],
+  [
+   3,
+   "Note 7. Goodwill",
+   74,
+   "NOTE 7 — GOODWILL"
+  ],
+  [
+   3,
+   "Note 8. Other",
+   76,
+   "NOTE 8 — OTHER"
+  ],
+  [
+   3,
+   "Note 9. Long-Term",
+   77,
+   "NOTE 9 — LONG-TERM"
+  ],
+  [
+   3,
+   "Note 10. Income",
+   79,
+   "NOTE 10 — INCOME"
+  ],
+  [
+   3,
+   "Note 11. Commitments",
+   83,
+   "NOTE 11 – COMMITMENTS"
+  ],
+  [
+   3,
+   "Note 12. Stockholders'",
+   86,
+   "NOTE 12 — STOCKHOLDERS'"
+  ],
+  [
+   3,
+   "Note 13. Stock-Based",
+   87,
+   "NOTE 13 — STOCK-BASED"
+  ],
+  [
+   3,
+   "Note 14. Employee",
+   88,
+   "NOTE 14 — EMPLOYEE"
+  ],
+  [
+   3,
+   "Note 15. Property",
+   89,
+   "NOTE 15 — PROPERTY"
+  ],
+  [
+   3,
+   "Note 16. Segment",
+   90,
+   "NOTE 16 — SEGMENT"
+  ],
+  [
+   3,
+   "Note 17. Related",
+   92,
+   "NOTE 17 — RELATED"
+  ],
+  [
+   3,
+   "Note 18. Condensed",
+   94,
+   "NOTE 18 —CONDENSED"
+  ],
+  [
+   3,
+   "Note 19. Selected",
+   102,
+   "NOTE 19 — SELECTED"
+  ],
+  [
+   1,
+   "Item 9. Changes in and Disagreements with Accountants on Accounting and Financial Disclosure",
+   104,
+   "ITEM 9.CHANGES IN"
+  ],
+  [
+   1,
+   "Item 9A. Controls and Procedures",
+   104,
+   "ITEM 9A.CONTROLS AND"
+  ],
+  [
+   1,
+   "Item 16. Form 10-K Summary",
+   112,
+   "ITEM 16.FORM 10K"
+  ]
+ ]
+}

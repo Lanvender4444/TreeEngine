@@ -15,6 +15,9 @@ TreeEngine (block index; structure-aware)
   managed                   J   rule planner (LOOKUP / DOCUMENT_REASONING / HYBRID)
   managed+vector                rule planner with FTS+vector fusion in its lexical steps
   tree_llm / tree_llm+fts       LLM navigation, one level at a time (needs an LLM)
+  tree_llm+vector / +fts+vector LLM navigation scope -> vector / RRF(FTS, vector)
+  vector_raw                    ablation: block embeddings of the text only (no section title)
+  tree_lexical+vector_raw       ablation: tree scope -> raw block vectors
   managed_llm                   LLM planner (needs an LLM)
 
 Traditional RAG (fixed-size chunks of the raw text; structure-blind)
@@ -67,8 +70,11 @@ NEEDS_VECTOR = [
     "managed+vector",
     "rag_vector",
     "rag_hybrid",
+    "vector_raw",
+    "tree_lexical+vector_raw",
 ]
-NEEDS_LLM = ["tree_llm", "tree_llm+fts", "managed_llm"]
+NEEDS_LLM = ["tree_llm", "tree_llm+fts", "managed_llm", "tree_llm+vector", "tree_llm+fts+vector"]
+NEEDS_BOTH = ["tree_llm+vector", "tree_llm+fts+vector"]  # LLM navigation + embeddings
 QA_ONLY = ["full_context"]
 ALL = LEXICAL + NEEDS_VECTOR + NEEDS_LLM + QA_ONLY
 RENAMED = {"tree": "tree_lexical", "tree+fts": "tree_lexical+fts"}  # V0.2 names
@@ -83,6 +89,34 @@ PRESETS = {
         "tree_lexical+fts",
         "tree_lexical+vector",
         "tree_lexical+fts+vector",
+    ],
+    # design doc V0.4 Phase 1: the full lexical / semantic / hybrid / tree-aware matrix
+    "v04": [
+        "fts",
+        "rag_bm25",
+        "rag_vector",
+        "rag_hybrid",
+        "vector",
+        "fts+vector",
+        "tree_lexical+fts",
+        "tree_lexical+vector",
+        "tree_lexical+fts+vector",
+        "managed",
+    ],
+    # block vector ablation: granularity vs title metadata vs tree scope
+    "vector_ablation": [
+        "rag_vector",
+        "vector_raw",
+        "vector",
+        "tree_lexical+vector_raw",
+        "tree_lexical+vector",
+    ],
+    "llm_tree": [
+        "tree_structure",
+        "tree_lexical",
+        "tree_llm",
+        "tree_llm+fts",
+        "tree_llm+vector",
     ],
 }
 T = TypeVar("T")
@@ -101,6 +135,14 @@ def build_strategies(ws: Workspace, names: Sequence[str]) -> dict[str, Benchmark
 
     def vec():
         return ws.block_vectors()
+
+    def vec_raw():
+        return ws.block_vectors_raw()
+
+    def corpus_raw() -> CorpusRetriever:
+        if "corpus_raw" not in lazy:
+            lazy["corpus_raw"] = CorpusRetriever(repo, vec_raw())
+        return lazy["corpus_raw"]  # type: ignore[return-value]
 
     def corpus_v() -> CorpusRetriever:
         if "corpus_v" not in lazy:
@@ -126,6 +168,9 @@ def build_strategies(ws: Workspace, names: Sequence[str]) -> dict[str, Benchmark
 
     def vec_in(q: str, d: str | None, scope: Sequence[str] | None, k: int, t: Trace | None):
         return vec().vector_search(q, document_id=d, node_ids=scope, limit=k, trace=t)
+
+    def vec_raw_in(q: str, d: str | None, scope: Sequence[str] | None, k: int, t: Trace | None):
+        return vec_raw().vector_search(q, document_id=d, node_ids=scope, limit=k, trace=t)
 
     def fused_in(q: str, d: str | None, scope: Sequence[str] | None, k: int, t: Trace | None):
         a = fts_in(q, d, scope, k, t)
@@ -215,6 +260,13 @@ def build_strategies(ws: Workspace, names: Sequence[str]) -> dict[str, Benchmark
         "managed+vector": (planner(lambda: planners("vector")), ("block_vectors",)),
         "tree_llm": (tree_only(tree_llm), ()),
         "tree_llm+fts": (scoped(tree_llm, fts_in, r(corpus)), ()),
+        "tree_llm+vector": (scoped(tree_llm, vec_in, corpus_v), ("block_vectors",)),
+        "tree_llm+fts+vector": (scoped(tree_llm, fused_in, corpus_v), ("block_vectors",)),
+        "vector_raw": (whole(vec_raw_in), ("block_vectors_raw",)),
+        "tree_lexical+vector_raw": (
+            scoped(r(tree_lex), vec_raw_in, corpus_raw),
+            ("block_vectors_raw",),
+        ),
         "managed_llm": (planner(lambda: planners("llm")), ()),
         "rag_bm25": (rag("bm25"), ("chunks",)),
         "rag_vector": (rag("vector"), ("chunks", "chunk_vectors")),
@@ -243,6 +295,7 @@ def build_strategies(ws: Workspace, names: Sequence[str]) -> dict[str, Benchmark
 __all__ = [
     "ALL",
     "LEXICAL",
+    "NEEDS_BOTH",
     "NEEDS_LLM",
     "NEEDS_VECTOR",
     "PRESETS",

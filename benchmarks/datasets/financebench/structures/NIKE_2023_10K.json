@@ -1,0 +1,301 @@
+{
+ "source": "10-K schema (semi-automatic, see structures.py)",
+ "reviewed": false,
+ "checked": "automatic consistency checks + spot check by Claude; not reviewed by a person",
+ "outline": [
+  [
+   1,
+   "Item 1. Business",
+   5,
+   "ITEM 1. BUSINESS"
+  ],
+  [
+   1,
+   "Item 1A. Risk Factors",
+   13,
+   "ITEM 1A. RISK FACTORS"
+  ],
+  [
+   1,
+   "Item 1B. Unresolved Staff Comments",
+   28,
+   "ITEM 1B. UNRESOLVED STAFF"
+  ],
+  [
+   1,
+   "Item 2. Properties",
+   28,
+   "ITEM 2. PROPERTIES"
+  ],
+  [
+   1,
+   "Item 3. Legal Proceedings",
+   28,
+   "ITEM 3. LEGAL PROCEEDINGS"
+  ],
+  [
+   1,
+   "Item 4. Mine Safety Disclosures",
+   28,
+   "ITEM 4. MINE SAFETY"
+  ],
+  [
+   1,
+   "Item 5. Market for Registrant's Common Equity, Related Stockholder Matters and Issuer Purchases of Equity Securities",
+   29,
+   "ITEM 5. MARKET FOR"
+  ],
+  [
+   1,
+   "Item 7. Management's Discussion and Analysis of Financial Condition and Results of Operations",
+   32,
+   "ITEM 7. MANAGEMENT'S"
+  ],
+  [
+   2,
+   "Results of Operations",
+   32,
+   "RESULTS OF OPERATIONS"
+  ],
+  [
+   2,
+   "Overview",
+   32,
+   "OVERVIEW"
+  ],
+  [
+   2,
+   "Non-GAAP Financial Measures",
+   33,
+   "NON-GAAP FINANCIAL MEASURES"
+  ],
+  [
+   2,
+   "Liquidity and Capital Resources",
+   48,
+   "LIQUIDITY AND CAPITAL RESOURCES"
+  ],
+  [
+   2,
+   "Cash Flows",
+   48,
+   "CASH FLOW"
+  ],
+  [
+   2,
+   "Off-Balance Sheet Arrangements",
+   50,
+   "OFF-BALANCE SHEET ARRANGEMENTS"
+  ],
+  [
+   2,
+   "Critical Accounting Estimates",
+   51,
+   "CRITICAL ACCOUNTING ESTIMATES"
+  ],
+  [
+   1,
+   "Item 7A. Quantitative and Qualitative Disclosures About Market Risk",
+   53,
+   "ITEM 7A. QUANTITATIVE AND"
+  ],
+  [
+   1,
+   "Item 8. Financial Statements and Supplementary Data",
+   55,
+   "ITEM 8. FINANCIAL STATEMENTS"
+  ],
+  [
+   2,
+   "Report of Independent Registered Public Accounting Firm",
+   57,
+   "Report of Independent Registered Public Accounting Firm"
+  ],
+  [
+   2,
+   "Consolidated Statements of Income",
+   59,
+   "CONSOLIDATED STATEMENTS OF INCOM"
+  ],
+  [
+   2,
+   "Consolidated Statements of Comprehensive Income",
+   60,
+   "CONSOLIDATED STATEMENTS OF COMPREHENSIVE INCOME"
+  ],
+  [
+   2,
+   "Consolidated Balance Sheets",
+   61,
+   "CONSOLIDATED BALANCE SHEE"
+  ],
+  [
+   2,
+   "Consolidated Statements of Cash Flows",
+   62,
+   "CONSOLIDATED STATEMENTS OF CASH FLO"
+  ],
+  [
+   2,
+   "Consolidated Statements of Equity",
+   63,
+   "CONSOLIDATED STATEMENTS OF SHAREHOLDERS' EQUIT"
+  ],
+  [
+   2,
+   "Notes to Consolidated Financial Statements",
+   64,
+   "NOTES TO CONSOLIDATED FINANCIAL STATEMENT"
+  ],
+  [
+   3,
+   "Note 1. Summary Of Significant Accounting Policies",
+   65,
+   "NOTE 1 — SUMMARY OF SIGNIFICANT ACCOUNTING POLICIES"
+  ],
+  [
+   3,
+   "Note 2. Property, Plant And Equipment",
+   71,
+   "NOTE 2 — PROPERTY, PLANT AND EQUIPMENT"
+  ],
+  [
+   3,
+   "Note 3. Accrued Liabilities",
+   71,
+   "NOTE 3 — ACCRUED LIABILITIES"
+  ],
+  [
+   3,
+   "Note 4. Fair Value Measurements",
+   72,
+   "NOTE 4 — FAIR VALUE MEASUREMENTS"
+  ],
+  [
+   3,
+   "Note 5. Short-Term Borrowings And Credit Lines",
+   74,
+   "NOTE 5 — SHORT-TERM BORROWINGS AND CREDIT LINES"
+  ],
+  [
+   3,
+   "Note 6. Long-Term Debt",
+   75,
+   "NOTE 6 — LONG-TERM DEBT"
+  ],
+  [
+   3,
+   "Note 7. Income Taxes",
+   76,
+   "NOTE 7 — INCOME TAXES"
+  ],
+  [
+   3,
+   "Note 8. Redeemable Preferred Stock",
+   78,
+   "NOTE 8 — REDEEMABLE PREFERRED STOCK"
+  ],
+  [
+   3,
+   "Note 9. Common Stock And Stock-Based Compensation",
+   78,
+   "NOTE 9 — COMMON STOCK AND STOCK-BASED COMPENSATION"
+  ],
+  [
+   3,
+   "Note 10. Earnings Per Share",
+   81,
+   "NOTE 10 — EARNINGS PER SHARE"
+  ],
+  [
+   3,
+   "Note 11. Benefit Plans",
+   81,
+   "NOTE 11 — BENEFIT PLANS"
+  ],
+  [
+   3,
+   "Note 12. Risk Management And Derivatives",
+   81,
+   "NOTE 12 — RISK MANAGEMENT AND DERIVATIVES"
+  ],
+  [
+   3,
+   "Note 13. Accumulated Other Comprehensive Income (Loss)",
+   85,
+   "NOTE 13 — ACCUMULATED OTHER COMPREHENSIVE INCOME (LOSS)"
+  ],
+  [
+   3,
+   "Note 14. Revenues",
+   87,
+   "NOTE 14 — REVENUES"
+  ],
+  [
+   3,
+   "Note 15. Operating Segments And Related Information",
+   88,
+   "NOTE 15 — OPERATING SEGMENTS AND RELATED INFORMATION"
+  ],
+  [
+   3,
+   "Note 16. Commitments And Contingencies",
+   92,
+   "NOTE 16 — COMMITMENTS AND CONTINGENCIES"
+  ],
+  [
+   3,
+   "Note 17. Leases",
+   92,
+   "NOTE 17 — LEASES"
+  ],
+  [
+   3,
+   "Note 18. Acquisitions And Divestitures",
+   93,
+   "NOTE 18 — ACQUISITIONS AND DIVESTITURES"
+  ],
+  [
+   3,
+   "Note 19. Restructuring",
+   94,
+   "NOTE 19 — RESTRUCTURING"
+  ],
+  [
+   1,
+   "Item 9. Changes in and Disagreements with Accountants on Accounting and Financial Disclosure",
+   95,
+   "ITEM 9. CHANGES IN"
+  ],
+  [
+   1,
+   "Item 9A. Controls and Procedures",
+   95,
+   "ITEM 9A. CONTROLS AND"
+  ],
+  [
+   1,
+   "Item 9B. Other Information",
+   95,
+   "ITEM 9B. OTHER INFORMATION"
+  ],
+  [
+   1,
+   "Item 9C. Disclosure Regarding Foreign Jurisdictions that Prevent Inspections",
+   95,
+   "ITEM 9C. DISCLOSURE REGARDING"
+  ],
+  [
+   1,
+   "Item 15. Exhibits and Financial Statement Schedules",
+   97,
+   "ITEM 15. EXHIBITS AND"
+  ],
+  [
+   1,
+   "Item 16. Form 10-K Summary",
+   101,
+   "ITEM 16. FORM 10-K"
+  ]
+ ]
+}

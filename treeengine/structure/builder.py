@@ -31,10 +31,14 @@ class StructureBuilder:
 
     def build(self, doc: Document) -> tuple[list[Node], list[Block]]:
         elements, method = self.elements_for(doc)
-        if not any(e.kind == "heading" for e in elements):
-            fb = self._llm_structure_fallback(elements)
+        forced_llm = doc.source_type == "pdf" and self.config.pdf_structure == "llm"
+        if forced_llm or not any(e.kind == "heading" for e in elements):
+            allowed = forced_llm or (
+                self.config.llm_structure_fallback and self.config.pdf_structure == "auto"
+            )
+            fb = self._llm_structure(elements) if allowed else None
             if fb is not None:
-                elements, method = fb, "llm_fallback"
+                elements, method = fb, "llm" if forced_llm else "llm_fallback"
             else:
                 method = "flat"
         doc.metadata["structure_method"] = method
@@ -56,43 +60,48 @@ class StructureBuilder:
         if doc.source_type == "pdf":
             from .pdf import pdf_elements
 
-            return pdf_elements(doc)
+            return pdf_elements(doc, self.config.pdf_structure)
         from .markdown import plain_paragraphs
 
         return plain_paragraphs(doc.text), "flat"
 
     # ------------------------------------------------------------------ llm
-    def _llm_structure_fallback(self, elements: list[Element]) -> list[Element] | None:
-        if self.llm is None or not self.config.llm_structure_fallback:
+    def _llm_structure(self, elements: list[Element]) -> list[Element] | None:
+        """Recover headings with the LLM, one window of blocks per call (long documents need
+        several calls; every block of the document is seen once)."""
+        if self.llm is None:
             return None
         blocks = [e for e in elements if e.kind == "block"]
         if len(blocks) < 4:
             return None
-        listing = "\n".join(
-            f"[{i}] {truncate(b.text.replace(chr(10), ' '), 80)}"
-            for i, b in enumerate(blocks[:300])
-        )
-        try:
-            reply = self.llm.complete(
-                prompts.STRUCTURE.format(blocks=listing), system=prompts.STRUCTURE_SYSTEM
-            )
-        except Exception as e:  # LLM failures must never break ingestion
-            log.warning("LLM structure fallback failed: %s", e)
-            return None
-        data = extract_json(reply)
-        if not isinstance(data, list):
-            return None
+        window = max(1, self.config.llm_structure_window)
         heads: dict[int, tuple[int, str]] = {}
-        for item in data:
-            if not isinstance(item, dict):
-                continue
+        for start in range(0, len(blocks), window):
+            part = blocks[start : start + window]
+            listing = "\n".join(
+                f"[{start + i}] {truncate(b.text.replace(chr(10), ' '), 80)}"
+                for i, b in enumerate(part)
+            )
             try:
-                idx, level = int(item["block"]), max(1, int(item.get("level", 1)))
-            except (KeyError, TypeError, ValueError):
+                reply = self.llm.complete(
+                    prompts.STRUCTURE.format(blocks=listing), system=prompts.STRUCTURE_SYSTEM
+                )
+                data = extract_json(reply)
+            except Exception as e:  # LLM failures must never break ingestion
+                log.warning("LLM structure failed for blocks %d+: %s", start, e)
                 continue
-            if 0 <= idx < len(blocks):
-                title = str(item.get("title") or blocks[idx].text).strip()
-                heads[idx] = (level, truncate(title, 120))
+            if not isinstance(data, list):
+                continue
+            for item in data:
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    idx, level = int(item["block"]), max(1, int(item.get("level", 1)))
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if start <= idx < start + len(part):
+                    title = str(item.get("title") or blocks[idx].text).strip()
+                    heads[idx] = (level, truncate(title, 120))
         if not heads:
             return None
         out: list[Element] = []

@@ -130,4 +130,5 @@ treeengine --db te.db --embedder fastembed:jinaai/jina-embeddings-v2-base-zh sem
 
 - **V0.1**：Ingest / Structure / SQLite / Tree / FTS / Planner / Evidence / Answer。
 - **V0.2**：Repository 边界、Navigation 原语、Benchmark、Trace & Stats、Factory。
-- **V0.3（当前）**：Corpus / In-document 拆分（`CorpusRetriever`）、Vector（EmbeddingProvider / VectorIndex / sqlite-vec / VectorRetriever）、RRF Evidence Fusion、Planner 与 Oracle 评测、LLM Tree 评测接线、语料与 heldout 扩容。结论见 benchmarks/README.md。
+- **V0.3**：Corpus / In-document 拆分（`CorpusRetriever`）、Vector（EmbeddingProvider / VectorIndex / sqlite-vec / VectorRetriever）、RRF Evidence Fusion、Planner 与 Oracle 评测、LLM Tree 评测接线、语料与 heldout 扩容。结论见 benchmarks/README.md。
+- **V0.4（当前）— Evidence & Structure Validation**：检索代码已冻结（`benchmarks/freeze.py`）。新增结构质量实验（flat / heuristic / native / LLM / 参考结构）、Block Vector 消融、dev 上的 chunk 扫描、LLM 导航 + Vector 策略，以及 PDF 结构来源的强制模式（`EngineConfig.pdf_structure`）。向量矩阵和 QA 等 embedding API / LLM 到位后再跑。

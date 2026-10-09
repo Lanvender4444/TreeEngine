@@ -1,0 +1,301 @@
+{
+ "source": "10-K schema (semi-automatic, see structures.py)",
+ "reviewed": false,
+ "checked": "automatic consistency checks + spot check by Claude; not reviewed by a person",
+ "outline": [
+  [
+   1,
+   "Item 1. Business",
+   4,
+   "ITEM 1. BUSINESS"
+  ],
+  [
+   1,
+   "Item 1A. Risk Factors",
+   12,
+   "ITEM 1A. RISK FACTORS"
+  ],
+  [
+   1,
+   "Item 1B. Unresolved Staff Comments",
+   22,
+   "ITEM 1B. UNRESOLVED STAFF"
+  ],
+  [
+   1,
+   "Item 2. Properties",
+   22,
+   "ITEM 2. PROPERTIES"
+  ],
+  [
+   1,
+   "Item 3. Legal Proceedings",
+   23,
+   "ITEM 3. LEGAL PROCEEDINGS"
+  ],
+  [
+   1,
+   "Item 4. Mine Safety Disclosures",
+   24,
+   "ITEM 4. MINE SAFETY"
+  ],
+  [
+   1,
+   "Item 5. Market for Registrant's Common Equity, Related Stockholder Matters and Issuer Purchases of Equity Securities",
+   28,
+   "ITEM 5. MARKET FOR"
+  ],
+  [
+   1,
+   "Item 6. Selected Financial Data",
+   30,
+   "ITEM 6. SELECTED FINANCIAL"
+  ],
+  [
+   1,
+   "Item 7. Management's Discussion and Analysis of Financial Condition and Results of Operations",
+   30,
+   "ITEM 7. MANAGEMENT'S"
+  ],
+  [
+   2,
+   "Results of Operations",
+   30,
+   "RESULTS OF OPERATIONS"
+  ],
+  [
+   2,
+   "Overview",
+   30,
+   "Overview"
+  ],
+  [
+   2,
+   "Critical Accounting Estimates",
+   30,
+   "Critical Accounting Policies and Estimates"
+  ],
+  [
+   2,
+   "Off-Balance Sheet Arrangements",
+   30,
+   "off-balance sheet arrangements"
+  ],
+  [
+   2,
+   "Cash Flows",
+   39,
+   "cash flows"
+  ],
+  [
+   2,
+   "Contractual Obligations",
+   67,
+   "contractual obligations"
+  ],
+  [
+   1,
+   "Item 7A. Quantitative and Qualitative Disclosures About Market Risk",
+   71,
+   "ITEM 7A. QUANTITATIVE AND"
+  ],
+  [
+   1,
+   "Item 8. Financial Statements and Supplementary Data",
+   73,
+   "ITEM 8. FINANCIAL STATEMENTS"
+  ],
+  [
+   2,
+   "Consolidated Statements of Income",
+   73,
+   "Consolidated Statements of Incom"
+  ],
+  [
+   2,
+   "Consolidated Statements of Comprehensive Income",
+   73,
+   "Consolidated Statements of Comprehensive Income"
+  ],
+  [
+   2,
+   "Consolidated Balance Sheets",
+   73,
+   "Consolidated Balance Shee"
+  ],
+  [
+   2,
+   "Consolidated Statements of Cash Flows",
+   73,
+   "Consolidated Statements of Cash Flo"
+  ],
+  [
+   2,
+   "Consolidated Statements of Equity",
+   73,
+   "Consolidated Statements of Shareowners' Equit"
+  ],
+  [
+   2,
+   "Notes to Consolidated Financial Statements",
+   79,
+   "NOTES TO CONSOLIDATED FINANCIAL STATEMENT"
+  ],
+  [
+   3,
+   "Note 1. Business And Summary Of Significant Accounting Policies",
+   79,
+   "NOTE 1 : BUSINESS AND SUMMARY OF SIGNIFICANT ACCOUNTING POLICIES"
+  ],
+  [
+   3,
+   "Note 2. Acquisitions And Divestitures",
+   90,
+   "NOTE 2 : ACQUISITIONS AND DIVESTITURES"
+  ],
+  [
+   3,
+   "Note 3. Investments",
+   96,
+   "NOTE 3 : INVESTMENTS"
+  ],
+  [
+   3,
+   "Note 4. Inventories",
+   98,
+   "NOTE 4 : INVENTORIES"
+  ],
+  [
+   3,
+   "Note 5. Hedging Transactions And Derivative Financial Instruments",
+   98,
+   "NOTE 5 : HEDGING TRANSACTIONS AND DERIVATIVE FINANCIAL INSTRUMENTS"
+  ],
+  [
+   3,
+   "Note 6. Equity Method Investments",
+   105,
+   "NOTE 6 : EQUITY METHOD INVESTMENTS"
+  ],
+  [
+   3,
+   "Note 7. Property, Plant And Equipment",
+   106,
+   "NOTE 7 : PROPERTY, PLANT AND EQUIPMENT"
+  ],
+  [
+   3,
+   "Note 8. Intangible Assets",
+   107,
+   "NOTE 8 : INTANGIBLE ASSETS"
+  ],
+  [
+   3,
+   "Note 9. Accounts Payable And Accrued Expenses",
+   108,
+   "NOTE 9 : ACCOUNTS PAYABLE AND ACCRUED EXPENSES"
+  ],
+  [
+   3,
+   "Note 10. Debt And Borrowing Arrangements",
+   108,
+   "NOTE 10 : DEBT AND BORROWING ARRANGEMENTS"
+  ],
+  [
+   3,
+   "Note 11. Commitments And Contingencies",
+   111,
+   "NOTE 11 : COMMITMENTS AND CONTINGENCIES"
+  ],
+  [
+   3,
+   "Note 12. Stock-Based Compensation Plans",
+   113,
+   "NOTE 12 : STOCK-BASED COMPENSATION PLANS"
+  ],
+  [
+   3,
+   "Note 13. Pension And Other Postretirement Benefit Plans",
+   117,
+   "NOTE 13 : PENSION AND OTHER POSTRETIREMENT BENEFIT PLANS"
+  ],
+  [
+   3,
+   "Note 14. Income Taxes",
+   123,
+   "NOTE 14 : INCOME TAXES"
+  ],
+  [
+   3,
+   "Note 15. Other Comprehensive Income",
+   127,
+   "NOTE 15 : OTHER COMPREHENSIVE INCOME"
+  ],
+  [
+   3,
+   "Note 16. Fair Value Measurements",
+   132,
+   "NOTE 16 : FAIR VALUE MEASUREMENTS"
+  ],
+  [
+   3,
+   "Note 17. Significant Operating And Nonoperating Items",
+   138,
+   "NOTE 17 : SIGNIFICANT OPERATING AND NONOPERATING ITEMS"
+  ],
+  [
+   3,
+   "Note 18. Productivity, Integration And Restructuring Initiatives",
+   140,
+   "NOTE 18 : PRODUCTIVITY, INTEGRATION AND RESTRUCTURING INITIATIVES"
+  ],
+  [
+   3,
+   "Note 19. Operating Segments",
+   141,
+   "NOTE 19 : OPERATING SEGMENTS"
+  ],
+  [
+   3,
+   "Note 20. Net Change In Operating Assets And Liabilities",
+   146,
+   "NOTE 20 : NET CHANGE IN OPERATING ASSETS AND LIABILITIES"
+  ],
+  [
+   2,
+   "Report of Independent Registered Public Accounting Firm",
+   149,
+   "Report of Independent Registered Public Accounting Firm"
+  ],
+  [
+   1,
+   "Item 9. Changes in and Disagreements with Accountants on Accounting and Financial Disclosure",
+   154,
+   "ITEM 9. CHANGES IN"
+  ],
+  [
+   1,
+   "Item 9A. Controls and Procedures",
+   154,
+   "ITEM 9A. CONTROLS AND"
+  ],
+  [
+   1,
+   "Item 9B. Other Information",
+   154,
+   "ITEM 9B. OTHER INFORMATION"
+  ],
+  [
+   1,
+   "Item 15. Exhibits and Financial Statement Schedules",
+   156,
+   "ITEM 15. EXHIBITS AND"
+  ],
+  [
+   1,
+   "Item 16. Form 10-K Summary",
+   165,
+   "ITEM 16. FORM 10-K"
+  ]
+ ]
+}

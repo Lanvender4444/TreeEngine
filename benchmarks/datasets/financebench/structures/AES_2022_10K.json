@@ -1,0 +1,373 @@
+{
+ "source": "10-K schema (semi-automatic, see structures.py)",
+ "reviewed": false,
+ "checked": "automatic consistency checks + spot check by Claude; not reviewed by a person",
+ "outline": [
+  [
+   1,
+   "Item 1. Business",
+   6,
+   "ITEM 1. BUSINESS"
+  ],
+  [
+   1,
+   "Item 1A. Risk Factors",
+   60,
+   "ITEM 1A. RISK FACTORS"
+  ],
+  [
+   1,
+   "Item 4. Mine Safety Disclosures",
+   81,
+   "ITEM 4. MINE SAFETY"
+  ],
+  [
+   1,
+   "Item 5. Market for Registrant's Common Equity, Related Stockholder Matters and Issuer Purchases of Equity Securities",
+   82,
+   "ITEM 5. MARKET FOR"
+  ],
+  [
+   1,
+   "Item 6. Selected Financial Data",
+   83,
+   "ITEM 6. SELECTED FINANCIAL"
+  ],
+  [
+   1,
+   "Item 7. Management's Discussion and Analysis of Financial Condition and Results of Operations",
+   85,
+   "ITEM 7. MANAGEMENT'S"
+  ],
+  [
+   2,
+   "Results of Operations",
+   85,
+   "RESULTS OF OPERATIONS"
+  ],
+  [
+   2,
+   "Non-GAAP Financial Measures",
+   95,
+   "Non-GAAP Measures"
+  ],
+  [
+   2,
+   "Overview",
+   107,
+   "Overview"
+  ],
+  [
+   2,
+   "Cash Flows",
+   110,
+   "Cash flows"
+  ],
+  [
+   2,
+   "Contractual Obligations",
+   118,
+   "Contractual Obligations"
+  ],
+  [
+   2,
+   "Critical Accounting Estimates",
+   119,
+   "Critical Accounting Policies and Estimates"
+  ],
+  [
+   1,
+   "Item 7A. Quantitative and Qualitative Disclosures About Market Risk",
+   123,
+   "ITEM 7A. QUANTITATIVE AND"
+  ],
+  [
+   1,
+   "Item 8. Financial Statements and Supplementary Data",
+   126,
+   "ITEM 8. FINANCIAL STATEMENTS"
+  ],
+  [
+   2,
+   "Report of Independent Registered Public Accounting Firm",
+   126,
+   "Report of Independent Registered Public Accounting Firm"
+  ],
+  [
+   2,
+   "Consolidated Balance Sheets",
+   130,
+   "Consolidated Balance Shee"
+  ],
+  [
+   2,
+   "Consolidated Statements of Income",
+   132,
+   "Consolidated Statements of Operation"
+  ],
+  [
+   2,
+   "Consolidated Statements of Comprehensive Income",
+   133,
+   "Consolidated Statements of Comprehensive Income"
+  ],
+  [
+   2,
+   "Consolidated Statements of Equity",
+   134,
+   "Consolidated Statements of Changes in Equit"
+  ],
+  [
+   2,
+   "Consolidated Statements of Cash Flows",
+   135,
+   "Consolidated Statements of Cash Flo"
+  ],
+  [
+   2,
+   "Notes to Consolidated Financial Statements",
+   137,
+   "Notes to Consolidated Financial Statement"
+  ],
+  [
+   3,
+   "Note 1. General And Summary Of Significant Accounting Policies",
+   137,
+   "1. GENERAL AND SUMMARY OF SIGNIFICANT ACCOUNTING POLICIES"
+  ],
+  [
+   3,
+   "Note 2. Inventory",
+   149,
+   "2. INVENTORY"
+  ],
+  [
+   3,
+   "Note 3. Property, Plant And Equipment",
+   149,
+   "3. PROPERTY, PLANT AND EQUIPMENT"
+  ],
+  [
+   3,
+   "Note 4. Asset Retirement Obligations",
+   150,
+   "4. ASSET RETIREMENT OBLIGATIONS"
+  ],
+  [
+   3,
+   "Note 5. Fair Value",
+   151,
+   "5. FAIR VALUE"
+  ],
+  [
+   3,
+   "Note 6. Derivative Instruments And Hedging Activities",
+   156,
+   "6. DERIVATIVE INSTRUMENTS AND HEDGING ACTIVITIES"
+  ],
+  [
+   3,
+   "Note 7. Financing Receivables",
+   157,
+   "7. FINANCING RECEIVABLES"
+  ],
+  [
+   3,
+   "Note 8. Investments In And Advances To Affiliates",
+   158,
+   "8. INVESTMENTS IN AND ADVANCES TO AFFILIATES"
+  ],
+  [
+   3,
+   "Note 9. Goodwill And Other Intangible Assets",
+   160,
+   "9. GOODWILL AND OTHER INTANGIBLE ASSETS"
+  ],
+  [
+   3,
+   "Note 10. Regulatory Assets And Liabilities",
+   162,
+   "10. REGULATORY ASSETS AND LIABILITIES"
+  ],
+  [
+   3,
+   "Note 11. Debt",
+   163,
+   "11. DEBT"
+  ],
+  [
+   3,
+   "Note 12. Commitments",
+   168,
+   "12. COMMITMENTS"
+  ],
+  [
+   3,
+   "Note 13. Contingencies",
+   168,
+   "13. CONTINGENCIES"
+  ],
+  [
+   3,
+   "Note 14. Leases",
+   169,
+   "14. LEASES"
+  ],
+  [
+   3,
+   "Note 15. Benefit Plans",
+   171,
+   "15. BENEFIT PLANS"
+  ],
+  [
+   3,
+   "Note 16. Redeemable Stock Of Subsidiaries",
+   175,
+   "16. REDEEMABLE STOCK OF SUBSIDIARIES"
+  ],
+  [
+   3,
+   "Note 17. Equity",
+   176,
+   "17. EQUITY"
+  ],
+  [
+   3,
+   "Note 18. Segments And Geographic Information",
+   181,
+   "18. SEGMENTS AND GEOGRAPHIC INFORMATION"
+  ],
+  [
+   3,
+   "Note 19. Share-Based Compensation",
+   183,
+   "19. SHARE-BASED COMPENSATION"
+  ],
+  [
+   3,
+   "Note 20. Revenue",
+   185,
+   "20. REVENUE"
+  ],
+  [
+   3,
+   "Note 21. Other Income And Expense",
+   186,
+   "21. OTHER INCOME AND EXPENSE"
+  ],
+  [
+   3,
+   "Note 22. Asset Impairment Expense",
+   187,
+   "22. ASSET IMPAIRMENT EXPENSE"
+  ],
+  [
+   3,
+   "Note 23. Income Taxes",
+   190,
+   "23. INCOME TAXES"
+  ],
+  [
+   3,
+   "Note 24. Held-For-Sale And Dispositions",
+   194,
+   "24. HELD-FOR-SALE AND DISPOSITIONS"
+  ],
+  [
+   3,
+   "Note 25. Acquisitions",
+   195,
+   "25. ACQUISITIONS"
+  ],
+  [
+   3,
+   "Note 26. Earnings Per Share",
+   198,
+   "26. EARNINGS PER SHARE"
+  ],
+  [
+   3,
+   "Note 27. Risks And Uncertainties",
+   199,
+   "27. RISKS AND UNCERTAINTIES"
+  ],
+  [
+   3,
+   "Note 28. Related Party Transactions",
+   201,
+   "28. RELATED PARTY TRANSACTIONS"
+  ],
+  [
+   3,
+   "Note 29. Selected Quarterly Financial Data (Unaudited)",
+   202,
+   "29. SELECTED QUARTERLY FINANCIAL DATA (UNAUDITED)"
+  ],
+  [
+   3,
+   "Note 30. Subsequent Events",
+   203,
+   "30. SUBSEQUENT EVENTS"
+  ],
+  [
+   1,
+   "Item 9. Changes in and Disagreements with Accountants on Accounting and Financial Disclosure",
+   204,
+   "ITEM 9. CHANGES IN"
+  ],
+  [
+   1,
+   "Item 9A. Controls and Procedures",
+   204,
+   "ITEM 9A. CONTROLS AND"
+  ],
+  [
+   1,
+   "Item 9B. Other Information",
+   206,
+   "ITEM 9B. OTHER INFORMATION"
+  ],
+  [
+   1,
+   "Item 9C. Disclosure Regarding Foreign Jurisdictions that Prevent Inspections",
+   206,
+   "ITEM 9C. DISCLOSURE REGARDING"
+  ],
+  [
+   1,
+   "Item 10. Directors, Executive Officers and Corporate Governance",
+   207,
+   "ITEM 10. DIRECTORS, EXECUTIVE"
+  ],
+  [
+   1,
+   "Item 11. Executive Compensation",
+   207,
+   "ITEM 11. EXECUTIVE COMPENSATION"
+  ],
+  [
+   1,
+   "Item 12. Security Ownership of Certain Beneficial Owners and Management and Related Stockholder Matters",
+   207,
+   "ITEM 12. SECURITY OWNERSHIP"
+  ],
+  [
+   1,
+   "Item 13. Certain Relationships and Related Transactions, and Director Independence",
+   208,
+   "ITEM 13. CERTAIN RELATIONSHIPS"
+  ],
+  [
+   1,
+   "Item 14. Principal Accountant Fees and Services",
+   208,
+   "ITEM 14. PRINCIPAL ACCOUNTANT"
+  ],
+  [
+   1,
+   "Item 15. Exhibits and Financial Statement Schedules",
+   209,
+   "ITEM 15. EXHIBITS AND"
+  ]
+ ]
+}

@@ -1,0 +1,253 @@
+{
+ "source": "10-K schema (semi-automatic, see structures.py)",
+ "reviewed": false,
+ "checked": "automatic consistency checks + spot check by Claude; not reviewed by a person",
+ "outline": [
+  [
+   1,
+   "Item 1. Business",
+   3,
+   "ITEM 1. BUSINESS"
+  ],
+  [
+   1,
+   "Item 1A. Risk Factors",
+   10,
+   "ITEM 1A. RISK FACTORS"
+  ],
+  [
+   1,
+   "Item 1B. Unresolved Staff Comments",
+   21,
+   "ITEM 1B. UNRESOLVED STAFF"
+  ],
+  [
+   1,
+   "Item 2. Properties",
+   21,
+   "ITEM 2. PROPERTIES"
+  ],
+  [
+   1,
+   "Item 3. Legal Proceedings",
+   21,
+   "ITEM 3. LEGAL PROCEEDINGS"
+  ],
+  [
+   1,
+   "Item 4. Mine Safety Disclosures",
+   21,
+   "ITEM 4. MINE SAFETY"
+  ],
+  [
+   1,
+   "Item 5. Market for Registrant's Common Equity, Related Stockholder Matters and Issuer Purchases of Equity Securities",
+   22,
+   "ITEM 5. MARKET FOR"
+  ],
+  [
+   1,
+   "Item 6. Selected Financial Data",
+   24,
+   "ITEM 6. SELECTED FINANCIAL"
+  ],
+  [
+   1,
+   "Item 7. Management's Discussion and Analysis of Financial Condition and Results of Operations",
+   26,
+   "ITEM 7. MANAGEMENT'S"
+  ],
+  [
+   2,
+   "Results of Operations",
+   28,
+   "RESULTS OF OPERATIONS"
+  ],
+  [
+   1,
+   "Item 7A. Quantitative and Qualitative Disclosures About Market Risk",
+   46,
+   "ITEM 7A. QUANTITATIVE AND"
+  ],
+  [
+   1,
+   "Item 8. Financial Statements and Supplementary Data",
+   48,
+   "ITEM 8. FINANCIAL STATEMENTS"
+  ],
+  [
+   2,
+   "Report of Independent Registered Public Accounting Firm",
+   50,
+   "Report of Independent Registered Public Accounting Firm"
+  ],
+  [
+   2,
+   "Consolidated Statements of Income",
+   52,
+   "CONSOLIDATED STATEMENTS OF INCOM"
+  ],
+  [
+   2,
+   "Consolidated Balance Sheets",
+   54,
+   "CONSOLIDATED BALANCE SHEE"
+  ],
+  [
+   2,
+   "Consolidated Statements of Cash Flows",
+   55,
+   "CONSOLIDATED STATEMENTS OF CASH FLO"
+  ],
+  [
+   2,
+   "Consolidated Statements of Equity",
+   56,
+   "CONSOLIDATED STATEMENTS OF SHAREHOLDERS' EQUIT"
+  ],
+  [
+   2,
+   "Notes to Consolidated Financial Statements",
+   57,
+   "NOTES TO CONSOLIDATED FINANCIAL STATEMENT"
+  ],
+  [
+   3,
+   "Note 1. Summary Of Significant Accounting Policiesdescription Of Businessnike,",
+   58,
+   "NOTE 1 — SUMMARY OF SIGNIFICANT ACCOUNTING POLICIESDESCRIPTION OF BUSINESSNIKE,"
+  ],
+  [
+   3,
+   "Note 2. Inventories",
+   66,
+   "NOTE 2 — INVENTORIES"
+  ],
+  [
+   3,
+   "Note 3. Property, Plant And Equipment",
+   66,
+   "NOTE 3 — PROPERTY, PLANT AND EQUIPMENT"
+  ],
+  [
+   3,
+   "Note 4. Identifiable Intangible Assets And Goodwill",
+   66,
+   "NOTE 4 — IDENTIFIABLE INTANGIBLE ASSETS AND GOODWILL"
+  ],
+  [
+   3,
+   "Note 5. Accrued Liabilities",
+   67,
+   "NOTE 5 — ACCRUED LIABILITIES"
+  ],
+  [
+   3,
+   "Note 6. Fair Value Measurements",
+   67,
+   "NOTE 6 — FAIR VALUE MEASUREMENTS"
+  ],
+  [
+   3,
+   "Note 7. Short-Term Borrowings And Credit Lines",
+   69,
+   "NOTE 7 — SHORT-TERM BORROWINGS AND CREDIT LINES"
+  ],
+  [
+   3,
+   "Note 8. Long-Term Debt",
+   70,
+   "NOTE 8 — LONG-TERM DEBT"
+  ],
+  [
+   3,
+   "Note 9. Income Taxes",
+   71,
+   "NOTE 9 — INCOME TAXES"
+  ],
+  [
+   3,
+   "Note 10. Redeemable Preferred Stock",
+   73,
+   "NOTE 10 — REDEEMABLE PREFERRED STOCK"
+  ],
+  [
+   3,
+   "Note 11. Common Stock And Stock-Based Compensationcommon Stock",
+   74,
+   "NOTE 11 — COMMON STOCK AND STOCK-BASED COMPENSATIONCOMMON STOCK"
+  ],
+  [
+   3,
+   "Note 12. Earnings Per Share",
+   76,
+   "NOTE 12 — EARNINGS PER SHARE"
+  ],
+  [
+   3,
+   "Note 13. Benefit Plans",
+   76,
+   "NOTE 13 — BENEFIT PLANS"
+  ],
+  [
+   3,
+   "Note 14. Risk Management And Derivatives",
+   77,
+   "NOTE 14 — RISK MANAGEMENT AND DERIVATIVES"
+  ],
+  [
+   3,
+   "Note 15. Accumulated Other Comprehensive Income (Loss)",
+   80,
+   "NOTE 15 — ACCUMULATED OTHER COMPREHENSIVE INCOME (LOSS)"
+  ],
+  [
+   3,
+   "Note 16. Revenuesdisaggregation Of Revenues",
+   82,
+   "NOTE 16 — REVENUESDISAGGREGATION OF REVENUES"
+  ],
+  [
+   3,
+   "Note 17. Operating Segments And Related Information",
+   83,
+   "NOTE 17 — OPERATING SEGMENTS AND RELATED INFORMATION"
+  ],
+  [
+   3,
+   "Note 18. Commitments And Contingencies",
+   86,
+   "NOTE 18 — COMMITMENTS AND CONTINGENCIES"
+  ],
+  [
+   1,
+   "Item 9. Changes in and Disagreements with Accountants on Accounting and Financial Disclosure",
+   87,
+   "ITEM 9. CHANGES IN"
+  ],
+  [
+   1,
+   "Item 9A. Controls and Procedures",
+   87,
+   "ITEM 9A. CONTROLS AND"
+  ],
+  [
+   1,
+   "Item 9B. Other Information",
+   87,
+   "ITEM 9B. OTHER INFORMATION"
+  ],
+  [
+   1,
+   "Item 15. Exhibits and Financial Statement Schedules",
+   89,
+   "ITEM 15. EXHIBITS AND"
+  ],
+  [
+   1,
+   "Item 16. Form 10-K Summary",
+   92,
+   "ITEM 16. FORM 10-K"
+  ]
+ ]
+}

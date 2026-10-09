@@ -1,0 +1,283 @@
+{
+ "source": "10-K schema (semi-automatic, see structures.py)",
+ "reviewed": false,
+ "checked": "automatic consistency checks + spot check by Claude; not reviewed by a person",
+ "outline": [
+  [
+   1,
+   "Item 1. Business",
+   3,
+   "ITEM 1 Business"
+  ],
+  [
+   1,
+   "Item 1A. Risk Factors",
+   8,
+   "ITEM 1A Risk Factors"
+  ],
+  [
+   1,
+   "Item 1B. Unresolved Staff Comments",
+   15,
+   "ITEM 1B Unresolved Staff"
+  ],
+  [
+   1,
+   "Item 2. Properties",
+   15,
+   "ITEM 2 Properties"
+  ],
+  [
+   1,
+   "Item 3. Legal Proceedings",
+   17,
+   "ITEM 3 Legal Proceedings"
+  ],
+  [
+   1,
+   "Item 4. Mine Safety Disclosures",
+   17,
+   "ITEM 4 Mine Safety"
+  ],
+  [
+   1,
+   "Item 5. Market for Registrant's Common Equity, Related Stockholder Matters and Issuer Purchases of Equity Securities",
+   17,
+   "ITEM 5 Market for"
+  ],
+  [
+   1,
+   "Item 6. Selected Financial Data",
+   18,
+   "ITEM 6 Selected Financial"
+  ],
+  [
+   1,
+   "Item 7. Management's Discussion and Analysis of Financial Condition and Results of Operations",
+   19,
+   "ITEM 7 Management's"
+  ],
+  [
+   2,
+   "Results of Operations",
+   20,
+   "Consolidated Results of Operations"
+  ],
+  [
+   2,
+   "Cash Flows",
+   29,
+   "Cash Flows"
+  ],
+  [
+   2,
+   "Off-Balance Sheet Arrangements",
+   32,
+   "OFF-BALANCE SHEET ARRANGEMENTS"
+  ],
+  [
+   1,
+   "Item 7A. Quantitative and Qualitative Disclosures About Market Risk",
+   48,
+   "Item 7A Quantitative and"
+  ],
+  [
+   1,
+   "Item 8. Financial Statements and Supplementary Data",
+   50,
+   "ITEM 8 Financial Statements"
+  ],
+  [
+   2,
+   "Report of Independent Registered Public Accounting Firm",
+   51,
+   "Report of Independent Registered Public Accounting Firm"
+  ],
+  [
+   2,
+   "Consolidated Statements of Income",
+   53,
+   "Consolidated Statements of Earning"
+  ],
+  [
+   2,
+   "Consolidated Statements of Comprehensive Income",
+   54,
+   "Consolidated Statements of Comprehensive Income"
+  ],
+  [
+   2,
+   "Consolidated Balance Sheets",
+   55,
+   "Consolidated Balance Shee"
+  ],
+  [
+   2,
+   "Consolidated Statements of Cash Flows",
+   57,
+   "Consolidated Statements of Cash Flo"
+  ],
+  [
+   2,
+   "Notes to Consolidated Financial Statements",
+   58,
+   "Notes to Consolidated Financial Statement"
+  ],
+  [
+   3,
+   "Note 1. Basis Of Presentation And Reclassifications",
+   58,
+   "NOTE 1. BASIS OF PRESENTATION AND RECLASSIFICATIONS"
+  ],
+  [
+   3,
+   "Note 2. Summary Of Significant Accounting Policies",
+   58,
+   "NOTE 2. SUMMARY OF SIGNIFICANT ACCOUNTING POLICIES"
+  ],
+  [
+   3,
+   "Note 3. Acquisition And Divestitures",
+   63,
+   "NOTE 3. ACQUISITION AND DIVESTITURES"
+  ],
+  [
+   3,
+   "Note 4. Restructuring, Impairment, And Other Exit Costsasset Impairments",
+   64,
+   "NOTE 4. RESTRUCTURING, IMPAIRMENT, AND OTHER EXIT COSTSASSET IMPAIRMENTS"
+  ],
+  [
+   3,
+   "Note 5. Investments In Unconsolidated Joint Ventures",
+   67,
+   "NOTE 5. INVESTMENTS IN UNCONSOLIDATED JOINT VENTURES"
+  ],
+  [
+   3,
+   "Note 6. Goodwill And Other Intangible Assets",
+   68,
+   "NOTE 6. GOODWILL AND OTHER INTANGIBLE ASSETS"
+  ],
+  [
+   3,
+   "Note 7. Financial Instruments, Risk Management Activities, And Fair Valuesfinancial",
+   70,
+   "NOTE 7. FINANCIAL INSTRUMENTS, RISK MANAGEMENT ACTIVITIES, AND FAIR VALUESFINANC"
+  ],
+  [
+   3,
+   "Note 8. Debtnotes Payable",
+   79,
+   "NOTE 8. DEBTNOTES PAYABLE"
+  ],
+  [
+   3,
+   "Note 9. Redeemable And Noncontrolling Interests",
+   82,
+   "NOTE 9. REDEEMABLE AND NONCONTROLLING INTERESTS"
+  ],
+  [
+   3,
+   "Note 10. Stockholders' Equity",
+   83,
+   "NOTE 10. STOCKHOLDERS' EQUITY"
+  ],
+  [
+   3,
+   "Note 11. Stock Plans",
+   85,
+   "NOTE 11. STOCK PLANS"
+  ],
+  [
+   3,
+   "Note 12. Earnings Per Share",
+   88,
+   "NOTE 12. EARNINGS PER SHARE"
+  ],
+  [
+   3,
+   "Note 13. Retirement Benefits And Postemployment Benefits",
+   88,
+   "NOTE 13. RETIREMENT BENEFITS AND POSTEMPLOYMENT BENEFITS"
+  ],
+  [
+   3,
+   "Note 14. Income Taxes",
+   96,
+   "NOTE 14. INCOME TAXES"
+  ],
+  [
+   3,
+   "Note 15. Leases, Other Commitments, And Contingencies",
+   100,
+   "NOTE 15. LEASES, OTHER COMMITMENTS, AND CONTINGENCIES"
+  ],
+  [
+   3,
+   "Note 16. Business Segment And Geographic Information",
+   100,
+   "NOTE 16. BUSINESS SEGMENT AND GEOGRAPHIC INFORMATION"
+  ],
+  [
+   3,
+   "Note 17. Supplemental Information",
+   103,
+   "NOTE 17. SUPPLEMENTAL INFORMATION"
+  ],
+  [
+   3,
+   "Note 18. Quarterly Data (Unaudited)",
+   106,
+   "NOTE 18. QUARTERLY DATA (UNAUDITED)"
+  ],
+  [
+   1,
+   "Item 9. Changes in and Disagreements with Accountants on Accounting and Financial Disclosure",
+   109,
+   "ITEM 9 Changes in"
+  ],
+  [
+   1,
+   "Item 9A. Controls and Procedures",
+   109,
+   "ITEM 9A Controls and"
+  ],
+  [
+   1,
+   "Item 9B. Other Information",
+   110,
+   "ITEM 9B Other Information"
+  ],
+  [
+   1,
+   "Item 10. Directors, Executive Officers and Corporate Governance",
+   110,
+   "ITEM 10 Directors, Executive"
+  ],
+  [
+   1,
+   "Item 11. Executive Compensation",
+   111,
+   "ITEM 11 Executive Compensation"
+  ],
+  [
+   1,
+   "Item 12. Security Ownership of Certain Beneficial Owners and Management and Related Stockholder Matters",
+   111,
+   "ITEM 12 Security Ownership"
+  ],
+  [
+   1,
+   "Item 13. Certain Relationships and Related Transactions, and Director Independence",
+   111,
+   "ITEM 13 Certain Relationships"
+  ],
+  [
+   1,
+   "Item 16. Form 10-K Summary",
+   116,
+   "ITEM 16 Form 10-K"
+  ]
+ ]
+}

@@ -106,13 +106,42 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", "", s).lower()
 
 
-def pdf_elements(doc: Document) -> tuple[list[Element], str]:
+def _find_in(text: str, target: str, start: int, end: int) -> int | None:
+    """Offset of ``target`` (already normalised: no whitespace, lower case) in text[start:end],
+    ignoring whitespace - finds headings glued into the middle of an extracted line."""
+    if not target:
+        return None
+    pos: list[int] = []
+    chars: list[str] = []
+    for i in range(start, min(end, len(text))):
+        ch = text[i]
+        if not ch.isspace():
+            chars.append(ch.lower())
+            pos.append(i)
+    k = "".join(chars).find(target)
+    return pos[k] if k >= 0 else None
+
+
+PDF_STRUCTURE_MODES = ("auto", "native", "heuristic", "flat", "llm")
+
+
+def pdf_elements(doc: Document, mode: str = "auto") -> tuple[list[Element], str]:
+    """Elements of a PDF. ``mode`` forces the structure source (see EngineConfig.pdf_structure);
+    "llm" returns the flat block stream for the builder to structure."""
+    if mode not in PDF_STRUCTURE_MODES:
+        raise ValueError(f"pdf_structure must be one of {PDF_STRUCTURE_MODES}, got {mode!r}")
     pages: list[tuple[int, int, int]] = [
         (int(no), int(s), int(e)) for no, s, e in doc.metadata.get("_pages", [])
     ]
-    outline: list[tuple[int, str, int | None]] = [
-        (int(lv), str(t), pg) for lv, t, pg in doc.metadata.get("_outline", [])
-    ]
+    # (level, title, page, anchor): anchor = the heading line as printed, when it differs from
+    # the title (supplied outlines may give "Item 7. Management's Discussion..." for a line
+    # that only reads "Item 7."); PDF bookmarks have no anchor and match on the title.
+    outline: list[tuple[int, str, int | None, str]] = []
+    if mode in ("auto", "native"):
+        for item in doc.metadata.get("_outline", []):
+            lv, t, pg = item[0], item[1], item[2]
+            anchor = str(item[3]) if len(item) > 3 and item[3] else str(t)
+            outline.append((int(lv), str(t), None if pg is None else int(pg), anchor))
     lines = _lines(doc.text)
     page_of = _PageLookup(pages)
     noise = running_lines(lines, pages)
@@ -120,7 +149,7 @@ def pdf_elements(doc: Document) -> tuple[list[Element], str]:
     headings: dict[int, tuple[int, str]] = {}  # line index -> (level, title)
     method = "flat"
     if outline:
-        method = "native"
+        method = str(doc.metadata.get("_outline_source") or "native")
         anchors: list[tuple[int, int, str]] = []  # (offset, level, title)
         used: set[int] = set()
         # index lines by page once: matching each bookmark is then O(lines on its page)
@@ -129,8 +158,8 @@ def pdf_elements(doc: Document) -> tuple[list[Element], str]:
         by_page: dict[int | None, list[int]] = {}
         for idx, pg in enumerate(line_page):
             by_page.setdefault(pg, []).append(idx)
-        for level, title, page in outline:
-            target = _norm(title)
+        for level, title, page, anchor in outline:
+            target = _norm(anchor)
             found = None
             pool = (
                 by_page.get(page, []) + by_page.get(None, [])
@@ -143,14 +172,22 @@ def pdf_elements(doc: Document) -> tuple[list[Element], str]:
                 if normed[idx] == target or normed[idx].startswith(target):
                     found = idx
                     break
-            if found is not None:
+            if found is not None and len(normed[found]) <= len(target) + 10:
                 used.add(found)
                 headings[found] = (level, title)
+            elif found is not None:
+                # the heading is glued to body text on one extracted line: start the section at
+                # that line and keep the whole line as content (no text is lost)
+                used.add(found)
+                anchors.append((lines[found][0], level, title))
             else:
-                page_start = next((s for no, s, _ in pages if no == page), 0)
-                anchors.append((page_start, level, title))
+                span = next(((s, e) for no, s, e in pages if no == page), None)
+                at = _find_in(doc.text, target, *span) if span else None
+                if at is None:
+                    at = span[0] if span else 0
+                anchors.append((at, level, title))
         extra = anchors
-    else:
+    elif mode in ("auto", "heuristic"):
         extra = []
         for idx, (_, ln) in enumerate(lines):
             lvl = heuristic_heading(ln)
@@ -160,6 +197,8 @@ def pdf_elements(doc: Document) -> tuple[list[Element], str]:
             method = "heuristic"
         else:
             headings = {}
+    else:
+        extra = []
 
     elements: list[Element] = []
     para: list[int] = []

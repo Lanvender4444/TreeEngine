@@ -1,0 +1,205 @@
+{
+ "source": "10-K schema (semi-automatic, see structures.py)",
+ "reviewed": false,
+ "checked": "automatic consistency checks + spot check by Claude; not reviewed by a person",
+ "outline": [
+  [
+   1,
+   "Item 1. Business",
+   3,
+   "Item 1.Business"
+  ],
+  [
+   1,
+   "Item 1A. Risk Factors",
+   6,
+   "Item 1A.Risk Factors"
+  ],
+  [
+   1,
+   "Item 1B. Unresolved Staff Comments",
+   15,
+   "Item 1B.Unresolved Staff"
+  ],
+  [
+   1,
+   "Item 2. Properties",
+   16,
+   "Item 2.Properties"
+  ],
+  [
+   1,
+   "Item 3. Legal Proceedings",
+   16,
+   "Item 3.Legal Proceedings"
+  ],
+  [
+   1,
+   "Item 5. Market for Registrant's Common Equity, Related Stockholder Matters and Issuer Purchases of Equity Securities",
+   17,
+   "Item 5.Market for"
+  ],
+  [
+   1,
+   "Item 7. Management's Discussion and Analysis of Financial Condition and Results of Operations",
+   19,
+   "Item 7.Management's"
+  ],
+  [
+   2,
+   "Segment Results",
+   25,
+   "Segment Information"
+  ],
+  [
+   2,
+   "Cash Flows",
+   30,
+   "cash flow"
+  ],
+  [
+   1,
+   "Item 7A. Quantitative and Qualitative Disclosures About Market Risk",
+   33,
+   "Item 7A.Quantitative and"
+  ],
+  [
+   1,
+   "Item 8. Financial Statements and Supplementary Data",
+   35,
+   "Item 8.Financial Statements"
+  ],
+  [
+   2,
+   "Consolidated Statements of Cash Flows",
+   35,
+   "Consolidated Statements of Cash Flo"
+  ],
+  [
+   2,
+   "Consolidated Statements of Income",
+   35,
+   "Consolidated Statements of Operation"
+  ],
+  [
+   2,
+   "Report of Independent Registered Public Accounting Firm",
+   36,
+   "Report of Independent Registered Public Accounting Firm"
+  ],
+  [
+   2,
+   "Consolidated Statements of Comprehensive Income",
+   39,
+   "CONSOLIDATED STATEMENTS OF COMPREHENSIVE INCOME"
+  ],
+  [
+   2,
+   "Consolidated Balance Sheets",
+   40,
+   "CONSOLIDATED BALANCE SHEE"
+  ],
+  [
+   2,
+   "Consolidated Statements of Equity",
+   41,
+   "CONSOLIDATED STATEMENTS OF STOCKHOLDERS' EQUIT"
+  ],
+  [
+   2,
+   "Notes to Consolidated Financial Statements",
+   42,
+   "NOTES TO CONSOLIDATED FINANCIAL STATEMENT"
+  ],
+  [
+   3,
+   "Note 1. Description Of Business And Accounting Policies",
+   42,
+   "Note 1—DESCRIPTION OF BUSINESS AND ACCOUNTING POLICIES"
+  ],
+  [
+   3,
+   "Note 2. Cash, Cash Equivalents, And Marketable Securities",
+   50,
+   "Note 2—CASH, CASH EQUIVALENTS, AND MARKETABLE SECURITIES"
+  ],
+  [
+   3,
+   "Note 3. Property And Equipment",
+   52,
+   "Note 3—PROPERTY AND EQUIPMENT"
+  ],
+  [
+   3,
+   "Note 4. Acquisitions, Goodwill, And Acquired Intangible Assets",
+   52,
+   "Note 4—ACQUISITIONS, GOODWILL, AND ACQUIRED INTANGIBLE ASSETS"
+  ],
+  [
+   3,
+   "Note 5. Long-Term Debt",
+   56,
+   "Note 5—LONG-TERM DEBT"
+  ],
+  [
+   3,
+   "Note 6. Other Long-Term Liabilities",
+   58,
+   "Note 6—OTHER LONG-TERM LIABILITIES"
+  ],
+  [
+   3,
+   "Note 7. Commitments And Contingencies",
+   59,
+   "Note 7—COMMITMENTS AND CONTINGENCIES"
+  ],
+  [
+   3,
+   "Note 8. Stockholders' Equity",
+   62,
+   "Note 8—STOCKHOLDERS' EQUITY"
+  ],
+  [
+   3,
+   "Note 9. Accumulated Other Comprehensive Loss",
+   64,
+   "Note 9—ACCUMULATED OTHER COMPREHENSIVE LOSS"
+  ],
+  [
+   3,
+   "Note 10. Income Taxes",
+   64,
+   "Note 10—INCOME TAXES"
+  ],
+  [
+   3,
+   "Note 11. Segment Information",
+   68,
+   "Note 11—SEGMENT INFORMATION"
+  ],
+  [
+   3,
+   "Note 12. Quarterly Results",
+   72,
+   "Note 12—QUARTERLY RESULTS"
+  ],
+  [
+   1,
+   "Item 9. Changes in and Disagreements with Accountants on Accounting and Financial Disclosure",
+   73,
+   "Item 9.Changes in"
+  ],
+  [
+   1,
+   "Item 9A. Controls and Procedures",
+   73,
+   "Item 9A.Controls and"
+  ],
+  [
+   1,
+   "Item 16. Form 10-K Summary",
+   77,
+   "Item 16.Form 10-K"
+  ]
+ ]
+}
