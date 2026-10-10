@@ -461,7 +461,7 @@ Block 作为**检索单元**，`ContextSpan` 作为**阅读单元**。管线是�
 - **C**（紧预算下明显更好）：@1000 成立（61.5 vs 47.3，p=0.007）；@500 方向一致（54.9 vs 46.5）但不显著。
 - 以上都还需要 FinanceBench、BGE-M3 和独立 Judge 复现后才能算正式结论。
 
-## V0.6 — Layout-Aware Structure（代码完成，benchmark 未跑）
+## V0.6 — Layout-Aware Structure + Agentic Retrieval Policy
 
 参考 PageIndex 的 PDF → Tree 方法增强 PDF 结构解析，检索链路不变（P0 原则：只改 PDF → Node / Block）。
 
@@ -475,8 +475,8 @@ Block 作为**检索单元**，`ContextSpan` 作为**阅读单元**。管线是�
 | 6 书签质量评分 | 完成：`outline.bookmark_quality`，分为 high / coarse / poor / none |
 | 7 书签 + 版面 hybrid 大纲 | 完成：`outline.hybrid_outline`，见下 |
 | 8 结构质量门 | 完成：`validate.py`，输出 `StructureQuality`；`hybrid` 按回退梯子执行 |
-| 9 FinanceBench 结构 benchmark | **未跑**：`run_structure` 已支持 `layout` / `hybrid` 两个变体 |
-| 回归集 | 脚本完成：`python -m benchmarks.pdf_regression`（18 份真实 PDF）。开发中跑过一次，发现 layout 模式会吞掉被识别为标题的正文行，已修复：检测出的标题只开启章节，原行仍保留为正文 |
+| 9 FinanceBench 结构 benchmark | 完成：`results/v0.6-structure-financebench.md`，见下 |
+| 回归集 | 完成：`results/v0.6-pdf-regression.md`，18 份真实 PDF 全部通过（不崩溃、正文不丢、书签好时 hybrid 不差于 auto）。开发中发现 layout 模式会吞掉被识别为标题的正文行，已修复：检测出的标题只开启章节，原行仍保留为正文 |
 | P1：前言处理、LLM 修复、节点摘要、Context Geometry 实验 | 待做 |
 
 **结构来源**（`EngineConfig.pdf_structure`，CLI `--pdf-structure`）：
@@ -498,15 +498,47 @@ Block 作为**检索单元**，`ContextSpan` 作为**阅读单元**。管线是�
 
 **指纹**：`treeengine/pdf` 计入 retrieval 指纹和语料缓存 key。默认 `auto` 的输出不变，所以已有结果仍然有效。
 
-**Agentic Retrieval Policy**（`treeengine/retrieval/controller.py`）的代码和单元测试已完成，benchmark 尚未接入。设计文档第 20 节的矩阵是：只用 FTS、只用 Vector、FTS + Vector、只用树推理、FTS + Vector + 树推理兜底、FTS + Vector + 完全自主的树推理循环。接入时 ContextBuilder 固定不变，只换 Controller，重点看树推理有没有补回 FTS / Vector 漏掉的证据（候选召回、上下文覆盖率）。
+### 结构 benchmark（FinanceBench，33 份 10-K，55 题，`results/v0.6-structure-financebench.md`）
 
-待跑：
+| 结构 | 节点 / 文档 | 标题 P | 标题 R | 标题 F1 | 层级准确率 | tree_structure R@5 | tree_lexical+fts R@5 | fts R@5 |
+|---|---|---|---|---|---|---|---|---|
+| flat | 1 | – | – | – | – | 1.8 | 24.5 | 24.5 |
+| auto（默认） | 71 | 10.8 | 17.2 | 13.3 | 26.9 | 8.2 | 16.4 | 19.1 |
+| layout | 224 | 15.7 | 78.5 | 26.1 | 47.4 | 10.0 | 13.6 | 14.5 |
+| hybrid | 199 | 16.7 | 74.3 | 27.3 | 45.6 | 10.0 | 17.3 | 16.4 |
+| reference | 46 | 97.8 | 100 | 98.9 | 99.9 | 31.8 | 23.6 | 18.2 |
 
-```bash
-python -m benchmarks.run_structure --variants flat,auto,layout,hybrid,reference    # Layer 1：结构质量（对参考结构的 F1 / 层级准确率）
-python -m benchmarks.pdf_regression                                                # 回归集
-# Layer 2（Context Geometry）：固定 fts+vector anchor 和 section600，只换 PDF 结构，比较 coverage / QA / 跨章节数
-```
+- **结构抽取明显变好**：标题召回从 17% 提高到 74–79%，F1 翻倍，层级准确率从 27% 提高到 46–47%。hybrid 在 33 份里有 28 份走的是 layout（10-K 大多没有书签），3 份走真正的 hybrid，2 份被质量门退回平铺。
+- **精确率仍低（16%）**：每份 200 多个节点，参考结构只有 46 个。参考结构只标了 Part / Item 级别，10-K 里真实的小标题也会被算成误报，所以精确率被低估了；但表格行、粗体短句被误认成标题的情况也确实存在。这是 P1 要做的事（LLM 修复 / 合并）。
+- **检索还没吃到好处**：tree_structure 只从 8.2 提高到 10.0，离参考结构的 31.8 还很远。节点变细后，fts 的 R@5 反而下降（block 被章节边界切小了）。所以 `auto` 继续作默认，`layout` / `hybrid` 保留为可选。下一步是 Layer 2（Context Geometry）：固定 anchor，只换结构，看 section 上下文的 coverage 和 QA。
+
+### PDF 回归集（`results/v0.6-pdf-regression.md`）
+
+18 份真实 PDF，包括教材、中文手册、年报、双栏论文、法规、软件文档、宣传册、10-K / 10-Q、财报幻灯片，全部通过检查。
+
+- 书签好的文档（prml、fed、JPM 10-Q、mmdetection 等）：hybrid 在书签框架上补出子节。fed 年报从 50 个节点增加到 154 个。
+- 书签粗的文档：p3c、reg_bi_proposed 被质量门退回只用书签。
+- camry 宣传册：layout 有 40% 的重复标题，被退回平铺。
+- NUS guidebook 没有文本层，报 `OCR required`。
+- hybrid 的耗时和 auto 相当。layout 因为要做全量字符分析，耗时约 2 倍。
+
+### Agentic Retrieval Policy（longdoc，91 题 × 2，`results/v0.6-agentic-longdoc.md`）
+
+ContextBuilder 固定为 `auto`，候选池 50，只换 Controller。
+
+| 策略 | QA @2000 | QA @3000 | 检索 p50 | 检索 LLM token / 题 |
+|---|---|---|---|---|
+| rag_hybrid（fixed chunk） | 57.7 | 60.4 | 6 ms | 0 |
+| policy_fts / policy_vector | 62.6 / 64.8 | 67.0 / 65.9 | 15 / 22 ms | 0 |
+| **policy_hybrid** | **67.0** | **68.7** | 31 ms | 0 |
+| policy_tree（只用 LLM 导航） | 47.8 | 48.4 | 1.6 s | 2.7k |
+| hybrid + fallback / guided（30/91 题触发） | 67.0 / 66.5 | 67.0 / 69.2 | 33 ms | 0.6k |
+| hybrid + full | 65.9 | 69.2 | 2.9 s | 3.1k |
+
+- **树推理没有补回 FTS / Vector 漏掉的证据**：candidate recall 在所有题上都没有变化，因为 FTS + Vector 的候选池 recall 已达 96%。full 只在 4 题上提高了上下文覆盖率。与 policy_hybrid 比，fallback / guided / full 的配对胜负都在 0–4 题以内，p ≥ 0.25。
+- **只用 LLM 导航明显更差**：比 policy_hybrid 低 20 个点（6:24，p=0.001），candidate recall 只有 50%。
+- policy_hybrid vs rag_hybrid：13:4（p=0.049，@2000），复现了 V0.5 的结论。
+- **默认值：`policy_hybrid`，agentic off**。树推理作为可选能力保留，要证明它的价值，需要证据分散、检索词与原文不匹配的数据集。
 
 ## 待完成
 

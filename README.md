@@ -64,7 +64,8 @@ hits = engine.search_text("芯片成本", node_id=chapters[3].id)   # 在某章�
 from treeengine import RetrievalPolicy
 
 res = engine.retrieve("为什么营业利润率下降？", document_id=doc.id,
-                      policy=RetrievalPolicy.hybrid_agentic(context_budget=2000))
+                      policy=RetrievalPolicy.hybrid(context_budget=2000))
+# 实测推荐 hybrid（agentic off）；RetrievalPolicy.hybrid_agentic() 会在证据不足时加树推理，是可选项
 res.evidence          # 各路径按排名融合（RRF），metadata["retrieval_paths"] 记录来源
 res.context_spans     # 按预算重建的连续阅读上下文
 res.trace             # policy → fts / vector → evaluate → tree_step × n → stop → context
@@ -200,4 +201,4 @@ treeengine --db te.db --embedder fastembed:jinaai/jina-embeddings-v2-base-zh sem
 - **V0.3**：Corpus / In-document 拆分（`CorpusRetriever`）、Vector（EmbeddingProvider / VectorIndex / sqlite-vec / VectorRetriever）、RRF Evidence Fusion、Planner 与 Oracle 评测、LLM Tree 评测接线、语料与 heldout 扩容。结论见 benchmarks/README.md。
 - **V0.4 — Evidence & Structure Validation**：检索代码已冻结（`benchmarks/freeze.py`）。新增结构质量实验（flat / heuristic / native / LLM / 参考结构）、Block Vector 消融、dev 上的 chunk 扫描、LLM 导航 + Vector 策略，以及 PDF 结构来源的强制模式（`EngineConfig.pdf_structure`）。新增 Tree Scope 消融（hard filter / soft prior / structural rerank，只在 benchmark 中）：词法检索下，结构作为过滤或打分信号都没有带来增益，hard scope 在相同上下文预算下会丢证据。参考结构改名为 `reference`，人工校对后为 `human_oracle`。向量矩阵、QA、LLM 导航等 embedding API / LLM 到位后再跑。
 - **V0.5 — Retrieve Fine, Read Coherent**：block 作为检索单元，`ContextSpan` 作为阅读单元。新增 `treeengine/context`（ContextBuilder）；Tree 的角色从“检索前的过滤器”转为“上下文几何 + Agent 导航”。Benchmark 的候选池固定为 50 并写入冻结记录；报告按 “检索器:阅读策略 @预算” 命名，并新增 context coverage 和碎片化指标。
-- **V0.6（当前）— Layout-Aware Structure**：新增 Agentic Retrieval Policy（`RetrievalController`：FTS / Vector / LLM 树推理三条路径按权重启用，按排名融合，带预算的 agent 循环，`SearchResult.context_spans`）。另外参考 PageIndex 的 PDF → Tree 方法，新增 `treeengine/pdf`，包括字符几何、行重建、分栏与阅读顺序、版面角色、标题打分、书签分级、书签与版面的 hybrid 大纲、结构质量门，对应 `pdf_structure="layout" / "hybrid"`。检索链路不变。没有照搬 PageIndex 的 vectorless 检索：Tree 负责文档几何和导航，证据检索仍由 FTS / Vector 完成。
+- **V0.6（当前）— Layout-Aware Structure**：新增 Agentic Retrieval Policy（`RetrievalController`：FTS / Vector / LLM 树推理三条路径按权重启用，按排名融合，带预算的 agent 循环，`SearchResult.context_spans`）。另外参考 PageIndex 的 PDF → Tree 方法，新增 `treeengine/pdf`，包括字符几何、行重建、分栏与阅读顺序、版面角色、标题打分、书签分级、书签与版面的 hybrid 大纲、结构质量门，对应 `pdf_structure="layout" / "hybrid"`。检索链路不变。没有照搬 PageIndex 的 vectorless 检索：Tree 负责文档几何和导航，证据检索仍由 FTS / Vector 完成。实测（`benchmarks/README.md` V0.6 节）：layout / hybrid 把 10-K 的标题召回从 17% 提到 75–79%，层级准确率从 27% 提到 46%，但检索收益还没体现，`auto` 仍是默认。longdoc 上只用 LLM 导航比 FTS + Vector 低 20 个点；树推理兜底 / 全自主没有补回候选证据，准确率差异不显著。因此默认 policy 是 FTS + Vector，agentic off。

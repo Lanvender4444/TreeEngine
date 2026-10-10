@@ -235,8 +235,11 @@ def main(argv: list[str] | None = None) -> int:
     jobs: list[tuple[str, Any, Any, float | None, dict[str, Any]]] = []
     for name, strat in strategies.items():
         chunked = name.startswith("rag_") or name == "full_context"
+        # traditional chunks have no block geometry: they are read raw (fixed chunks) at every
+        # budget, whatever reading policies the block strategies use
+        chunk_modes = ["raw"] if chunked and name != "full_context" else modes
         variants: list[tuple[str | None, int | None]] = [
-            (m, b) for b in budgets for m in modes if not (chunked and m != "raw")
+            (m, b) for b in budgets for m in chunk_modes
         ] or [(None, None)]
         labels = {(m, b): name if m is None else context_label(name, m, b) for m, b in variants}
         for label in labels.values():

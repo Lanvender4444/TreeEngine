@@ -35,7 +35,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import replace
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from treeengine.core.models import Evidence
 from treeengine.retrieval.corpus import CorpusRetriever
@@ -77,11 +77,41 @@ NEEDS_VECTOR = [
 ]
 NEEDS_LLM = ["tree_llm", "tree_llm+fts", "managed_llm", "tree_llm+vector", "tree_llm+fts+vector"]
 NEEDS_BOTH = ["tree_llm+vector", "tree_llm+fts+vector"]  # LLM navigation + embeddings
+# V0.6 retrieval controller (agentic retrieval policy, design doc §20 matrix A-F + guided)
+POLICY_STRATEGIES = {
+    "policy_fts": {"fts_weight": 1.0, "vector_weight": 0.0, "tree_weight": 0.0},
+    "policy_vector": {"fts_weight": 0.0, "vector_weight": 1.0, "tree_weight": 0.0},
+    "policy_hybrid": {"fts_weight": 1.0, "vector_weight": 1.0, "tree_weight": 0.0},
+    "policy_tree": {
+        "fts_weight": 0.0,
+        "vector_weight": 0.0,
+        "tree_weight": 1.0,
+        "agentic_level": 1.0,
+        "max_steps": 6,
+        "max_llm_calls": 6,
+    },
+    "policy_hybrid_fallback": {"tree_weight": 0.5, "agentic_level": 0.3},
+    "policy_hybrid_guided": {"tree_weight": 0.5, "agentic_level": 0.6},
+    "policy_hybrid_full": {
+        "tree_weight": 0.5,
+        "agentic_level": 1.0,
+        "max_steps": 6,
+        "max_llm_calls": 6,
+    },
+}
+NEEDS_LLM += [
+    "policy_tree",
+    "policy_hybrid_fallback",
+    "policy_hybrid_guided",
+    "policy_hybrid_full",
+]
+NEEDS_BOTH += ["policy_hybrid_fallback", "policy_hybrid_guided", "policy_hybrid_full"]
 QA_ONLY = ["full_context"]
 SCOPE_LEXICAL = list(SCOPE_BASES)
 SCOPE_VECTOR = [b + sfx for sfx in ("+vector", "+fts+vector") for b in SCOPE_BASES]
-NEEDS_VECTOR += SCOPE_VECTOR
-ALL = LEXICAL + SCOPE_LEXICAL + NEEDS_VECTOR + NEEDS_LLM + QA_ONLY
+NEEDS_VECTOR += SCOPE_VECTOR + ["policy_vector", "policy_hybrid"]
+LEXICAL_POLICY = ["policy_fts"]
+ALL = LEXICAL + SCOPE_LEXICAL + LEXICAL_POLICY + NEEDS_VECTOR + NEEDS_LLM + QA_ONLY
 RENAMED = {"tree": "tree_lexical", "tree+fts": "tree_lexical+fts"}  # V0.2 names
 PRESETS = {
     # benchmark design doc, first round: is Tree useful, does Vector add semantics, is the
@@ -124,6 +154,17 @@ PRESETS = {
         *[b + "+fts+vector" for b in SCOPE_BASES],
         "fts+vector",
         "tree_lexical+fts+vector",
+    ],
+    # agentic retrieval policy (V0.6): same ContextBuilder, only the controller changes
+    "agentic": [
+        "rag_hybrid",
+        "policy_fts",
+        "policy_vector",
+        "policy_hybrid",
+        "policy_tree",
+        "policy_hybrid_fallback",
+        "policy_hybrid_guided",
+        "policy_hybrid_full",
     ],
     "llm_tree": [
         "tree_structure",
@@ -286,6 +327,42 @@ def build_strategies(ws: Workspace, names: Sequence[str]) -> dict[str, Benchmark
         "rag_vector": (rag("vector"), ("chunks", "chunk_vectors")),
         "rag_hybrid": (rag("hybrid"), ("chunks", "chunk_vectors")),
     }
+
+    # agentic retrieval policy: the RetrievalController with fixed policies
+    def controller() -> Any:
+        if "controller" not in lazy:
+            from treeengine.retrieval.controller import RetrievalController
+
+            from ..metrics.cost import count_tokens
+
+            lazy["controller"] = RetrievalController(
+                repo,
+                fts,
+                vector=ws.block_vectors() if ws.embed_spec else None,
+                corpus=corpus,
+                tree=tree_lex,
+                llm=ws.llm,
+                config=cfg,
+                token_counter=count_tokens,
+            )
+        return lazy["controller"]
+
+    def policy_search(spec: dict[str, Any]) -> Search:
+        from treeengine.retrieval.policy import RetrievalPolicy
+
+        from ..freeze import candidate_pool
+
+        def run(q: str, d: str | None, k: int, t: Trace) -> list[Evidence]:
+            pol = RetrievalPolicy(**{"candidate_pool": max(k, candidate_pool()), **spec})
+            res = controller().retrieve(q, document_id=d, policy=pol)
+            t.steps.extend(res.trace)
+            return res.evidence[:k]
+
+        return run
+
+    for pname, spec in POLICY_STRATEGIES.items():
+        needs: tuple[str, ...] = ("block_vectors",) if pname in NEEDS_VECTOR + NEEDS_BOTH else ()
+        table[pname] = (policy_search(spec), needs)
     # scope ablation (benchmark only): hard scope / soft prior / structural rerank
     scoper = ScopeBuilder(repo, r(tree_lex), r(corpus))
     table.update(

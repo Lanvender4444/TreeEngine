@@ -92,7 +92,8 @@ class RetrievalPolicy:
 
     @classmethod
     def hybrid_agentic(cls, **kw: object) -> RetrievalPolicy:
-        """TreeEngine's recommended mode: FTS + Vector first, tree reasoning only when useful."""
+        """FTS + Vector first, tree reasoning only when the evidence looks insufficient. Opt-in:
+        on longdoc it did not beat plain ``hybrid()`` (V0.6 results), which stays the default."""
         base: dict[str, object] = {"agentic_level": 0.6, "max_steps": 4, "max_llm_calls": 2}
         base.update(kw)
         return cls(fts_weight=1.0, vector_weight=1.0, tree_weight=0.5, **base)  # type: ignore[arg-type]
