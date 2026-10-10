@@ -23,7 +23,7 @@ import json
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
 
@@ -31,11 +31,14 @@ from treeengine.core.protocols import LLMProvider
 from treeengine.llm.base import CallableLLM, MeteredLLM
 
 from .answer import Answerer, llm_from_env
+from .context import MODES, ContextBuilder, as_evidence, fragmentation
+from .freeze import candidate_pool
 from .judges import UNCERTAIN, Verdict
 from .judges import exact as exact_judge
 from .judges import semantic as semantic_judge
 from .judges.human_audit import AuditLabels, write_queue
 from .loader import doc_stats
+from .metrics.cost import count_tokens
 from .metrics.qa import QAOutcome, aggregate_qa
 from .metrics.retrieval import evaluate, norm
 from .report import TOKEN_BUCKETS, _bucket, _fmt, _table
@@ -54,6 +57,72 @@ DEFAULT = [
     "managed",
     "full_context",
 ]
+
+
+def _reading_section(rows: dict[str, dict[str, Any]], strategies: list[str]) -> list[str]:
+    """Retriever vs reading metrics (V0.5 §13-15) for context-reconstruction runs."""
+    have = [s for s in strategies if rows[s].get("context_coverage") is not None]
+    if not have:
+        return []
+    body = []
+    for s in have:
+        r = rows[s]
+        body.append(
+            [
+                s,
+                _fmt(r.get("recall@5")),
+                _fmt(r.get("candidate_recall")),
+                _fmt(r.get("context_coverage")),
+                _fmt(r.get("ctx_tokens"), pct=False),
+                _fmt(r.get("span_count"), pct=False),
+                _fmt(r.get("avg_span_tokens"), pct=False),
+                _fmt(r.get("max_span_tokens"), pct=False),
+                _fmt(r.get("section_crossings"), pct=False),
+                _fmt(r.get("duplicate_ratio")),
+                _fmt(r.get("accuracy")),
+            ]
+        )
+    head = [
+        "strategy",
+        "anchor R@5",
+        "candidate recall",
+        "context coverage",
+        "context tokens",
+        "spans",
+        "avg span tok",
+        "max span tok",
+        "section crossings",
+        "duplicate blocks",
+        "QA accuracy",
+    ]
+    return [
+        "## Retrieval vs reading",
+        "",
+        _table(head, body),
+        "",
+        "anchor R@5 = expected evidence in the top 5 retrieved items · candidate recall = in the "
+        "whole candidate pool · context coverage = inside what the answer model finally reads · "
+        "spans = disconnected pieces per question · section crossings = node boundaries crossed "
+        "inside spans (per question) · duplicate blocks = share of repeated blocks (must be 0).",
+        "",
+    ]
+
+
+# report names: "retriever:reading policy @budget" (V0.5 §12), so a row never mixes up a
+# different retriever with a different reading unit
+RETRIEVER_LABEL = {
+    "fts+vector": "block_hybrid",
+    "fts": "block_fts",
+    "vector": "block_vector",
+    "tree_lexical+fts+vector": "tree_hybrid",
+    "tree_lexical+fts": "tree_fts",
+}
+
+
+def context_label(strategy: str, mode: str, budget: int | None) -> str:
+    chunked = strategy.startswith("rag_")
+    policy = "fixed_chunk" if chunked and mode == "raw" else mode
+    return f"{RETRIEVER_LABEL.get(strategy, strategy)}:{policy} @{budget}"
 
 
 def stub_answer_llm() -> LLMProvider:
@@ -87,6 +156,23 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--answer-max-tokens", type=int, default=512)
     ap.add_argument("--workers", type=int, default=4, help="parallel answer / judge calls")
     ap.add_argument("--stub-llm", action="store_true", help="offline pipeline test")
+    ap.add_argument(
+        "--context",
+        default=None,
+        help=f"reading-context modes, comma separated ({', '.join(MODES)}); needs --budget",
+    )
+    ap.add_argument(
+        "--budget",
+        default=None,
+        help="answer-context token budgets, comma separated (e.g. 1000,2800): every strategy "
+        "and context mode is filled to the same budget instead of a fixed --k",
+    )
+    ap.add_argument(
+        "--candidates",
+        type=int,
+        default=None,
+        help="anchors retrieved for --budget (default: the frozen candidate_pool)",
+    )
     ap.set_defaults(suite="longdoc")
     args = ap.parse_args(argv)
     if hasattr(sys.stdout, "reconfigure"):
@@ -134,21 +220,61 @@ def main(argv: list[str] | None = None) -> int:
     answerer = Answerer(answer_llm, args.answer_max_tokens)
 
     # 1) retrieval, sequentially (SQLite connections are per thread)
-    jobs: list[tuple[str, Any, Any, float | None]] = []
+    budgets = [int(b) for b in args.budget.split(",")] if args.budget else []
+    modes = args.context.split(",") if args.context else ["raw"]
+    if args.context and not budgets:
+        raise SystemExit("--context needs --budget")
+    bad = [m for m in modes if m not in MODES]
+    if bad:
+        raise SystemExit(f"unknown context mode(s) {bad}; choose from {MODES}")
+    if args.candidates is None:
+        args.candidates = candidate_pool()
+    builder = ContextBuilder(ws.repo)
+    names: list[str] = []  # report rows: strategy, or "retriever:policy @budget"
+    family: dict[str, str] = {}
+    jobs: list[tuple[str, Any, Any, float | None, dict[str, Any]]] = []
     for name, strat in strategies.items():
+        chunked = name.startswith("rag_") or name == "full_context"
+        variants: list[tuple[str | None, int | None]] = [
+            (m, b) for b in budgets for m in modes if not (chunked and m != "raw")
+        ] or [(None, None)]
+        labels = {(m, b): name if m is None else context_label(name, m, b) for m, b in variants}
+        for label in labels.values():
+            names.append(label)
+            family[label] = FAMILY.get(name, "treeengine")
         for q in queries:
             doc_id = corpus.doc_ids.get(q.document) if q.document else None
-            run = strat.retrieve(q.query, document_id=doc_id, limit=args.k)
+            limit = args.candidates if budgets and name != "full_context" else args.k
+            run = strat.retrieve(q.query, document_id=doc_id, limit=limit)
             recall5 = None
-            if q.judged and not run.metadata.get("skipped") and name != "full_context":
+            judged = q.judged and not run.metadata.get("skipped") and name != "full_context"
+            if judged:
                 recall5 = evaluate(q, name, run, paths, [5]).recall.get(5)
-            jobs.append((name, q, run, recall5))
+            for m, b in variants:
+                if m is None or b is None or name == "full_context":
+                    jobs.append((labels[(m, b)], q, run, recall5, {}))
+                    continue
+                spans = builder.spans(run.evidence, m, b)
+                ctx = as_evidence(run.evidence, spans)
+                extra: dict[str, Any] = fragmentation(spans) if not chunked else {}
+                if judged:
+                    depth = len(run.evidence) or 1
+                    extra["candidate_recall"] = evaluate(q, name, run, paths, [depth]).recall.get(
+                        depth
+                    )
+                    cut = replace(run, evidence=ctx, metadata={})
+                    n = len(ctx) or 1
+                    extra["context_coverage"] = evaluate(q, name, cut, paths, [n]).recall.get(n)
+                jobs.append((labels[(m, b)], q, replace(run, evidence=ctx), recall5, extra))
         if not args.quiet:
             print(f"retrieved {name:26s} for {len(queries)} questions", file=sys.stderr)
 
     # 2) answer + judge, in parallel (network bound)
-    def work(job: tuple[str, Any, Any, float | None]) -> QAOutcome:
-        name, q, run, recall5 = job
+    def work(job: tuple[str, Any, Any, float | None, dict[str, Any]]) -> QAOutcome:
+        name, q, run, recall5, extra = job
+        # the context actually handed to the answer model: all --k evidence items (the
+        # retrieval-only context_tokens is fixed at the top 5)
+        given = sum(count_tokens(e.content) for e in run.evidence[: None if budgets else args.k])
         o = QAOutcome(
             q.id,
             q.type,
@@ -159,12 +285,13 @@ def main(argv: list[str] | None = None) -> int:
             q.answer or "",
             None,
             "none",
-            context_tokens=run.context_tokens,
+            context_tokens=given if name != "full_context" else run.context_tokens,
             retrieval_ms=run.latency_ms,
             embedding_calls=run.embedding_calls,
             embedding_tokens=run.embedding_tokens,
             retrieval_llm_tokens=run.input_tokens + run.output_tokens,
             recall5=recall5,
+            **extra,
         )
         if run.metadata.get("skipped"):
             o.skipped = str(run.metadata["skipped"])
@@ -203,14 +330,17 @@ def main(argv: list[str] | None = None) -> int:
     if not args.quiet:
         print(f"answered + judged {len(jobs)} in {time.perf_counter() - t0:.0f}s", file=sys.stderr)
 
-    rows = {s: aggregate_qa([o for o in outcomes if o.strategy == s]) for s in strategies}
+    rows = {s: aggregate_qa([o for o in outcomes if o.strategy == s]) for s in names}
     dstats = doc_stats(corpus)
-    meta = base_meta(suite, docs, queries, corpus, ws, list(strategies), skipped, llm, spec)
+    meta = base_meta(suite, docs, queries, corpus, ws, names, skipped, llm, spec)
     meta.update(
         {
             "answer_model": answer_name,
             "judges": [n for n, _ in judges],
             "k": args.k,
+            "context_modes": modes if budgets else None,
+            "budgets": budgets or None,
+            "candidates": args.candidates if budgets else None,
             "max_context_tokens": args.max_context_tokens,
             "prices": asdict(ws.prices),
             "judge_tokens": sum(o.judge_tokens for o in outcomes),
@@ -218,7 +348,7 @@ def main(argv: list[str] | None = None) -> int:
         }
     )
     cost_by_length = _cost_by_length(outcomes, dstats, priced=ws.prices.configured)
-    md = render_qa(meta, rows, outcomes, list(strategies), index_stats, dstats)
+    md = render_qa(meta, rows, outcomes, names, index_stats, dstats, family)
     print(md)
     if not args.no_save:
         out_dir = Path(args.out)
@@ -294,6 +424,7 @@ def render_qa(
     strategies: list[str],
     index_stats: dict[str, Any],
     dstats: dict[str, Any],
+    family: dict[str, str] | None = None,
 ) -> str:
     priced = any(r.get("usd/q") is not None for r in rows.values())
     head = [
@@ -316,7 +447,7 @@ def render_qa(
         body.append(
             [
                 s,
-                FAMILY.get(s, "treeengine"),
+                (family or {}).get(s, FAMILY.get(s, "treeengine")),
                 str(r.get("answered", 0)),
                 _fmt(r.get("recall@5")),
                 _fmt(r.get("accuracy")),
@@ -358,8 +489,14 @@ def render_qa(
         f"# TreeEngine end-to-end QA — {meta['suite']}",
         "",
         f"- documents: {meta['documents']}, questions: {meta['queries']} {meta['query_breakdown']}",
-        f"- answer model: `{meta['answer_model']}` (temperature 0, top {meta['k']} evidence, "
-        "one prompt for every strategy)",
+        f"- answer model: `{meta['answer_model']}` (temperature 0, "
+        + (
+            f"answer context filled to {', '.join(map(str, meta['budgets']))} tokens from "
+            f"the top {meta['candidates']} anchors, "
+            if meta.get("budgets")
+            else f"top {meta['k']} evidence, "
+        )
+        + "one prompt for every strategy)",
         f"- judges: deterministic → semantic ({judge_line}; no access to documents) → human audit",
         f"- full_context budget: {meta['max_context_tokens']:,} tokens",
         f"- embeddings: `{meta.get('embedder') or 'none'}`; tokens: {meta.get('tokenizer')}",
@@ -377,6 +514,7 @@ def render_qa(
         "Accuracy = correct / (correct + incorrect); uncertain verdicts await human audit and "
         "skipped answers (full context over budget) are not counted.",
         "",
+        *_reading_section(rows, strategies),
         "## Accuracy by question type",
         "",
         by(lambda o: o.query_type, "type"),

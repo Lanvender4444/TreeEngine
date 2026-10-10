@@ -37,6 +37,14 @@ class QAOutcome:
     judge_tokens: int = 0  # evaluation cost, never counted as system cost
     usd: float | None = None
     error: str | None = None
+    # reading context (context reconstruction runs); None when not measured
+    candidate_recall: float | None = None  # expected evidence anywhere in the candidate pool
+    context_coverage: float | None = None  # expected evidence inside the final reading context
+    span_count: int | None = None
+    avg_span_tokens: float | None = None
+    max_span_tokens: int | None = None
+    section_crossings: int | None = None
+    duplicate_ratio: float | None = None
 
     @property
     def scored(self) -> bool:
@@ -81,6 +89,17 @@ def aggregate_qa(outcomes: Sequence[QAOutcome]) -> dict[str, Any]:
         sum(usd) / correct if usd and correct and row["usd/q"] is not None else None
     )
     row["tokens/correct"] = sum(o.system_tokens for o in ran) / correct if correct else None
+    for key in (
+        "candidate_recall",
+        "context_coverage",
+        "span_count",
+        "avg_span_tokens",
+        "max_span_tokens",
+        "section_crossings",
+        "duplicate_ratio",
+    ):
+        vals = [float(v) for o in ran if (v := getattr(o, key)) is not None]
+        row[key] = _mean(vals) if vals else None
     # context handed to the answer model per correct answer (design doc V0.4 next-step §4)
     row["ctx_tokens/correct"] = sum(o.context_tokens for o in ran) / correct if correct else None
     return row

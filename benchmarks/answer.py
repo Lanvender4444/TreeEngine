@@ -121,7 +121,11 @@ class RetryingLLM:
 
 
 def llm_from_env(prefix: str, timeout: float = 300.0) -> LLMProvider | None:
-    """``{prefix}_MODEL`` / ``_API_KEY`` / ``_BASE_URL`` -> OpenAI-compatible chat model."""
+    """``{prefix}_MODEL`` / ``_API_KEY`` / ``_BASE_URL`` -> OpenAI-compatible chat model.
+
+    ``{prefix}_EXTRA_BODY`` (JSON) is merged into every request, e.g. for DeepSeek V4
+    ``{"thinking": {"type": "disabled"}}`` so the answer budget is not spent on reasoning."""
+    import json
     import os
 
     from treeengine.llm.base import OpenAICompatibleLLM
@@ -134,6 +138,7 @@ def llm_from_env(prefix: str, timeout: float = 300.0) -> LLMProvider | None:
         api_key=os.environ.get(f"{prefix}_API_KEY"),
         base_url=os.environ.get(f"{prefix}_BASE_URL", "https://api.openai.com/v1"),
         timeout=timeout,
+        extra_body=json.loads(os.environ.get(f"{prefix}_EXTRA_BODY") or "{}"),
     )
     return RetryingLLM(inner)
 

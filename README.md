@@ -58,6 +58,23 @@ engine.get_ancestors(blocks[0].node_id)        # 面包屑
 hits = engine.search_text("芯片成本", node_id=chapters[3].id)   # 在某章节子树内搜
 ```
 
+**Context Reconstruction：细粒度检索，连续阅读**（V0.5）
+
+`Evidence` 说明“为什么命中”，`ContextSpan` 是“最终给模型读什么”：围绕命中的 block，在查询时按 token 预算重建连续的原文片段。它不是 chunk：chunk 是建索引时盲切的。
+
+```python
+from treeengine import BlockContextBuilder
+
+evidence = engine.search("为什么利润率下降？", document_id=doc.id, limit=50)
+spans = BlockContextBuilder(engine.repo).build(evidence, token_budget=2000)   # policy="auto"
+for s in spans:
+    s.content, s.page_start, s.page_end, s.block_ids, s.source_evidence_ids, s.token_count
+```
+
+- 策略：`raw`、`neighbor1/2`（命中 block 前后各 1/2 个）、`adaptive600`（左右交替扩展到约 600 token）、`section600`（同上，但不越出命中 block 所在章节）、`auto`（预算 ≤ 1000 用 section600，否则用 adaptive600；这是 V0.5 的启发式规则，不声称最优）。
+- 保证：同一个 block 不重复；重叠或相邻的 span 合并；每个 span 保留来源 anchor；总长不超过预算；span 内保持原文顺序。
+- Benchmark 结论见 `benchmarks/README.md`：同样的检索结果，换成重建的连续上下文后，QA 准确率从约 45% 升到 65–69%。
+
 **Answer（便利 API，不是核心）**
 
 ```python
@@ -113,6 +130,7 @@ treeengine --db te.db --embedder fastembed:jinaai/jina-embeddings-v2-base-zh sem
 | `structure/` | 统一的 Element → Node/Block 组装；Native → Heuristic → LLM fallback；Markdown HTML 注释屏蔽、`{#anchor}` 清理；PDF 页眉页脚去除、目录识别 |
 | `storage/` | schema v2（`PRAGMA user_version` 迁移；v2 = FTS5 porter 词干）、事务、FTS 同步、`rebuild_fts()`；`vectors.py`：`SQLiteVectorIndex`（sqlite-vec，表 `block_vectors` 只存 block_id + embedding）、`MemoryVectorIndex` |
 | `retrieval/` | `Navigator`（原语）、`CorpusRetriever`（选文档）、`TreeRetriever`（文档内导航 / 定 scope）、`FTSRetriever`、`VectorRetriever`、`EvidenceMerger`（RRF）、`tree_scoped_search`（Tree 定范围 → 证据检索）、`RetrievalPlanner`、`SearchResult` / `Trace` / `SearchStats` |
+| `context/` | `BlockContextBuilder` / `ContextSpan`：检索之后按预算重建连续阅读上下文（V0.5） |
 | `embeddings/` | `FastEmbedProvider`、`OpenAICompatibleEmbedding`、`HashingEmbedding`（测试用）、`CachedEmbedding` |
 | `pipeline.py` / `answer.py` / `treeview.py` | ingest 流水线、回答层、整树渲染（仅供查看） |
 | `benchmarks/` | 数据集（controlled / longdoc / financebench）、策略（TreeEngine 与传统 RAG）、检索与 QA 指标、Judge、成本、报告与图 |
@@ -131,4 +149,5 @@ treeengine --db te.db --embedder fastembed:jinaai/jina-embeddings-v2-base-zh sem
 - **V0.1**：Ingest / Structure / SQLite / Tree / FTS / Planner / Evidence / Answer。
 - **V0.2**：Repository 边界、Navigation 原语、Benchmark、Trace & Stats、Factory。
 - **V0.3**：Corpus / In-document 拆分（`CorpusRetriever`）、Vector（EmbeddingProvider / VectorIndex / sqlite-vec / VectorRetriever）、RRF Evidence Fusion、Planner 与 Oracle 评测、LLM Tree 评测接线、语料与 heldout 扩容。结论见 benchmarks/README.md。
-- **V0.4（当前）— Evidence & Structure Validation**：检索代码已冻结（`benchmarks/freeze.py`）。新增结构质量实验（flat / heuristic / native / LLM / 参考结构）、Block Vector 消融、dev 上的 chunk 扫描、LLM 导航 + Vector 策略，以及 PDF 结构来源的强制模式（`EngineConfig.pdf_structure`）。新增 Tree Scope 消融（hard filter / soft prior / structural rerank，只在 benchmark 中）：词法检索下，结构作为过滤或打分信号都没有带来增益，hard scope 在相同上下文预算下会丢证据。参考结构改名为 `reference`，人工校对后为 `human_oracle`。向量矩阵、QA、LLM 导航等 embedding API / LLM 到位后再跑。
+- **V0.4 — Evidence & Structure Validation**：检索代码已冻结（`benchmarks/freeze.py`）。新增结构质量实验（flat / heuristic / native / LLM / 参考结构）、Block Vector 消融、dev 上的 chunk 扫描、LLM 导航 + Vector 策略，以及 PDF 结构来源的强制模式（`EngineConfig.pdf_structure`）。新增 Tree Scope 消融（hard filter / soft prior / structural rerank，只在 benchmark 中）：词法检索下，结构作为过滤或打分信号都没有带来增益，hard scope 在相同上下文预算下会丢证据。参考结构改名为 `reference`，人工校对后为 `human_oracle`。向量矩阵、QA、LLM 导航等 embedding API / LLM 到位后再跑。
+- **V0.5（当前）— Retrieve Fine, Read Coherent**：block 作为检索单元，`ContextSpan` 作为阅读单元。新增 `treeengine/context`（ContextBuilder）；Tree 的角色从“检索前的过滤器”转为“上下文几何 + Agent 导航”。Benchmark 的候选池固定为 50 并写入冻结记录；报告按 “检索器:阅读策略 @预算” 命名，并新增 context coverage 和碎片化指标。

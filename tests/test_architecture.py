@@ -26,7 +26,7 @@ def _imports(path: Path) -> set[str]:
     return out
 
 
-@pytest.mark.parametrize("layer", ["retrieval", "core", "structure", "ingest", "llm"])
+@pytest.mark.parametrize("layer", ["retrieval", "core", "structure", "ingest", "llm", "context"])
 def test_layers_do_not_import_storage(layer: str) -> None:
     for f in (PKG / layer).glob("*.py"):
         bad = [m for m in _imports(f) if "storage" in m]

@@ -1,5 +1,6 @@
 """TreeEngine - local-first, embeddable, structured evidence retrieval kernel for agents."""
 
+from .context import BlockContextBuilder, ContextSpan
 from .core.config import EngineConfig
 from .core.models import (
     AnswerResult,
@@ -28,8 +29,10 @@ __version__ = "0.3.0.dev0"
 __all__ = [
     "AnswerResult",
     "Block",
+    "BlockContextBuilder",
     "CallableLLM",
     "Citation",
+    "ContextSpan",
     "Document",
     "EmbeddingProvider",
     "EngineConfig",

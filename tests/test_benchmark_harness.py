@@ -347,3 +347,34 @@ def test_reference_generator_tolerates_split_words_and_bullets() -> None:
     d = _Doc([(15, ["· Overview · Results of Operations"]), (16, ["Overview", "3M is"])])
     m = _first(_re.compile(r"overview", _re.I), d, 0, len(d.text), set())
     assert m is not None and d.page(m.start()) == 16
+
+
+def test_context_builder_spans(fixtures: Path) -> None:
+    """Neighbour spans merge without repeating blocks; adaptive spans stay near 600 tokens;
+    section spans never leave the anchor's node; the budget holds."""
+    from benchmarks.context import ContextBuilder
+    from benchmarks.metrics.cost import count_tokens
+
+    repo = SQLiteRepository()
+    doc = build_components(repo).pipeline.ingest(fixtures / "handbook_large.md").id
+    blocks = repo.get_document_blocks(doc)
+    cb = ContextBuilder(repo)
+
+    def ev(i: int) -> Evidence:
+        b = blocks[i]
+        return Evidence(doc, b.node_id, b.id, b.content, "fts", metadata={"page": b.page})
+
+    out, total = cb.build([ev(10), ev(11)], "neighbor1", 10_000)
+    assert len(out) == 1  # 9..12 merged into one span
+    assert out[0].content == "\n".join(b.content.strip() for b in blocks[9:13])
+    out, _ = cb.build([ev(10), ev(30)], "neighbor2", 10_000)
+    assert len(out) == 2 and out[0].metadata["anchors"] == [blocks[10].id]
+    out, total = cb.build([ev(20)], "adaptive600", 10_000)
+    assert blocks[20].content.strip() in out[0].content and total <= 750
+    out, _ = cb.build([ev(20)], "section600", 10_000)
+    assert out[0].node_id == blocks[20].node_id  # single-node span
+    out, total = cb.build([ev(i) for i in range(0, 60, 6)], "adaptive600", 900)
+    assert total <= 900 or len(out) == 1
+    raw, total = cb.build([ev(1), ev(2)], "raw", 10_000)
+    assert [e.block_id for e in raw] == [blocks[1].id, blocks[2].id]
+    assert total == sum(count_tokens(blocks[i].content) for i in (1, 2))

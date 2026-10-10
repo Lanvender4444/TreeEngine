@@ -169,7 +169,7 @@ python -m benchmarks.freeze --check     # 冻结之后有没有改动
 | --- | --- |
 | retrieval | `treeengine/{core,ingest,structure,storage,retrieval,embeddings}`、`benchmarks/strategies`、传统 RAG 的 chunk 配置 |
 | dataset | 每个数据集的 manifest、queries、参考结构 |
-| evaluation | metrics、judges、Answerer、loader |
+| evaluation | metrics、judges、Answerer、ContextBuilder、loader |
 
 报告、图表、运行脚本不在任何一组里：改展示方式不会改数字。报告头部写 “frozen retrieval system (...)” 或 “**retrieval CHANGED**”；数据或评测有改动时另起一句列出，不影响 retrieval 的冻结状态。所以 held-out 的数字不会悄悄来自一个按 held-out 失败案例调过的系统。
 
@@ -301,6 +301,165 @@ python -m benchmarks.run_retrieval --suite financebench --preset scope_ablation
 - 向量和融合检索下的结论可能不同：词法 FTS 已经很精确，结构信号可能对语义检索的“近而不准”更有用。要跑 `--preset scope_ablation_vector`，等 embedding。
 - 导航器是启发式的 `tree_lexical`。好的树 + LLM 导航（`run_structure --preset llm_tree --llm`）可能让 hard scope 更准，等 LLM。
 - 上述 prior 只有两档（子树 / 父节点）。祖先上下文、邻域扩展这些信号（第 13 节）还没测。
+
+### 实测：Traditional RAG vs RAG + TreeEngine（longdoc，《实测指南》）
+
+按《Traditional RAG vs RAG + TreeEngine 实测指南》跑：A = `rag_hybrid`（600-token chunk，BM25 + Vector，RRF），B = `tree_lexical+fts+vector`，另加 `fts+vector` 测 Tree 本身的增量。两边同一份文档、同一批 91 道题、同一个 embedding、同一个 Answer 模型、同一个 prompt 和 judge、同一个 top-5。
+
+- Answer / Judge：DeepSeek `deepseek-flash`，temperature 0，关闭 thinking（`TREEENGINE_LLM_EXTRA_BODY='{"thinking":{"type":"disabled"}}'`）；价格按非高峰时段 $0.15 / $0.60 每百万 token 计。
+- **Embedding 是临时的**：DeepSeek 没有 embedding 接口，这里两边统一用本地 `bge-small-en-v1.5`（384 维，最长 512 token，600-token 的 chunk 会被截断）。换成 BGE-M3 后要重跑。
+
+报告：`results/v0.4-guide-longdoc-{retrieval,qa,qa-k28}.md`。
+
+**Layer A — Retrieval**
+
+| 策略 | R@5 | MRR | R@1k tok | R@2k tok | ctx tokens@5 |
+| --- | --- | --- | --- | --- | --- |
+| A. rag_hybrid | **75.8** | 63.4 | 46.9 | 68.9 | 2,817 |
+| fts+vector | 71.1 | **63.8** | **82.2** | **84.8** | 512 |
+| B. tree_lexical+fts+vector | 63.2 | 59.0 | 69.0 | 70.7 | 509 |
+
+B 对 A：R@5 7:21（p=0.013），相同 1k token 预算下 26:4（p<0.001）。B 对 fts+vector：R@5 2:11（p=0.022），2k 预算下 5:18（p=0.011）。
+
+**Layer B — End-to-End QA（top 5）**
+
+| 策略 | QA 准确率 | 上下文 tokens | ctx tokens / 正确答案 | $/query | $/correct |
+| --- | --- | --- | --- | --- | --- |
+| A. rag_hybrid | **65.9** | 2,819 | 4,275 | $0.00141 | $0.00214 |
+| fts+vector | 45.1 | 509 | **1,130** | $0.00031 | **$0.00069** |
+| B. tree_lexical+fts+vector | 41.8 | 503 | 1,206 | $0.00030 | $0.00072 |
+
+A 对 B：25:3（p<0.001）；A 对 fts+vector：24:5（p=0.001）；fts+vector 对 B：8:5（不显著）。
+
+**补充：相同上下文预算的 QA**（block 策略给 top 28，约 2.5–2.9k token，与 A 的 top 5 相当）：fts+vector 57.8，B 52.7，A 仍是 65.9（A 对 fts+vector 13:5，p=0.096）。同一配置重跑两次，准确率相差约 1.5 点（temperature 0 的 API 也不完全确定），小于 2 点的差异不要解读。
+
+**结论（longdoc，91 题，临时 embedding）：**
+1. **Retrieval 更准吗？** 按 top-5 召回，传统 RAG 更高；按相同阅读预算，block 级 `fts+vector` 显著更高。
+2. **QA 更准吗？不。** 传统 RAG 65.9 vs TreeEngine 41.8。即使给 block 策略相同的上下文预算，传统 RAG 仍领先约 8 点。召回在相同 token 下更高，却没有换来更高的 QA：连续的 600-token chunk 给了模型完整上下文，零散的 block 片段没有。
+3. **上下文更少吗？是。** TreeEngine 每题约 500 token，是传统 RAG 的 1/5.5；每个正确答案的成本约为 1/3。
+4. **Tree 本身有增量吗？没有。** 在召回上 Tree scope 显著拖后腿（2:11），QA 上也略差（8:5，不显著）。主要贡献来自 block + vector，而不是 Tree。这与词法 Scope 消融的结论一致。
+
+下一步值得测的是：block 检索 + 邻近 block / 父章节扩展成连续上下文（第 13 节的 “Neighborhood expansion”），看能否同时保住低 token 和 QA 准确率。
+
+### Context Reconstruction：Retrieval Unit ≠ Reading Unit（longdoc）
+
+上一节的结论是：block 检索在相同 token 下召回更高，QA 却输给传统 chunk。这里检验的假设是：**检索单元没错，阅读单元错了**。检索结果不变，只改 “Evidence → Answer Context” 这一层（`benchmarks/context.py`，只在 benchmark 里）：
+
+| 模式 | 交给 Answer 模型的内容 |
+| --- | --- |
+| raw | 检索到的 block 本身（现状） |
+| neighbor1 / neighbor2 | 每个命中 block 加前后 1 / 2 个 block（文档顺序） |
+| adaptive600 | 以命中 block 为中心，左右交替扩展到约 600 token |
+| section600 | 同上，但不越出命中 block 所在的节点（章节） |
+
+重叠或相邻的 span 合并成一个连续片段，同一个 block 不会出现两次。所有策略按**同一个上下文 token 预算**填充：按排名取 anchor（前 50 个候选），放不下的跳过。传统 chunk 只能用 raw。其余变量与上一节完全相同：91 题、`deepseek-flash`、`bge-small-en-v1.5`。
+
+```bash
+python -m benchmarks.run_qa --suite longdoc --strategies rag_hybrid,fts+vector,tree_lexical+fts+vector \
+    --embedder fastembed:BAAI/bge-small-en-v1.5 \
+    --context raw,neighbor1,neighbor2,adaptive600,section600 --budget 500,1000,2000,3000
+```
+
+报告：`results/v0.4-context-longdoc-{run1,run2,top5-anchors}.md`。整套跑了两遍，两遍的判定 96% 一致；下表是两遍的平均 QA 准确率（%）：
+
+| 策略 · 阅读单元 | @500 | @1000 | @2000 | @3000 |
+| --- | --- | --- | --- | --- |
+| rag_hybrid（600-token chunk） | 46.2 | 47.3 | 57.7 | 59.3 |
+| fts+vector · raw | 46.4 | 53.0 | 58.8 | 62.1 |
+| fts+vector · neighbor1 | 52.7 | 59.9 | 63.2 | 67.0 |
+| fts+vector · neighbor2 | 50.5 | 58.8 | **67.6** | 65.4 |
+| fts+vector · **adaptive600** | 51.1 | 58.6 | 67.0 | **69.2** |
+| fts+vector · section600 | **54.9** | **61.5** | 65.4 | 68.1 |
+| tree_lexical+fts+vector · raw | 45.3 | 48.4 | 51.4 | 50.8 |
+| tree_lexical+fts+vector · adaptive600 | 54.4 | 62.1 | 62.1 | 65.4 |
+| tree_lexical+fts+vector · section600 | 53.8 | 57.7 | 59.1 | 59.9 |
+
+（预算是上限；chunk 在 500 / 1000 时只放得下 1 个，实际约 590 / 710 token。Tree scope 范围小，@3000 时实际只用到约 1.9–2.3k。）
+
+配对符号检验（每遍单独算）：
+- fts+vector · adaptive600 对 rag_hybrid：@3000 9:0（p=0.004）/ 11:2（p=0.022）；@2000 12:3（p=0.035）/ 11:3（p=0.057）。
+- adaptive600 对 raw block：@3000 11:5 / 14:7；@2000 12:6 / 15:6。方向一致，单遍都不显著。
+
+**同一批 top-5 anchor 的对照**（`--candidates 5 --budget 3000`，两边的检索结果就是各自的 top 5）：
+
+| 策略 | QA | 上下文 tokens |
+| --- | --- | --- |
+| rag_hybrid，5 个 chunk | 60.4 | 2,707 |
+| fts+vector，5 个 raw block | 45.1 | 509 |
+| fts+vector，5 个 adaptive600 span | **67.0** | 2,150 |
+| fts+vector，5 个 section600 span | 64.8 | 1,825 |
+| tree_lexical+fts+vector，adaptive600 | 62.6 | 1,829 |
+
+**结论（91 题，单个 answer / judge 模型，临时 embedding）：**
+1. **根因确认：是阅读单元的问题，不是 block 检索的问题。** 同样的检索结果，从零散 block 换成重建的连续 span，准确率从 45 升到 65–69。在任何预算下，扩展模式都高于 raw block。
+2. **同预算下，block 检索 + 动态重建追平并超过传统 chunk RAG。**
+   - 同样 3k 预算、同样的检索深度：69.2 vs 59.3，显著。
+   - 2k 预算下 adaptive600 是 67.0；传统 RAG 本轮最好的一次（上一节 top-5，2.8k token）是 65.9。也就是用少约 30% 的 token 拿到同等准确率。
+   - 对比那一次最好的传统结果，差距（69.2 vs 65.9）不显著，所以更稳妥的说法是“追平，可能略好”。
+3. **预算紧时，章节边界有用。** @500 / @1000 时 section600 最好：Tree 作为“上下文几何”，告诉扩展在哪里停。预算宽时，允许跨章节的 adaptive600 更好。
+4. **Tree 作为 hard scope 仍然不合适。** 同一种阅读单元下，tree scope 版本大多低于全局 fts+vector：raw @3000 是 3:24（两遍合计），section600 也显著更差；adaptive600 下差距不显著。
+5. **测量噪声。** 同一配置两遍之间最多差约 5 点，91 题下小于 5 点的差异不要解读。
+
+另外，RRF 融合的结果依赖每路候选的深度：rag_hybrid 每路取 5 和取 50，91 题里有 75 题的 top-5 不同。所以各策略之间一律按相同深度比较。
+
+**对架构的含义**：Tree 从“检索前的过滤器”挪到“检索后的上下文构建”。管线是：全局 FTS + Vector 找 anchor block → ContextBuilder 按 token 预算围绕 anchor 重建连续 span（预算紧时用节点边界）→ Answer。下一步：
+- 把 `ContextBuilder` / `ContextSpan` 从 benchmark 提升为正式组件；
+- 用 BGE-M3 和独立 judge 复现；
+- 在 FinanceBench 上验证。
+
+## V0.5 — Retrieve Fine, Read Coherent
+
+Block 作为**检索单元**，`ContextSpan` 作为**阅读单元**。管线是：全局 block 检索（FTS + Vector）→ anchor → `treeengine/context` 按预算重建连续上下文 → Answerer。Tree 不再过滤检索范围，改为提供上下文几何（章节边界）和 Agent 导航。
+
+| 步骤（V0.5 计划第 30 节） | 状态 |
+| --- | --- |
+| P0-1 ContextBuilder 升为正式组件 | **完成**：`treeengine/context`（`BlockContextBuilder`、`ContextSpan`、策略 raw / neighborN / adaptiveN / sectionN / auto）；`benchmarks/context.py` 只是适配层。新实现与 V0.4 实验版在所有实验配置上生成的 prompt 逐字相同（3,640 组对照，唯一差异是 chunk 在非 raw 策略下的处理，实验里没用过） |
+| P0-2/3 固定并冻结 candidate_pool | **完成**：`FROZEN.json` 的 `retrieval.candidate_pool = 50`，计入 retrieval 指纹；`run_qa --budget` 默认用它，报告头写明 |
+| P0-4/5 FinanceBench Context Reconstruction | **进行中**：本地 `bge-small-en-v1.5` 在 2 核 CPU 上要先为 FinanceBench 算约 1,700 万 token 的向量（10 小时以上），算完后立即跑 |
+| P1-6 Context Coverage / 碎片化指标 | **完成**：报告新增 “Retrieval vs reading” 表 |
+| P1-7~11 BGE-M3、独立 Judge、正式复现、Tree 几何消融 | 待做（需要 embedding API / 第二个 LLM） |
+
+报告命名改为 `检索器:阅读策略 @预算`：`rag_hybrid:fixed_chunk`、`block_hybrid:raw / neighbor1 / neighbor2 / adaptive600 / section600 / auto`、`tree_hybrid:*`（Tree scope → FTS + Vector，作为负 baseline 保留）。`block_hybrid` 就是 `fts+vector` 检索。
+
+### Longdoc：三次运行（`results/v0.4-context-longdoc-run{1,2}.md`、`results/v0.5-context-longdoc-run3.md`）
+
+第 3 次用正式组件跑，并加了 `auto` 策略。QA 准确率（%），三次平均，括号内为极差：
+
+| 策略 | @500 | @1000 | @2000 | @3000 |
+| --- | --- | --- | --- | --- |
+| rag_hybrid:fixed_chunk | 46.5 (4.4) | 47.3 (0.0) | 57.9 (1.1) | 59.3 (0.0) |
+| block_hybrid:raw | 47.4 (3.3) | 52.6 (1.7) | 58.6 (3.3) | 61.9 (1.1) |
+| block_hybrid:neighbor1 | 52.7 (2.2) | 60.1 (3.3) | 64.1 (4.4) | 67.4 (1.1) |
+| block_hybrid:neighbor2 | 51.3 (2.2) | 59.0 (1.1) | 67.0 (3.3) | 66.7 (4.4) |
+| block_hybrid:adaptive600 | 51.3 (1.1) | 59.5 (4.9) | **67.4** (1.1) | **69.6** (1.1) |
+| block_hybrid:section600 | **54.6** (1.1) | **61.9** (2.2) | 64.8 (2.2) | 67.8 (2.2) |
+| block_hybrid:auto（只跑了第 3 次） | 54.9 | 61.5 | 68.1 | 70.3 |
+| tree_hybrid:adaptive600 | 54.6 (1.1) | 61.9 (1.1) | 61.9 (5.5) | 65.2 (3.3) |
+
+同一配置三次之间的极差最大 5.5 点。按 V0.5 第 18 节的规则：差距小于 5 点且配对检验不显著的，一律写 “no clear advantage”。
+
+**检索 vs 阅读（第 3 次，节选）**：
+
+| 策略 @3000 | anchor R@5 | candidate recall | context coverage | spans / 题 | 平均 span tokens | QA |
+| --- | --- | --- | --- | --- | --- | --- |
+| rag_hybrid:fixed_chunk | 78.0 | 96.7 | 77.5 | – | – | 59.3 |
+| block_hybrid:raw | 67.8 | 96.2 | **91.8** | 32.1 | 100 | 61.5 |
+| block_hybrid:adaptive600 | 67.8 | 96.2 | 77.1 | 3.1 | 959 | **70.3** |
+| block_hybrid:section600 | 67.8 | 96.2 | 78.8 | 5.1 | 673 | 67.0 |
+| tree_hybrid:adaptive600 | 63.2 | **77.3** | 74.4 | 2.3 | 1,021 | 64.8 |
+
+1. **覆盖率不是决定因素，碎片化才是。** raw block 把正确证据放进上下文的比例最高（91.8%），但被切成 32 段，QA 只有 61.5。adaptive600 覆盖率更低（77.1%），只有 3 段连续上下文，QA 70.3。
+2. **覆盖率相同，连续性决定准确率。** 传统 chunk 与 adaptive600 的覆盖率几乎一样（77.5 vs 77.1），QA 差 11 点。区别在于：chunk 是盲切的，adaptive span 以命中位置为中心。
+3. **Tree scope 的损失在候选池就已发生。** candidate recall 从 96.2 降到 77.3：五分之一的正确证据在检索前就被范围过滤掉了，后面的阅读层补不回来。
+4. **`auto` 策略**（≤1000 用 section600，否则 adaptive600）在四个预算下都与当档最好的策略持平，可以作为 V0.5 默认值。
+
+`block_hybrid:auto` 对 `rag_hybrid:fixed_chunk` 的配对检验（第 3 次）：@500 14:7（p=0.19），@1000 17:4（p=0.007），@2000 11:2（p=0.022），@3000 12:2（p=0.013）。auto @2000 对 rag @3000 是 10:2（p=0.039）。
+
+**对照 V0.5 成功标准（longdoc）**：
+- **A**（准确率 ≥ 传统 RAG）：成立，@1000–3000 下高 9–14 点，且显著。上下文 tokens 与传统 RAG 相当，因为预算相同。
+- **B**（准确率差 ≤ 2 点且 token 少 ≥ 30%）：成立。auto @2000（68.1，约 1,850 token）对比 rag_hybrid @3000（59.3，约 2,790 token），准确率更高（p=0.039），token 少 34%。
+- **C**（紧预算下明显更好）：@1000 成立（61.5 vs 47.3，p=0.007）；@500 方向一致（54.9 vs 46.5）但不显著。
+- 以上都还需要 FinanceBench、BGE-M3 和独立 Judge 复现后才能算正式结论。
 
 ## 待完成
 

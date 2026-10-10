@@ -1,11 +1,14 @@
 {
- "frozen_at": "2026-10-09 22:40",
- "note": "V0.4 phase 2: scope-ablation strategies added (benchmark only; existing strategies unchanged); fingerprints split into retrieval / dataset / evaluation; reference structures regenerated (split words, bullet lists)",
- "fingerprint": "ab6d631e9a907420",
+ "frozen_at": "2026-10-10 13:32",
+ "note": "V0.5: candidate_pool=50 frozen (retrieval code unchanged); context reconstruction promoted to treeengine/context (reading layer, evaluation fingerprint)",
+ "fingerprint": "0299d143cefe9d48",
  "chunk": {
   "size": 600,
   "overlap": 100,
   "selected_by": "default (design doc); final choice waits for the embedding sweep"
+ },
+ "retrieval": {
+  "candidate_pool": 50
  },
  "files": {
   "treeengine/core/__init__.py": "11ba79696dce575d",
@@ -94,17 +97,21 @@
   }
  },
  "evaluation": {
-  "fingerprint": "418fff9069d62ec4",
+  "fingerprint": "99d11620e843f9b6",
   "files": {
    "benchmarks/metrics/__init__.py": "93dab04a69f3aefa",
    "benchmarks/metrics/cost.py": "a406c1605156aaab",
-   "benchmarks/metrics/qa.py": "ae4f46a6d0506e0a",
+   "benchmarks/metrics/qa.py": "b41dfd5c22fe7449",
    "benchmarks/metrics/retrieval.py": "6a6478c988eae690",
    "benchmarks/judges/__init__.py": "de2bb271abbbce49",
    "benchmarks/judges/exact.py": "539f493f167c08f5",
    "benchmarks/judges/human_audit.py": "8c8d9b33679b49e8",
    "benchmarks/judges/semantic.py": "227838d8a81ba0bf",
-   "benchmarks/answer.py": "e2ed76a3b8298a8b",
+   "treeengine/context/__init__.py": "0cb365a2dc8c3007",
+   "treeengine/context/builder.py": "7c9f0d57c854cdae",
+   "treeengine/context/span.py": "34067c36639adaad",
+   "benchmarks/answer.py": "491f9eaf73d5c3af",
+   "benchmarks/context.py": "3d1511998134a0f0",
    "benchmarks/loader.py": "1c9b26ff6d7d0065",
    "benchmarks/datasets/__init__.py": "538de764583c789d"
   }

@@ -7,10 +7,11 @@ Three fingerprints, so that a change in one place does not make another look inv
 
   retrieval   every source file that can change a retrieval result: TreeEngine's core / ingest /
               structure / storage / retrieval / embeddings packages and the benchmark
-              strategies, plus the frozen traditional-RAG chunk configuration. "Frozen" in a
+              strategies, plus the frozen chunk configuration and candidate pool. "Frozen" in a
               report means this one.
   dataset     manifests, queries and reference structures of every suite
-  evaluation  metrics, judges, the answerer and the corpus loader
+  evaluation  metrics, judges, the answerer, context reconstruction (treeengine/context and
+              its benchmark adapter) and the corpus loader
 
 Reports, charts and run scripts are in none of them: changing how a number is shown does not
 change the number. Every report states whether it was produced by the frozen retrieval system
@@ -32,6 +33,9 @@ ROOT = HERE.parent
 FROZEN = HERE / "FROZEN.json"
 PACKAGES = ("core", "ingest", "structure", "storage", "retrieval", "embeddings")
 DEFAULT_CHUNK = {"size": 600, "overlap": 100, "selected_by": "default (design doc)"}
+# candidates every retriever returns before the answer context is filled / reconstructed;
+# RRF results depend on it (top 5 of a depth-5 fusion != top 5 of a depth-50 fusion)
+DEFAULT_RETRIEVAL = {"candidate_pool": 50}
 
 
 GROUPS = ("retrieval", "dataset", "evaluation")
@@ -51,7 +55,14 @@ def source_files(group: str = "retrieval") -> list[Path]:
     elif group == "evaluation":
         for sub in ("metrics", "judges"):
             files += sorted((HERE / sub).glob("*.py"))
-        files += [HERE / "answer.py", HERE / "loader.py", HERE / "datasets" / "__init__.py"]
+        # the reading layer: what the answer model sees, not what retrieval finds
+        files += sorted((ROOT / "treeengine" / "context").glob("*.py"))
+        files += [
+            HERE / "answer.py",
+            HERE / "context.py",
+            HERE / "loader.py",
+            HERE / "datasets" / "__init__.py",
+        ]
     else:
         raise ValueError(group)
     return [f for f in files if f.exists()]
@@ -73,12 +84,17 @@ def group_fingerprint(hashes: dict[str, str]) -> str:
     return h.hexdigest()[:16]
 
 
-def fingerprint(hashes: dict[str, str] | None = None, chunk: dict[str, Any] | None = None) -> str:
+def fingerprint(
+    hashes: dict[str, str] | None = None,
+    chunk: dict[str, Any] | None = None,
+    pool: int | None = None,
+) -> str:
     h = hashlib.sha256()
     for k, v in sorted((hashes or file_hashes()).items()):
         h.update(f"{k}:{v}\n".encode())
     c = chunk or load().get("chunk", DEFAULT_CHUNK)
     h.update(f"chunk:{c.get('size')}/{c.get('overlap')}".encode())
+    h.update(f"candidate_pool:{pool or candidate_pool()}".encode())
     return h.hexdigest()[:16]
 
 
@@ -87,6 +103,10 @@ def load() -> dict[str, Any]:
         data: dict[str, Any] = json.loads(FROZEN.read_text(encoding="utf-8"))
         return data
     return {}
+
+
+def candidate_pool() -> int:
+    return int(load().get("retrieval", DEFAULT_RETRIEVAL).get("candidate_pool", 50))
 
 
 def chunk_config() -> tuple[int, int]:
@@ -114,7 +134,8 @@ def status() -> dict[str, Any]:
         }
     now = file_hashes()
     changed = _diff(now, data.get("files", {}))
-    same = fingerprint(now, data.get("chunk")) == data["fingerprint"]
+    pool = int(data.get("retrieval", DEFAULT_RETRIEVAL).get("candidate_pool", 50))
+    same = fingerprint(now, data.get("chunk"), pool) == data["fingerprint"]
     out: dict[str, Any] = {
         "frozen": same and not changed,
         "since": data.get("frozen_at"),
@@ -155,6 +176,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--chunk-size", type=int, default=None)
     ap.add_argument("--chunk-overlap", type=int, default=None)
     ap.add_argument("--chunk-selected-by", default=None)
+    ap.add_argument("--candidate-pool", type=int, default=None)
     args = ap.parse_args(argv)
     if args.check:
         st = status()
@@ -173,12 +195,16 @@ def main(argv: list[str] | None = None) -> int:
             "overlap": args.chunk_overlap if args.chunk_overlap is not None else chunk["overlap"],
             "selected_by": args.chunk_selected_by or "manual",
         }
+    retrieval = dict(data.get("retrieval", DEFAULT_RETRIEVAL))
+    if args.candidate_pool:
+        retrieval["candidate_pool"] = args.candidate_pool
     hashes = file_hashes()
     data = {
         "frozen_at": time.strftime("%Y-%m-%d %H:%M"),
         "note": args.note,
-        "fingerprint": fingerprint(hashes, chunk),  # = the retrieval fingerprint
+        "fingerprint": fingerprint(hashes, chunk, retrieval["candidate_pool"]),  # retrieval
         "chunk": chunk,
+        "retrieval": retrieval,
         "files": hashes,
     }
     for group in ("dataset", "evaluation"):
@@ -187,7 +213,8 @@ def main(argv: list[str] | None = None) -> int:
     FROZEN.write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")
     print(
         f"frozen retrieval {data['fingerprint']} ({len(hashes)} files, "
-        f"chunk {chunk['size']}/{chunk['overlap']}); "
+        f"chunk {chunk['size']}/{chunk['overlap']}, candidate_pool "
+        f"{retrieval['candidate_pool']}); "
         f"dataset {data['dataset']['fingerprint']}; "
         f"evaluation {data['evaluation']['fingerprint']}"
     )
