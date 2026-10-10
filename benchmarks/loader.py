@@ -37,7 +37,7 @@ def corpus_key(docs: list[CorpusDoc]) -> str:
         h.update(d.name.encode())
         h.update(hashlib.sha256(d.path.read_bytes()).digest())
     root = Path(treeengine.__file__).parent
-    for sub in ("core", "ingest", "structure", "storage"):
+    for sub in ("core", "ingest", "structure", "pdf", "storage"):
         for f in sorted((root / sub).glob("*")):
             if f.suffix in (".py", ".sql"):
                 h.update(f.read_bytes())
