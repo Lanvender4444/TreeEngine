@@ -12,13 +12,13 @@ license = { text = "MIT" }
 dependencies = []
 
 [project.optional-dependencies]
-pdf = ["pypdf>=4.0"]
+pdf = ["pypdf>=4.0", "pypdfium2>=4.0"]
 vector = ["fastembed>=0.4", "sqlite-vec>=0.1.6"]
 # benchmarks: exact token counts for chunking / context size, report figures
-bench = ["pypdf>=4.0", "sqlite-vec>=0.1.6", "tiktoken>=0.7", "matplotlib>=3.8"]
+bench = ["pypdf>=4.0", "pypdfium2>=4.0", "sqlite-vec>=0.1.6", "tiktoken>=0.7", "matplotlib>=3.8"]
 # only for re-building the longdoc suite from MMLongBench-Doc
 bench-build = ["huggingface_hub>=0.23", "pyarrow>=14"]
-dev = ["pytest>=7", "ruff>=0.4", "mypy>=1.8", "pypdf>=4.0", "reportlab>=4.0", "sqlite-vec>=0.1.6"]
+dev = ["pytest>=7", "ruff>=0.4", "mypy>=1.8", "pypdf>=4.0", "pypdfium2>=4.0", "reportlab>=4.0", "sqlite-vec>=0.1.6"]
 
 [project.scripts]
 treeengine = "treeengine.cli:main"

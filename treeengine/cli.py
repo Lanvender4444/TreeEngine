@@ -44,6 +44,11 @@ def main(argv: list[str] | None = None) -> int:
         help="fastembed:<model> | openai:<model> | hashing  (enables vector search)",
     )
     p.add_argument("--use-vector", action="store_true", help="fuse vector into managed retrieval")
+    p.add_argument(
+        "--pdf-structure",
+        default=os.environ.get("TREEENGINE_PDF_STRUCTURE", "auto"),
+        help="auto | hybrid | layout | bookmarks | heuristic | flat | llm (PDF tree source)",
+    )
     sub = p.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("ingest")
     s.add_argument("paths", nargs="+")
@@ -80,8 +85,13 @@ def main(argv: list[str] | None = None) -> int:
             else {}
         )
         embedder = provider_from_spec(args.embedder, **kw)
+    from dataclasses import replace
+
+    from .core.config import EngineConfig
+
+    config = replace(EngineConfig(), pdf_structure=args.pdf_structure)
     with create_local_engine(
-        args.db, llm=_llm_from_env(), embedder=embedder, use_vector=args.use_vector
+        args.db, llm=_llm_from_env(), config=config, embedder=embedder, use_vector=args.use_vector
     ) as te:
         if args.cmd == "ingest":
             for path in args.paths:

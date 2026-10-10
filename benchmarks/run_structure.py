@@ -47,7 +47,7 @@ from .strategies import PRESETS, Workspace, build_strategies
 
 HERE = Path(__file__).parent
 STRUCTURES = HERE / "datasets" / "financebench" / "structures"
-VARIANTS = ["flat", "heuristic", "native", "llm", "reference", "auto"]
+VARIANTS = ["flat", "heuristic", "native", "layout", "hybrid", "llm", "reference", "auto"]
 DEFAULT = ["fts", "tree_structure", "tree_lexical", "tree_lexical+fts"]
 
 
@@ -109,7 +109,7 @@ def variant_corpus(docs: list[CorpusDoc], variant: str, llm: Any, quiet: bool) -
     cfg = EngineConfig()
     prepare = None
     key = variant
-    if variant in ("flat", "heuristic", "native", "llm"):
+    if variant in ("flat", "heuristic", "native", "layout", "hybrid", "llm"):
         cfg = replace(cfg, pdf_structure=variant, llm_structure_fallback=False)
     elif variant == "reference":
         cfg = replace(cfg, pdf_structure="native", llm_structure_fallback=False)
@@ -139,7 +139,7 @@ def variant_corpus(docs: list[CorpusDoc], variant: str, llm: Any, quiet: bool) -
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m benchmarks.run_structure")
-    ap.add_argument("--variants", default="flat,heuristic,native,reference,auto")
+    ap.add_argument("--variants", default="flat,heuristic,native,layout,hybrid,reference,auto")
     ap.add_argument("--strategies", default=None)
     ap.add_argument("--preset", default=None, help="e.g. scope_ablation, llm_tree")
     ap.add_argument("--reviewed-only", action="store_true")

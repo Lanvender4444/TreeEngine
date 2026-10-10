@@ -6,7 +6,7 @@
 Three fingerprints, so that a change in one place does not make another look invalid:
 
   retrieval   every source file that can change a retrieval result: TreeEngine's core / ingest /
-              structure / storage / retrieval / embeddings packages and the benchmark
+              structure / pdf / storage / retrieval / embeddings packages and the benchmark
               strategies, plus the frozen chunk configuration and candidate pool. "Frozen" in a
               report means this one.
   dataset     manifests, queries and reference structures of every suite
@@ -31,7 +31,7 @@ from typing import Any
 HERE = Path(__file__).parent
 ROOT = HERE.parent
 FROZEN = HERE / "FROZEN.json"
-PACKAGES = ("core", "ingest", "structure", "storage", "retrieval", "embeddings")
+PACKAGES = ("core", "ingest", "structure", "pdf", "storage", "retrieval", "embeddings")
 DEFAULT_CHUNK = {"size": 600, "overlap": 100, "selected_by": "default (design doc)"}
 # candidates every retriever returns before the answer context is filled / reconstructed;
 # RRF results depend on it (top 5 of a depth-5 fusion != top 5 of a depth-50 fusion)

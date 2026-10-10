@@ -75,6 +75,23 @@ for s in spans:
 - 保证：同一个 block 不重复；重叠或相邻的 span 合并；每个 span 保留来源 anchor；总长不超过预算；span 内保持原文顺序。
 - Benchmark 结论见 `benchmarks/README.md`：同样的检索结果，换成重建的连续上下文后，QA 准确率从约 45% 升到 65–69%。
 
+**PDF 版面结构**（V0.6，`pip install 'treeengine[pdf]'` 带 pypdfium2）
+
+```python
+from dataclasses import replace
+from treeengine import EngineConfig, create_local_engine
+
+engine = create_local_engine("te.db", config=replace(EngineConfig(), pdf_structure="hybrid"))
+doc = engine.ingest("annual_report.pdf")
+doc.metadata["structure_method"]      # bookmarks / layout / hybrid / flat
+doc.metadata["structure_quality"]     # 质量门的分数、原因、书签等级、回退路径
+```
+
+- `hybrid`：书签先分级（high / coarse / poor）。好书签作为大框架，从字号、粗细、间距、编号检测出的标题补充细节；质量门不通过时依次回退到“只用书签”和“无结构”。
+- `layout`：只用版面检测出的标题。
+- 两种模式都会用页面几何去掉页眉、页脚、页码和水印；正文文本与 `auto` 完全相同，只是章节边界不同。
+- `auto` 仍是默认值（基于纯文本：书签 → 正则 → 平铺），等 benchmark 证明新模式更好再切换。没有文本层的 PDF 会标记为 `ocr_required`，不会生成垃圾结构。
+
 **Answer（便利 API，不是核心）**
 
 ```python
@@ -100,6 +117,7 @@ LLM 通过 `LLMProvider` Protocol 接入，自带基于 urllib 的 `OpenAICompat
 
 ```bash
 treeengine --db te.db ingest docs/*.md
+treeengine --db te.db --pdf-structure hybrid ingest reports/*.pdf     # 版面感知的 PDF 结构
 treeengine --db te.db tree <document_id>
 treeengine --db te.db search "风险章节里哪些地方提到供应链？" --trace
 treeengine --db te.db --embedder fastembed:jinaai/jina-embeddings-v2-base-zh ingest docs/*.md
@@ -130,6 +148,7 @@ treeengine --db te.db --embedder fastembed:jinaai/jina-embeddings-v2-base-zh sem
 | `structure/` | 统一的 Element → Node/Block 组装；Native → Heuristic → LLM fallback；Markdown HTML 注释屏蔽、`{#anchor}` 清理；PDF 页眉页脚去除、目录识别 |
 | `storage/` | schema v2（`PRAGMA user_version` 迁移；v2 = FTS5 porter 词干）、事务、FTS 同步、`rebuild_fts()`；`vectors.py`：`SQLiteVectorIndex`（sqlite-vec，表 `block_vectors` 只存 block_id + embedding）、`MemoryVectorIndex` |
 | `retrieval/` | `Navigator`（原语）、`CorpusRetriever`（选文档）、`TreeRetriever`（文档内导航 / 定 scope）、`FTSRetriever`、`VectorRetriever`、`EvidenceMerger`（RRF）、`tree_scoped_search`（Tree 定范围 → 证据检索）、`RetrievalPlanner`、`SearchResult` / `Trace` / `SearchStats` |
+| `pdf/` | 版面感知的 PDF 结构（V0.6）：`parser`（pypdfium2 字符 + 几何 + 字体）→ `lines` → `layout`（分栏、阅读顺序）→ `classify`（页眉 / 页脚 / 页码 / 水印 / 目录 / 图注）→ `headings`（标题打分）→ `outline`（书签分级 + hybrid）→ `validate`（质量门） |
 | `context/` | `BlockContextBuilder` / `ContextSpan`：检索之后按预算重建连续阅读上下文（V0.5） |
 | `embeddings/` | `FastEmbedProvider`、`OpenAICompatibleEmbedding`、`HashingEmbedding`（测试用）、`CachedEmbedding` |
 | `pipeline.py` / `answer.py` / `treeview.py` | ingest 流水线、回答层、整树渲染（仅供查看） |
@@ -150,4 +169,5 @@ treeengine --db te.db --embedder fastembed:jinaai/jina-embeddings-v2-base-zh sem
 - **V0.2**：Repository 边界、Navigation 原语、Benchmark、Trace & Stats、Factory。
 - **V0.3**：Corpus / In-document 拆分（`CorpusRetriever`）、Vector（EmbeddingProvider / VectorIndex / sqlite-vec / VectorRetriever）、RRF Evidence Fusion、Planner 与 Oracle 评测、LLM Tree 评测接线、语料与 heldout 扩容。结论见 benchmarks/README.md。
 - **V0.4 — Evidence & Structure Validation**：检索代码已冻结（`benchmarks/freeze.py`）。新增结构质量实验（flat / heuristic / native / LLM / 参考结构）、Block Vector 消融、dev 上的 chunk 扫描、LLM 导航 + Vector 策略，以及 PDF 结构来源的强制模式（`EngineConfig.pdf_structure`）。新增 Tree Scope 消融（hard filter / soft prior / structural rerank，只在 benchmark 中）：词法检索下，结构作为过滤或打分信号都没有带来增益，hard scope 在相同上下文预算下会丢证据。参考结构改名为 `reference`，人工校对后为 `human_oracle`。向量矩阵、QA、LLM 导航等 embedding API / LLM 到位后再跑。
-- **V0.5（当前）— Retrieve Fine, Read Coherent**：block 作为检索单元，`ContextSpan` 作为阅读单元。新增 `treeengine/context`（ContextBuilder）；Tree 的角色从“检索前的过滤器”转为“上下文几何 + Agent 导航”。Benchmark 的候选池固定为 50 并写入冻结记录；报告按 “检索器:阅读策略 @预算” 命名，并新增 context coverage 和碎片化指标。
+- **V0.5 — Retrieve Fine, Read Coherent**：block 作为检索单元，`ContextSpan` 作为阅读单元。新增 `treeengine/context`（ContextBuilder）；Tree 的角色从“检索前的过滤器”转为“上下文几何 + Agent 导航”。Benchmark 的候选池固定为 50 并写入冻结记录；报告按 “检索器:阅读策略 @预算” 命名，并新增 context coverage 和碎片化指标。
+- **V0.6（当前）— Layout-Aware Structure**：参考 PageIndex 的 PDF → Tree 方法，新增 `treeengine/pdf`，包括字符几何、行重建、分栏与阅读顺序、版面角色、标题打分、书签分级、书签与版面的 hybrid 大纲、结构质量门，对应 `pdf_structure="layout" / "hybrid"`。检索链路不变。没有照搬 PageIndex 的 vectorless 检索：Tree 负责文档几何和导航，证据检索仍由 FTS / Vector 完成。

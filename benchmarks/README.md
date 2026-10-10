@@ -461,6 +461,51 @@ Block 作为**检索单元**，`ContextSpan` 作为**阅读单元**。管线是�
 - **C**（紧预算下明显更好）：@1000 成立（61.5 vs 47.3，p=0.007）；@500 方向一致（54.9 vs 46.5）但不显著。
 - 以上都还需要 FinanceBench、BGE-M3 和独立 Judge 复现后才能算正式结论。
 
+## V0.6 — Layout-Aware Structure（代码完成，benchmark 未跑）
+
+参考 PageIndex 的 PDF → Tree 方法增强 PDF 结构解析，检索链路不变（P0 原则：只改 PDF → Node / Block）。
+
+| 步骤（融合方案第 37 节） | 状态 |
+| --- | --- |
+| 1 PDFium 版面解析 | 完成：`treeengine/pdf/parser.py`，字符级 bbox、字号、粗细 / 斜体、页面旋转；无文本层时报 `OCRRequired` |
+| 2 Span → Line | 完成：`lines.py`，同一基线合并多样式片段，大间距切开（双栏同一基线是两行） |
+| 3 分栏 / 阅读顺序 | 完成：`layout.py`，单栏、双栏、跨栏标题分段 |
+| 4 页眉 / 页脚 / 页码 / 水印 / 目录 / 图注 | 完成：`classify.py`；layout 模式下页面装饰不进 block |
+| 5 版面标题检测 | 完成：`headings.py`，按字号、粗细、间距、编号、短行、是否引出正文打分，并对句子、表格行扣分；run-in 标题只取粗体前缀 |
+| 6 书签质量评分 | 完成：`outline.bookmark_quality`，分为 high / coarse / poor / none |
+| 7 书签 + 版面 hybrid 大纲 | 完成：`outline.hybrid_outline`，见下 |
+| 8 结构质量门 | 完成：`validate.py`，输出 `StructureQuality`；`hybrid` 按回退梯子执行 |
+| 9 FinanceBench 结构 benchmark | **未跑**：`run_structure` 已支持 `layout` / `hybrid` 两个变体 |
+| 回归集 | 脚本完成：`python -m benchmarks.pdf_regression`（18 份真实 PDF）。开发中跑过一次，发现 layout 模式会吞掉被识别为标题的正文行，已修复：检测出的标题只开启章节，原行仍保留为正文 |
+| P1：前言处理、LLM 修复、节点摘要、Context Geometry 实验 | 待做 |
+
+**结构来源**（`EngineConfig.pdf_structure`，CLI `--pdf-structure`）：
+
+| 模式 | 做法 |
+| --- | --- |
+| `auto`（默认，不变） | 纯文本：书签 → 正则标题 → 平铺。与 V0.5 输出逐字节相同（26 份 PDF × 3 种文本模式核对过） |
+| `hybrid` | 回退梯子：先给书签分级，书签作框架、版面标题补细节，再过质量门。不通过就退回只用书签，仍不通过就无结构（平铺，block 照样可检索） |
+| `layout` | 只用版面检测出的标题（实验用） |
+| `bookmarks` / `native` | 只用书签 |
+
+**hybrid 怎么合并**：
+- 书签对应的标题若印在页面上，就用它来校准样式：例如某种样式印出的是一级书签，那么同样样式但没有书签的标题（如 “References”）也算一级，而不是挂到最后一章下面。
+- 其余检测出的标题挂到所在书签章节下面，作为子节点。
+- 书签质量好时，只加入样式已校准、或编号比书签更深的标题；书签粗粒度时，全部检测出的标题都加入。
+- 垃圾书签（如 “Page 3”、“Scan001”）直接忽略。
+
+**质量门**看这些指标：标题数、标题密度、层级跳跃、空章节、页码是否单调、重复标题、首个标题出现得多晚。结果写进 `Document.metadata["structure_quality"]`，包括分数、原因、书签等级和回退路径。
+
+**指纹**：`treeengine/pdf` 计入 retrieval 指纹和语料缓存 key。默认 `auto` 的输出不变，所以已有结果仍然有效。
+
+待跑：
+
+```bash
+python -m benchmarks.run_structure --variants flat,auto,layout,hybrid,reference    # Layer 1：结构质量（对参考结构的 F1 / 层级准确率）
+python -m benchmarks.pdf_regression                                                # 回归集
+# Layer 2（Context Geometry）：固定 fts+vector anchor 和 section600，只换 PDF 结构，比较 coverage / QA / 跨章节数
+```
+
 ## 待完成
 
 | 实验 | 需要 |

@@ -1,7 +1,7 @@
 {
- "frozen_at": "2026-10-10 13:32",
- "note": "V0.5: candidate_pool=50 frozen (retrieval code unchanged); context reconstruction promoted to treeengine/context (reading layer, evaluation fingerprint)",
- "fingerprint": "0299d143cefe9d48",
+ "frozen_at": "2026-10-10 22:14",
+ "note": "V0.6: layout-aware PDF structure (treeengine/pdf) as opt-in modes layout/hybrid; default auto unchanged (verified identical on 26 PDFs); pdf package added to the retrieval fingerprint",
+ "fingerprint": "4f23aa423b91b712",
  "chunk": {
   "size": 600,
   "overlap": 100,
@@ -12,7 +12,7 @@
  },
  "files": {
   "treeengine/core/__init__.py": "11ba79696dce575d",
-  "treeengine/core/config.py": "367772cd8099352f",
+  "treeengine/core/config.py": "01ffc013f1603a72",
   "treeengine/core/ids.py": "ff3d6db7c61dd78f",
   "treeengine/core/models.py": "57c90a6370d46be6",
   "treeengine/core/protocols.py": "60a3f13eb9c57d8a",
@@ -26,7 +26,16 @@
   "treeengine/structure/builder.py": "9ac27ce1af673883",
   "treeengine/structure/html.py": "dc41b11dde7ebc81",
   "treeengine/structure/markdown.py": "93d4a437575a5b4f",
-  "treeengine/structure/pdf.py": "76840bf90c5e32dc",
+  "treeengine/structure/pdf.py": "c2249f41697c1bab",
+  "treeengine/pdf/__init__.py": "44c76f2f10d1b78e",
+  "treeengine/pdf/classify.py": "1d1473d62a100e44",
+  "treeengine/pdf/headings.py": "cdeaae6331cfee46",
+  "treeengine/pdf/layout.py": "50a734bb89034087",
+  "treeengine/pdf/lines.py": "47480875263bea04",
+  "treeengine/pdf/model.py": "8b1b0f5cc3108e4e",
+  "treeengine/pdf/outline.py": "7839093d8c728856",
+  "treeengine/pdf/parser.py": "13fad2fce717708c",
+  "treeengine/pdf/validate.py": "14dc6164895ae4ef",
   "treeengine/storage/__init__.py": "dfe73de4b30f382b",
   "treeengine/storage/fts5.py": "46f359f3fee9a830",
   "treeengine/storage/sqlite.py": "0bc64e0bc20cdee2",
@@ -97,7 +106,7 @@
   }
  },
  "evaluation": {
-  "fingerprint": "99d11620e843f9b6",
+  "fingerprint": "76a1775e8517986c",
   "files": {
    "benchmarks/metrics/__init__.py": "93dab04a69f3aefa",
    "benchmarks/metrics/cost.py": "a406c1605156aaab",
@@ -112,7 +121,7 @@
    "treeengine/context/span.py": "34067c36639adaad",
    "benchmarks/answer.py": "491f9eaf73d5c3af",
    "benchmarks/context.py": "3d1511998134a0f0",
-   "benchmarks/loader.py": "1c9b26ff6d7d0065",
+   "benchmarks/loader.py": "7b8494c25272630e",
    "benchmarks/datasets/__init__.py": "538de764583c789d"
   }
  }
