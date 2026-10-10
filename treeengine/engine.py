@@ -14,11 +14,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .context import BlockContextBuilder
 from .core.config import EngineConfig
 from .core.models import AnswerResult, Block, Document, Evidence, Node, NodeView
 from .core.protocols import EmbeddingProvider, LLMProvider, Repository
 from .factory import Components, build_local_components
-from .retrieval.planner import QueryType, RetrievalPlan
+from .retrieval.planner import QueryType
+from .retrieval.policy import RetrievalPolicy
 from .retrieval.result import SearchResult
 from .retrieval.tree import TreeSearchResult
 from .treeview import format_tree, render_tree
@@ -55,7 +57,7 @@ class TreeEngine:
         self.tree = c.tree
         self.fts = c.fts
         self.planner = c.planner
-        self.last_plan: RetrievalPlan | None = None
+        self.last_plan: Any = None  # RetrievalPlan, or ControllerPlan for policy retrieval
         self.last_result: SearchResult | None = None
 
     @classmethod
@@ -152,10 +154,28 @@ class TreeEngine:
         document_id: str | None = None,
         limit: int = 10,
         mode: QueryType | str | None = None,
+        *,
+        policy: RetrievalPolicy | None = None,
+        context_budget: int | None = None,
+        context_policy: str = "auto",
     ) -> SearchResult:
-        """Planner-driven retrieval with plan, trace and stats (latency, LLM cost, visits)."""
+        """Managed retrieval with trace and stats (latency, LLM cost, visits).
+
+        Without ``policy``: the planner (V0.3 behaviour). With a ``RetrievalPolicy``: the
+        retrieval controller - FTS / Vector / LLM tree reasoning enabled by weight, an agentic
+        loop bounded by budgets, and ``result.context_spans`` built within
+        ``policy.context_budget``. ``context_budget`` also adds context spans to a planner
+        result."""
         before = self.llm.usage.snapshot() if self.llm else None
-        res = self.planner.retrieve(query, document_id=document_id, limit=limit, mode=mode)
+        if policy is not None:
+            res = self.components.controller.retrieve(query, document_id=document_id, policy=policy)
+        else:
+            res = self.planner.retrieve(query, document_id=document_id, limit=limit, mode=mode)
+            if context_budget:
+                res.context_spans = BlockContextBuilder(self.repo, policy=context_policy).build(
+                    res.evidence, token_budget=context_budget
+                )
+                res.stats.context_tokens = sum(s.token_count for s in res.context_spans)
         if self.llm is not None and before is not None:
             used = self.llm.usage.since(before)
             res.stats.llm_calls = used.calls

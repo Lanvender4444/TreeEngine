@@ -498,6 +498,8 @@ Block 作为**检索单元**，`ContextSpan` 作为**阅读单元**。管线是�
 
 **指纹**：`treeengine/pdf` 计入 retrieval 指纹和语料缓存 key。默认 `auto` 的输出不变，所以已有结果仍然有效。
 
+**Agentic Retrieval Policy**（`treeengine/retrieval/controller.py`）的代码和单元测试已完成，benchmark 尚未接入。设计文档第 20 节的矩阵是：只用 FTS、只用 Vector、FTS + Vector、只用树推理、FTS + Vector + 树推理兜底、FTS + Vector + 完全自主的树推理循环。接入时 ContextBuilder 固定不变，只换 Controller，重点看树推理有没有补回 FTS / Vector 漏掉的证据（候选召回、上下文覆盖率）。
+
 待跑：
 
 ```bash

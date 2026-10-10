@@ -37,6 +37,33 @@ Reply as JSON: {{"selected": ["id", ...], "stop": false, "reason": "short"}}
 If none is relevant reply {{"selected": [], "stop": true}}.
 """
 
+TREE_REASON_SYSTEM = (
+    "You explore a document's section tree step by step to find evidence for a question. "
+    "You see one level at a time. Reply with JSON only."
+)
+TREE_REASON = """Question: {question}
+
+Document: {document}
+Current position: {path}
+
+Sections here:
+{options}
+
+Evidence found so far:
+{evidence}
+
+Budget left: {steps} steps.
+
+Choose ONE action:
+- "SELECT": open a section to see its subsections            (needs "node")
+- "READ": read a section's text and keep it as evidence     (needs "node")
+- "SEARCH": search for words inside a section                (needs "node" and "query")
+- "PARENT": go back up one level
+- "STOP": the evidence found so far is enough, or nothing here is relevant
+
+Reply as JSON: {{"action": "SELECT", "node": "s2", "query": "", "reason": "short"}}
+"""
+
 ANSWER_SYSTEM = (
     "You answer questions strictly from the provided evidence. Cite evidence with [E<n>] markers "
     "after the sentences they support. If the evidence is insufficient, say so. Answer in the "
