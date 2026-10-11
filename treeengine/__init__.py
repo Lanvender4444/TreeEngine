@@ -22,6 +22,7 @@ from .engine import TreeEngine
 from .factory import build_components, create_local_engine
 from .llm.base import CallableLLM, MeteredLLM, OpenAICompatibleLLM
 from .retrieval.planner import QueryType
+from .retrieval.policy import RetrievalPolicy
 from .retrieval.result import SearchResult, SearchStats
 
 __version__ = "0.3.0.dev0"
@@ -44,6 +45,7 @@ __all__ = [
     "OpenAICompatibleLLM",
     "QueryType",
     "Repository",
+    "RetrievalPolicy",
     "Retriever",
     "SearchResult",
     "SearchStats",

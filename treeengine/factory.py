@@ -15,6 +15,7 @@ from .core.config import EngineConfig
 from .core.protocols import EmbeddingProvider, LLMProvider, Repository, VectorIndex
 from .llm.base import MeteredLLM
 from .pipeline import IngestionPipeline
+from .retrieval.controller import RetrievalController
 from .retrieval.corpus import CorpusRetriever
 from .retrieval.fts import FTSRetriever
 from .retrieval.fusion import EvidenceMerger
@@ -43,6 +44,7 @@ class Components:
     merger: EvidenceMerger
     planner: RetrievalPlanner
     answerer: Answerer
+    controller: RetrievalController
 
 
 def build_components(
@@ -103,6 +105,15 @@ def build_components(
             use_vector=use_vector,
         ),
         answerer=Answerer(repository, metered),
+        controller=RetrievalController(
+            repository,
+            fts,
+            vector=vector,
+            corpus=corpus,
+            tree=TreeRetriever(repository, None, cfg, use_llm=False, corpus=corpus),
+            llm=metered,
+            config=cfg,
+        ),
     )
 
 

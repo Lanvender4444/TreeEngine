@@ -172,6 +172,7 @@ def _purpose(system: str | None) -> str:
 
     return {
         prompts.TREE_SELECT_SYSTEM: "tree_navigation",
+        prompts.TREE_REASON_SYSTEM: "tree_reasoning",
         prompts.ANSWER_SYSTEM: "answer",
         prompts.SUMMARY_SYSTEM: "summary",
         prompts.STRUCTURE_SYSTEM: "structure",

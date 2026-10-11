@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..context.span import ContextSpan
 from ..core.models import Evidence
 
 
@@ -34,6 +35,9 @@ class SearchStats:
     tree_searches: int = 0
     visited_nodes: int = 0  # nodes loaded during tree traversal (summed over documents)
     total_nodes: int = 0  # size of the trees that were traversed
+    tree_steps: int = 0  # tree-reasoning steps of the retrieval controller
+    candidate_count: int = 0  # evidence items after fusion
+    context_tokens: int = 0  # tokens of the reading context (context_spans)
 
     @property
     def visited_ratio(self) -> float | None:
@@ -47,6 +51,9 @@ class SearchResult:
     plan: Any  # RetrievalPlan
     trace: list[dict[str, Any]]
     stats: SearchStats
+    # what the answer model should read: continuous spans rebuilt around the evidence (filled
+    # when a context budget is given; Evidence stays the retrieval record / citations)
+    context_spans: list[ContextSpan] = field(default_factory=list)
 
     @property
     def query_type(self) -> str:
