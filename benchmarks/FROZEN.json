@@ -1,7 +1,7 @@
 {
- "frozen_at": "2026-10-11 00:04",
- "note": "V0.6: layout-aware PDF structure (opt-in layout/hybrid) + RetrievalController/RetrievalPolicy (policy_* benchmark strategies); default auto structure and planner retrieval unchanged. Re-frozen after the V0.6 runs (2026-10-11 00:03 version) for a docstring-only change in retrieval/policy.py",
- "fingerprint": "0a72d157c2ca243f",
+ "frozen_at": "2026-10-12 01:14",
+ "note": "V0.7: evidence geometry decoupled from structure geometry (treeengine/blocks: EvidenceBuilder = the structure-free paragraph blocks + offset mapping; EngineConfig.evidence_geometry stable|coupled, index_title document|section); default stable/document; coupled reproduces pre-V0.7 blocks. Re-frozen after the V0.7 runs for a docstring-only change in structure/builder.py",
+ "fingerprint": "f54f7f9f6b1248a7",
  "chunk": {
   "size": 600,
   "overlap": 100,
@@ -12,7 +12,7 @@
  },
  "files": {
   "treeengine/core/__init__.py": "11ba79696dce575d",
-  "treeengine/core/config.py": "01ffc013f1603a72",
+  "treeengine/core/config.py": "85389fdd831d5d9e",
   "treeengine/core/ids.py": "ff3d6db7c61dd78f",
   "treeengine/core/models.py": "57c90a6370d46be6",
   "treeengine/core/protocols.py": "60a3f13eb9c57d8a",
@@ -22,11 +22,12 @@
   "treeengine/ingest/html.py": "aea61a68e6c3afc5",
   "treeengine/ingest/markdown.py": "7916801d1556578b",
   "treeengine/ingest/pdf.py": "6d10d1b137df342e",
+  "treeengine/ingest/pdf_text.py": "33c61e15d806b8cc",
   "treeengine/structure/__init__.py": "9afbde2024fdefcf",
-  "treeengine/structure/builder.py": "9ac27ce1af673883",
+  "treeengine/structure/builder.py": "f30d2e1141e244e0",
   "treeengine/structure/html.py": "dc41b11dde7ebc81",
   "treeengine/structure/markdown.py": "93d4a437575a5b4f",
-  "treeengine/structure/pdf.py": "c2249f41697c1bab",
+  "treeengine/structure/pdf.py": "bcb3356abd1ca2a9",
   "treeengine/pdf/__init__.py": "44c76f2f10d1b78e",
   "treeengine/pdf/classify.py": "1d1473d62a100e44",
   "treeengine/pdf/headings.py": "cdeaae6331cfee46",
@@ -36,9 +37,12 @@
   "treeengine/pdf/outline.py": "7839093d8c728856",
   "treeengine/pdf/parser.py": "13fad2fce717708c",
   "treeengine/pdf/validate.py": "14dc6164895ae4ef",
+  "treeengine/blocks/__init__.py": "8b7564ae497acb3d",
+  "treeengine/blocks/builder.py": "6d248e5c24dfbb1f",
+  "treeengine/blocks/mapping.py": "8d64ca68feba048d",
   "treeengine/storage/__init__.py": "dfe73de4b30f382b",
   "treeengine/storage/fts5.py": "46f359f3fee9a830",
-  "treeengine/storage/sqlite.py": "0bc64e0bc20cdee2",
+  "treeengine/storage/sqlite.py": "8d9441b5cebdce99",
   "treeengine/storage/vectors.py": "dfed39e95b85ec41",
   "treeengine/storage/schema.sql": "7a9dbfcaa5cfa7e6",
   "treeengine/retrieval/__init__.py": "60cdec64d761fc46",
@@ -54,15 +58,16 @@
   "treeengine/retrieval/scoped.py": "c5b55902f8eea359",
   "treeengine/retrieval/state.py": "5d7c7b4a9f398139",
   "treeengine/retrieval/tree.py": "59e9de4568914375",
-  "treeengine/retrieval/vector.py": "e460b70ff224c6d6",
+  "treeengine/retrieval/vector.py": "40d693d717b4dea8",
   "treeengine/embeddings/__init__.py": "0b5e16d9b873ea8d",
   "treeengine/embeddings/providers.py": "40428511d1654bc7",
-  "benchmarks/strategies/__init__.py": "912815c87ab1bf17",
-  "benchmarks/strategies/base.py": "22f941725e262a2a",
+  "benchmarks/strategies/__init__.py": "5bba0a6df6b577db",
+  "benchmarks/strategies/base.py": "f050bd6321f45749",
   "benchmarks/strategies/chunk_rag.py": "38d7ac8625166270",
   "benchmarks/strategies/full_context.py": "7b1cd566dfcbd4cc",
   "benchmarks/strategies/scope.py": "a7b01d7c749b54e8",
-  "benchmarks/strategies/workspace.py": "cfd89e1909eb5684"
+  "benchmarks/strategies/workspace.py": "cfd89e1909eb5684",
+  "treeengine/pipeline.py": "a3c526286eac9d3d"
  },
  "dataset": {
   "fingerprint": "43deeb6d8bff0c1f",
@@ -109,11 +114,11 @@
   }
  },
  "evaluation": {
-  "fingerprint": "76a1775e8517986c",
+  "fingerprint": "d10258e7f7a54d51",
   "files": {
    "benchmarks/metrics/__init__.py": "93dab04a69f3aefa",
    "benchmarks/metrics/cost.py": "a406c1605156aaab",
-   "benchmarks/metrics/qa.py": "b41dfd5c22fe7449",
+   "benchmarks/metrics/qa.py": "e4b69ec2f5a5e66c",
    "benchmarks/metrics/retrieval.py": "6a6478c988eae690",
    "benchmarks/judges/__init__.py": "de2bb271abbbce49",
    "benchmarks/judges/exact.py": "539f493f167c08f5",
@@ -124,7 +129,7 @@
    "treeengine/context/span.py": "34067c36639adaad",
    "benchmarks/answer.py": "491f9eaf73d5c3af",
    "benchmarks/context.py": "3d1511998134a0f0",
-   "benchmarks/loader.py": "7b8494c25272630e",
+   "benchmarks/loader.py": "acd9d863664a0bf9",
    "benchmarks/datasets/__init__.py": "538de764583c789d"
   }
  }

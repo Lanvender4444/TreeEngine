@@ -48,12 +48,20 @@ class VectorIndexer:
         for i in range(0, len(blocks), self.batch):
             chunk = blocks[i : i + self.batch]
             texts = [
-                block_embedding_text(b, titles.get(b.node_id or "") if self.with_title else None)
+                block_embedding_text(b, self._title(b, titles) if self.with_title else None)
                 for b in chunk
             ]
             vecs = self.embedder.embed_texts(texts)
             self.index.upsert([(b.id, b.document_id, v) for b, v in zip(chunk, vecs, strict=True)])
         return len(blocks)
+
+    @staticmethod
+    def _title(b: Block, titles: dict[str, str]) -> str | None:
+        """Stable evidence geometry: the Evidence Builder's index title (the document title);
+        older (coupled) blocks: their section title."""
+        if b.metadata.get("index_title") is not None:
+            return str(b.metadata["index_title"])
+        return titles.get(b.node_id or "")
 
     def delete_document(self, document_id: str) -> None:
         self.index.delete_document(document_id)

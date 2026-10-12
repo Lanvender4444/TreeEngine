@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from treeengine import CallableLLM, QueryType, TreeEngine
+from treeengine import CallableLLM, EngineConfig, QueryType, TreeEngine
 from treeengine.retrieval.planner import RetrievalPlanner
 
 from .conftest import keyword_navigator
@@ -27,7 +27,9 @@ def test_rule_classification(query: str, expected: QueryType) -> None:
     assert RetrievalPlanner.classify_rules(query) is expected
 
 
-def test_hybrid_scopes_fts_to_tree_section(engine: TreeEngine, fixtures: Path) -> None:
+def test_hybrid_scopes_fts_to_tree_section(tmp_path: Path, fixtures: Path) -> None:
+    # section titles in the FTS index (pre-V0.7 signal) - see test_tree_retrieval
+    engine = TreeEngine(tmp_path / "te.db", config=EngineConfig(index_title="section"))
     doc = engine.ingest(fixtures / "annual_report.md")
     ev = engine.search("风险因素章节里哪些地方提到芯片？", document_id=doc.id)
     assert engine.last_plan and engine.last_plan.query_type is QueryType.HYBRID

@@ -45,6 +45,12 @@ class QAOutcome:
     max_span_tokens: int | None = None
     section_crossings: int | None = None
     duplicate_ratio: float | None = None
+    # retrieval detail (weight sweep): budgeted recall and the retrieval LLM's own cost
+    recall_2k: float | None = None  # expected evidence within the first 2,000 evidence tokens
+    retrieval_llm_calls: int = 0
+    retrieval_llm_input_tokens: int = 0
+    retrieval_llm_output_tokens: int = 0
+    tree_steps: int = 0
 
     @property
     def scored(self) -> bool:

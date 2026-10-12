@@ -1,12 +1,19 @@
-"""Ingestion pipeline: Source -> Adapter -> Document -> StructureBuilder -> Repository."""
+"""Ingestion pipeline.
+
+Source -> Adapter -> canonical Document (text + offsets [+ page offsets])
+                       |-- Evidence Builder  -> stable Blocks   (FTS / Vector)
+                       `-- Structure Builder -> Tree Nodes      (boundaries / navigation)
+                     Block <-> Node mapping by offset overlap -> Repository
+"""
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
 
+from .blocks import EvidenceBuilder, map_blocks
 from .core.ids import text_hash
-from .core.models import Document
+from .core.models import Block, Document, Node
 from .core.protocols import Repository
 from .ingest.base import detect_source_type, get_adapter
 from .ingest.html import HTMLAdapter
@@ -15,6 +22,19 @@ from .retrieval.vector import VectorIndexer
 from .structure.builder import StructureBuilder
 
 log = logging.getLogger(__name__)
+
+
+def build_document(
+    doc: Document, structure: StructureBuilder, evidence: EvidenceBuilder | None = None
+) -> tuple[list[Node], list[Block]]:
+    """Decoupled build: the tree and the blocks come from the same canonical text but neither
+    is derived from the other; the mapping only sets each block's primary node."""
+    nodes = structure.build_tree(doc)
+    blocks = (evidence or EvidenceBuilder(structure.config)).build(doc)
+    nodes = map_blocks(doc, nodes, blocks)
+    structure.finalise(doc, nodes, blocks)
+    doc.metadata["evidence_geometry"] = "stable"
+    return nodes, blocks
 
 
 class IngestionPipeline:
@@ -65,7 +85,7 @@ class IngestionPipeline:
                     log.info("unchanged, skipping re-ingest: %s", doc.uri)
                     return existing
                 doc.id = existing.id
-        nodes, blocks = self.builder.build(doc)
+        nodes, blocks = self.builder.build(doc)  # stable evidence geometry: build_document
         self.repo.save_document(doc, nodes, blocks)
         if self.indexer is not None:
             self.indexer.index_document(doc.id)

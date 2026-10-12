@@ -24,16 +24,16 @@ import time
 from dataclasses import asdict
 from pathlib import Path
 
-from treeengine.core.config import EngineConfig
-
 from .datasets import SUITES
 from .freeze import chunk_config, describe
 from .freeze import status as freeze_status
 from .loader import (
     CACHE,
+    add_geometry_args,
     breakdown,
     check_queries,
     doc_stats,
+    geometry_config,
     load_corpus,
     load_queries,
     prepare_suite,
@@ -63,6 +63,7 @@ DEFAULT_EMBEDDER = "fastembed:jinaai/jina-embeddings-v2-base-zh"
 
 def common_args(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--suite", default="controlled", choices=SUITES)
+    add_geometry_args(ap)
     ap.add_argument("--queries", default=None, help="override the suite's queries.jsonl")
     ap.add_argument("--strategies", default=None, help=f"comma list from {ALL}")
     ap.add_argument("--preset", default=None, choices=sorted(PRESETS))
@@ -161,7 +162,8 @@ def setup(args: argparse.Namespace, default: list[str], extend: bool = True):
     llm = llm_from_args(args)
     wanted, skipped = choose_strategies(args, spec, llm, default, extend)
 
-    corpus = load_corpus(docs, not args.no_cache, args.quiet)
+    cfg, geometry_tag = geometry_config(args.evidence_geometry, args.index_title)
+    corpus = load_corpus(docs, not args.no_cache, args.quiet, config=cfg, variant=geometry_tag)
     paths, problems = check_queries(queries, corpus)
     if problems:
         print("ground truth problems:\n  " + "\n  ".join(problems), file=sys.stderr)
@@ -175,7 +177,7 @@ def setup(args: argparse.Namespace, default: list[str], extend: bool = True):
     ws = Workspace(
         corpus.repo,
         corpus.doc_ids,
-        EngineConfig(),
+        cfg,
         embed_spec=spec,
         llm=llm,
         prices=prices,
@@ -193,6 +195,9 @@ def base_meta(suite, docs, queries, corpus, ws, wanted, skipped, llm, spec):
     ids = corpus.doc_ids.values()
     meta = {
         "suite": suite.name,
+        "evidence_geometry": (
+            f"{ws.config.evidence_geometry} (index title: {ws.config.index_title})"
+        ),
         "documents": len(docs),
         "real_documents": sum(1 for d in docs if not d.synthetic),
         "nodes": sum(repo.count_nodes(i) for i in ids),

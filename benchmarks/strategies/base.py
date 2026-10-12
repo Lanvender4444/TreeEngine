@@ -169,7 +169,11 @@ class Strategy:
             output_tokens=llm.output_tokens if llm else 0,
             embedding_calls=emb.calls if emb else 0,
             embedding_tokens=emb.tokens if emb else 0,
-            metadata={**tree_metadata(trace), "evidence_tokens": sizes},
+            metadata={
+                **tree_metadata(trace),
+                "evidence_tokens": sizes,
+                "tree_steps": len(trace.of("tree_step")),
+            },
         )
 
 

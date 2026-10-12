@@ -498,11 +498,13 @@ Block 作为**检索单元**，`ContextSpan` 作为**阅读单元**。管线是�
 
 **指纹**：`treeengine/pdf` 计入 retrieval 指纹和语料缓存 key。默认 `auto` 的输出不变，所以已有结果仍然有效。
 
-### 结构 benchmark（FinanceBench，33 份 10-K，55 题，`results/v0.6-structure-financebench.md`）
+### 结构 benchmark（FinanceBench，33 份 10-K，55 题，全部 7 个变体，`results/v0.6-structure-financebench.md`）
 
 | 结构 | 节点 / 文档 | 标题 P | 标题 R | 标题 F1 | 层级准确率 | tree_structure R@5 | tree_lexical+fts R@5 | fts R@5 |
 |---|---|---|---|---|---|---|---|---|
 | flat | 1 | – | – | – | – | 1.8 | 24.5 | 24.5 |
+| heuristic（正则标题） | 71 | 6.9 | 11.0 | 8.5 | 17.9 | 10.0 | 19.1 | 19.1 |
+| native（只用书签） | 15 | 22.2 | 7.4 | 11.1 | 41.3 | 1.8 | 23.6 | 23.6 |
 | auto（默认） | 71 | 10.8 | 17.2 | 13.3 | 26.9 | 8.2 | 16.4 | 19.1 |
 | layout | 224 | 15.7 | 78.5 | 26.1 | 47.4 | 10.0 | 13.6 | 14.5 |
 | hybrid | 199 | 16.7 | 74.3 | 27.3 | 45.6 | 10.0 | 17.3 | 16.4 |
@@ -539,6 +541,39 @@ ContextBuilder 固定为 `auto`，候选池 50，只换 Controller。
 - **只用 LLM 导航明显更差**：比 policy_hybrid 低 20 个点（6:24，p=0.001），candidate recall 只有 50%。
 - policy_hybrid vs rag_hybrid：13:4（p=0.049，@2000），复现了 V0.5 的结论。
 - **默认值：`policy_hybrid`，agentic off**。树推理作为可选能力保留，要证明它的价值，需要证据分散、检索词与原文不匹配的数据集。
+
+### Retrieval Weight Sweep（longdoc，91 题 × 2，`results/v0.6-weight-sweep-longdoc.md`）
+
+固定 guided Agent loop（agentic 0.6）、candidate pool 50 和 auto context，只扫描 rank-fusion 权重（`--preset weight_sweep`，汇总用 `python -m benchmarks.weight_sweep_report`）。
+
+| ID | FTS / Vector / Tree | QA @2000 | QA @3000 | candidate recall | 检索 p95 | 检索 LLM / 题 |
+|---|---|---|---|---|---|---|
+| W0 | 1 / 1 / 0 | 68.1 | 68.7 | 96.2 | 60 ms | 0 |
+| W1 | 1 / 0.5 / 0 | 67.0 | 69.2 | 94.0 | 36 ms | 0 |
+| W2 | 0.5 / 1 / 0 | 64.8 | 71.4 | 95.6 | 44 ms | 0 |
+| W3 | 1 / 1 / 0.25 | 67.6 | 70.9 | 96.2 | 2.2 s | 0.5 次，约 580 tok |
+| W4 | 1 / 1 / 0.5 | 67.6 | 69.8 | 96.2 | 2.2 s | 0.5 次，约 575 tok |
+| W5 | 1 / 1 / 1 | 65.9 | 69.8 | 96.2 | 2.3 s | 0.5 次，约 590 tok |
+
+- **Q1 FTS : Vector**：保持 1:1。偏置两档预算方向相反，都不显著，还损失少量候选召回。
+- **Q2 Tree 权重**：没有正收益区间。与 W0 比，全部 p ≥ 0.125；三个 Tree 权重之间的胜负只有 0–2 题。
+- **Q3 收益来源**：candidate recall 在所有题上不变。W3 @3000 的 +2.2（4:0）全部来自**没有触发树推理**的题，这些题的上下文与 W0 完全相同，所以这部分胜负是答题噪声；在触发树推理的题上是 0:0。
+- **Q4 成本**：p95 延迟增加约 37 倍，不值得。
+- 默认值保持 `fts 1 / vector 1 / tree 0 / agentic 0`，Tree Agent 继续作为可选能力。
+
+## V0.7 — Evidence Geometry / Structure Geometry 解耦（`results/v0.7-evidence-geometry.md`）
+
+Block（检索单元）只从 canonical text 生成（`treeengine/blocks`），Tree 单独生成，二者再按 offset 重叠映射。Tree 不再切 Block，也不再进入索引文本：`index_title="document"`，FTS 标题列和向量前缀都用文档标题。`--evidence-geometry coupled` 可以复现 V0.7 之前的行为，`--index-title section` 把章节标题放回索引；`run_qa`、`run_retrieval`、`run_structure` 都支持这两个参数。
+
+| 问题 | 结果 |
+|---|---|
+| Q1 换 Tree，Block 语料还稳定吗？ | FinanceBench 33 份 10-K × 5 种 Tree：都是 39,587 个 Block，语料哈希相同，FTS 标题列只有 33 个值。解耦前与 flat 的重合只有 79–94%，标题列有 478–3,432 个值。18 份真实 PDF × 3 种模式：语料全部相同 |
+| Q2 全局检索还会被结构拖累吗？ | FinanceBench FTS 在每种 Tree 下都是 R@5 24.5、R@2k 43.6，解耦前 auto 为 19.1 / 30.0、layout 为 14.5 / 27.3。tree_lexical+fts 在 auto 上 16.4 → 22.7，在 reference 上 23.6 → 30.9。longdoc 上 FTS 持平；Vector R@5 69.6 → 60.6（5:13，p=0.096），来源是索引里去掉了章节标题，章节标题版本是 65.8 |
+| Q3 section 边界还能用吗？ | 能：section600 上下文不越出所在节点（回归检查通过），span 长度不变。longdoc QA @1000 为 62.1 → 58.8（5:10，p=0.30），@2000 为 64.8 → 64.8 |
+| Q4 QA 退化吗？ | 不退化：longdoc 上 auto @2000 / @3000 为 65.9 / 69.8 → 68.7 / 69.2（6:3 和 4:4） |
+| FinanceBench 全集（150 题） | 解耦后 FTS R@2k 从 46.0 升到 51.7（13:4，p=0.049），R@5 持平。QA（解耦后的 FTS+Vector，auto 上下文）@2000 / @3000 为 39.3 / 43.3，传统 RAG 为 33.3 / 34.7（@3000 为 22:7，p=0.008）；解耦前没有算向量，所以没有解耦前后的 QA 对比 |
+
+第一版 Block Builder 在 “像标题的短行” 处另起一个 Block，FinanceBench FTS 降到 19.1，而且这条规则违反计划 §6（不用标题边界切 Block），已经删掉。现在的 Block = V0.4 验证过的 flat 段落。
 
 ## 待完成
 

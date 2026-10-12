@@ -107,7 +107,9 @@ class SQLiteRepository:
             )
             rows = self.conn.execute(
                 "SELECT b.rowid AS rid, b.id, b.document_id, b.content, "
-                "COALESCE(n.title, d.title) AS title FROM blocks b "
+                "COALESCE(json_extract(b.metadata_json, '$.index_title'), n.title, d.title) "
+                "AS title "
+                "FROM blocks b "
                 "LEFT JOIN nodes n ON n.id = b.node_id JOIN documents d ON d.id = b.document_id"
             ).fetchall()
             self.conn.executemany(
@@ -277,7 +279,8 @@ class SQLiteRepository:
             if old is not None and old.title != n.title:
                 self.conn.execute(
                     "UPDATE blocks_fts SET title = ? WHERE rowid IN "
-                    "(SELECT rowid FROM blocks WHERE node_id = ?)",
+                    "(SELECT rowid FROM blocks WHERE node_id = ? "
+                    "AND json_extract(metadata_json, '$.index_title') IS NULL)",
                     (segment_for_index(n.title), n.id),
                 )
 
@@ -381,6 +384,10 @@ class SQLiteRepository:
 
     # ------------------------------------------------------------------ blocks
     def _fts_title_for(self, b: Block) -> str:
+        # stable evidence geometry: the index title is fixed by the Evidence Builder (document
+        # title), so a different tree never changes the FTS corpus
+        if b.metadata.get("index_title") is not None:
+            return str(b.metadata["index_title"])
         if b.node_id:
             r = self.conn.execute("SELECT title FROM nodes WHERE id = ?", (b.node_id,)).fetchone()
             if r:

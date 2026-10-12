@@ -38,7 +38,12 @@ def handbook(engine: TreeEngine, fixtures: Path) -> str:
 
 
 @pytest.mark.parametrize("query,expected", ANNUAL_REPORT)
-def test_report_regression(engine: TreeEngine, report: str, query: str, expected: str) -> None:
+def test_report_regression(tmp_path: Path, fixtures: Path, query: str, expected: str) -> None:
+    # tree-navigation regression table: its heuristics were calibrated with section titles in
+    # the FTS index (the subtree FTS signal); V0.7's default indexes the document title instead
+    # (see test_evidence_geometry), which changes one of these cases, so pin the old signal here
+    engine = TreeEngine(tmp_path / "te.db", config=EngineConfig(index_title="section"))
+    report = engine.ingest(fixtures / "annual_report.md").id
     res = engine.tree_search(query, report)
     assert expected in [t.title for t in res.targets], res.trace
     assert res.evidence and res.evidence[0].metadata["node_title"] == expected

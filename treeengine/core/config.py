@@ -5,8 +5,19 @@ from dataclasses import dataclass
 
 @dataclass
 class EngineConfig:
-    # structure
+    # evidence geometry (V0.7). "stable": blocks are built from the canonical document text
+    # alone (paragraph / list / table / code boundaries, page breaks, a size guard) and mapped to
+    # the tree by offset overlap afterwards, so a different tree never changes the retrieval
+    # corpus; the FTS title column and block embeddings use the document title, not the section
+    # title. "coupled": the pre-V0.7 behaviour, blocks cut by the structure (A/B experiments).
+    evidence_geometry: str = "stable"
+    # title indexed with a stable block (FTS title column, embedding prefix): "document" keeps
+    # the retrieval corpus independent of the tree; "section" uses the mapped node's title
+    # (tree-dependent, the pre-V0.7 signal; experiments)
+    index_title: str = "document"
     max_block_chars: int = 1200  # long paragraphs are split into several blocks
+
+    # structure
     summary_chars: int = 240  # heuristic summary length
     llm_summaries: bool = False  # ask the LLM to summarise nodes at ingest time
     llm_structure_fallback: bool = True  # allow LLM structure fallback when no structure found

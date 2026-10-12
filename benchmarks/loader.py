@@ -37,11 +37,43 @@ def corpus_key(docs: list[CorpusDoc]) -> str:
         h.update(d.name.encode())
         h.update(hashlib.sha256(d.path.read_bytes()).digest())
     root = Path(treeengine.__file__).parent
-    for sub in ("core", "ingest", "structure", "pdf", "storage"):
+    for sub in ("core", "ingest", "structure", "pdf", "storage", "blocks"):
         for f in sorted((root / sub).glob("*")):
             if f.suffix in (".py", ".sql"):
                 h.update(f.read_bytes())
+    h.update((root / "pipeline.py").read_bytes())
     return h.hexdigest()[:16]
+
+
+def geometry_config(
+    evidence_geometry: str = "stable", index_title: str = "document"
+) -> tuple[EngineConfig, str]:
+    """(EngineConfig, corpus-cache variant tag) for an evidence-geometry setting (V0.7).
+    The default (stable blocks, document index titles) has no tag."""
+    from dataclasses import replace
+
+    cfg = replace(EngineConfig(), evidence_geometry=evidence_geometry, index_title=index_title)
+    tag = (
+        ""
+        if (evidence_geometry, index_title) == ("stable", "document")
+        else (f"geometry={evidence_geometry},title={index_title}")
+    )
+    return cfg, tag
+
+
+def add_geometry_args(ap: Any) -> None:
+    ap.add_argument(
+        "--evidence-geometry",
+        default="stable",
+        choices=["stable", "coupled"],
+        help="stable: blocks independent of the tree (V0.7 default); coupled: pre-V0.7",
+    )
+    ap.add_argument(
+        "--index-title",
+        default="document",
+        choices=["document", "section"],
+        help="title indexed with stable blocks (FTS title column / embedding prefix)",
+    )
 
 
 @dataclass
@@ -265,7 +297,9 @@ __all__ = [
     "DocStats",
     "breakdown",
     "check_queries",
+    "add_geometry_args",
     "corpus_key",
+    "geometry_config",
     "doc_stats",
     "load_corpus",
     "load_queries",

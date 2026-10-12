@@ -1,4 +1,10 @@
-"""Structure Engine: Document -> Tree<Node> + Blocks.
+"""Structure Engine: Document -> Tree<Node> (structure geometry).
+
+V0.7: the tree no longer cuts the retrieval blocks. ``build_tree`` returns nodes with offsets;
+blocks come from :class:`treeengine.blocks.EvidenceBuilder` and are mapped onto the nodes by
+offset overlap (:func:`treeengine.pipeline.build_document`); ``finalise`` then fills node text,
+pages and summaries from the mapped blocks. ``assemble`` keeps the pre-V0.7 coupled path
+(``EngineConfig.evidence_geometry="coupled"``).
 
 Priority is fixed: Native structure -> Heuristic structure -> LLM fallback.
 All source types end up as a flat list of :class:`Element` in reading order, which is then
@@ -30,6 +36,38 @@ class StructureBuilder:
         self.llm = llm
 
     def build(self, doc: Document) -> tuple[list[Node], list[Block]]:
+        """Nodes + blocks. With ``evidence_geometry="stable"`` (default) this is a facade over the
+        decoupled pipeline: tree from the structure elements, blocks from the Evidence Builder,
+        then an offset mapping (see :func:`treeengine.pipeline.build_document`). "coupled" keeps
+        the pre-V0.7 behaviour where the tree cuts the blocks."""
+        if self.config.evidence_geometry == "coupled":
+            nodes, blocks = assemble(doc, self.structure_elements(doc), self.config)
+            self._summaries(nodes)
+            return nodes, blocks
+        from ..pipeline import build_document
+
+        return build_document(doc, self)
+
+    def build_tree(self, doc: Document) -> list[Node]:
+        """Structure geometry only: nodes with start offsets and heading pages (no text yet;
+        :meth:`finalise` fills text, pages and summaries once blocks are mapped)."""
+        nodes, _, _ = _assemble(doc, self.structure_elements(doc), self.config)
+        return nodes
+
+    def finalise(self, doc: Document, nodes: list[Node], blocks: list[Block]) -> None:
+        """Node end offsets, own text, pages and summaries from the blocks mapped to each node."""
+        own: dict[str, list[Block]] = defaultdict(list)
+        for b in blocks:
+            if b.node_id:
+                own[b.node_id].append(b)
+        _finalise(doc, nodes, own, self.config)
+        self._summaries(nodes)
+
+    def _summaries(self, nodes: list[Node]) -> None:
+        if self.llm is not None and self.config.llm_summaries:
+            self._llm_summaries(nodes)
+
+    def structure_elements(self, doc: Document) -> list[Element]:
         elements, method = self.elements_for(doc)
         forced_llm = doc.source_type == "pdf" and self.config.pdf_structure == "llm"
         if forced_llm or not any(e.kind == "heading" for e in elements):
@@ -42,10 +80,7 @@ class StructureBuilder:
             else:
                 method = "flat"
         doc.metadata["structure_method"] = method
-        nodes, blocks = assemble(doc, elements, self.config)
-        if self.llm is not None and self.config.llm_summaries:
-            self._llm_summaries(nodes)
-        return nodes, blocks
+        return elements
 
     # ------------------------------------------------------------------ dispatch
     def elements_for(self, doc: Document) -> tuple[list[Element], str]:
@@ -144,6 +179,15 @@ class StructureBuilder:
 def assemble(
     doc: Document, elements: list[Element], config: EngineConfig
 ) -> tuple[list[Node], list[Block]]:
+    """Coupled assembly (pre-V0.7): the elements' blocks become the retrieval blocks."""
+    nodes, blocks, own_blocks = _assemble(doc, elements, config)
+    _finalise(doc, nodes, own_blocks, config)
+    return nodes, blocks
+
+
+def _assemble(
+    doc: Document, elements: list[Element], config: EngineConfig
+) -> tuple[list[Node], list[Block], dict[str, list[Block]]]:
     nodes: list[Node] = []
     blocks: list[Block] = []
     stack: list[tuple[int, Node]] = []  # (heading level, node)
@@ -206,9 +250,7 @@ def assemble(
 
     if not nodes:  # empty document: still give it one node so the tree API is uniform
         new_node(doc.title, None, 0, "document", None)
-
-    _finalise(doc, nodes, own_blocks, config)
-    return nodes, blocks
+    return nodes, blocks, own_blocks
 
 
 def _finalise(

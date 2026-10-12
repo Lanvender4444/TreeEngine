@@ -251,15 +251,26 @@ def main(argv: list[str] | None = None) -> int:
             run = strat.retrieve(q.query, document_id=doc_id, limit=limit)
             recall5 = None
             judged = q.judged and not run.metadata.get("skipped") and name != "full_context"
+            base_extra: dict[str, Any] = {
+                "retrieval_llm_calls": run.llm_calls,
+                "retrieval_llm_input_tokens": run.input_tokens,
+                "retrieval_llm_output_tokens": run.output_tokens,
+                "tree_steps": run.metadata.get("tree_steps", 0),
+            }
             if judged:
-                recall5 = evaluate(q, name, run, paths, [5]).recall.get(5)
+                first = evaluate(q, name, run, paths, [5])
+                recall5 = first.recall.get(5)
+                base_extra["recall_2k"] = first.recall_budget.get(2000)
             for m, b in variants:
                 if m is None or b is None or name == "full_context":
-                    jobs.append((labels[(m, b)], q, run, recall5, {}))
+                    jobs.append((labels[(m, b)], q, run, recall5, dict(base_extra)))
                     continue
                 spans = builder.spans(run.evidence, m, b)
                 ctx = as_evidence(run.evidence, spans)
-                extra: dict[str, Any] = fragmentation(spans) if not chunked else {}
+                extra: dict[str, Any] = {
+                    **base_extra,
+                    **(fragmentation(spans) if not chunked else {}),
+                }
                 if judged:
                     depth = len(run.evidence) or 1
                     extra["candidate_recall"] = evaluate(q, name, run, paths, [depth]).recall.get(
@@ -505,6 +516,7 @@ def render_qa(
         f"- embeddings: `{meta.get('embedder') or 'none'}`; tokens: {meta.get('tokenizer')}",
         f"- judge tokens (evaluation cost, excluded below): {meta['judge_tokens']:,}",
         f"- retrieval code: {meta.get('freeze', 'unknown')}",
+        f"- evidence geometry: {meta.get('evidence_geometry', 'coupled (pre-V0.7)')}",
     ]
     if meta.get("stub"):
         parts.append("- **STUB MODELS: pipeline test only, accuracy is meaningless**")

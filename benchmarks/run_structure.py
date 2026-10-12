@@ -40,7 +40,16 @@ from treeengine.core.models import Document
 from .datasets import CorpusDoc
 from .freeze import describe
 from .freeze import status as freeze_status
-from .loader import CACHE, check_queries, load_corpus, load_queries, prepare_suite, select_queries
+from .loader import (
+    CACHE,
+    add_geometry_args,
+    check_queries,
+    geometry_config,
+    load_corpus,
+    load_queries,
+    prepare_suite,
+    select_queries,
+)
 from .metrics.retrieval import aggregate, evaluate, sign_test
 from .report import _fmt, _table
 from .strategies import PRESETS, Workspace, build_strategies
@@ -105,8 +114,15 @@ def heading_agreement(repo: Any, doc_id: str, ref: list[list]) -> tuple[int, int
     return matched, len(ref), len(nodes), good_parent
 
 
-def variant_corpus(docs: list[CorpusDoc], variant: str, llm: Any, quiet: bool) -> Any:
-    cfg = EngineConfig()
+def variant_corpus(
+    docs: list[CorpusDoc],
+    variant: str,
+    llm: Any,
+    quiet: bool,
+    base: EngineConfig | None = None,
+    geometry_tag: str = "",
+) -> Any:
+    cfg = base or EngineConfig()
     prepare = None
     key = variant
     if variant in ("flat", "heuristic", "native", "layout", "hybrid", "llm"):
@@ -133,12 +149,13 @@ def variant_corpus(docs: list[CorpusDoc], variant: str, llm: Any, quiet: bool) -
         config=cfg,
         llm=llm if variant == "llm" else None,
         prepare=prepare,
-        variant="" if variant == "auto" else key,
+        variant=",".join(x for x in ("" if variant == "auto" else key, geometry_tag) if x),
     )
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m benchmarks.run_structure")
+    add_geometry_args(ap)
     ap.add_argument("--variants", default="flat,heuristic,native,layout,hybrid,reference,auto")
     ap.add_argument("--strategies", default=None)
     ap.add_argument("--preset", default=None, help="e.g. scope_ablation, llm_tree")
@@ -152,6 +169,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
+    base_cfg, geometry_tag = geometry_config(args.evidence_geometry, args.index_title)
 
     suite, docs, complete = prepare_suite("financebench", quiet=args.quiet)
     found = {d.name: reference(d.name) for d in docs}
@@ -191,15 +209,16 @@ def main(argv: list[str] | None = None) -> int:
     results: dict[str, dict[str, Any]] = {}
     outcomes = []
     shape: dict[str, dict[str, float]] = {}
+    evidence: dict[str, dict[str, Any]] = {}
     for v in variants:
-        corpus = variant_corpus(docs, v, llm, args.quiet)
+        corpus = variant_corpus(docs, v, llm, args.quiet, base_cfg, geometry_tag)
         paths, problems = check_queries(queries, corpus)
         if problems:
             print(f"[{v}] ground truth problems: {problems[:3]}", file=sys.stderr)
         ws = Workspace(
             corpus.repo,
             corpus.doc_ids,
-            EngineConfig(),
+            base_cfg,
             embed_spec=spec,
             llm=nav_llm,
             cache_dir=CACHE,
@@ -235,6 +254,19 @@ def main(argv: list[str] | None = None) -> int:
             depth += max((n.depth for n in ns), default=0)
             meth = (corpus.repo.get_document(did).metadata or {}).get("structure_method", "?")
             methods[meth] = methods.get(meth, 0) + 1
+        # evidence geometry: the retrieval corpus of this tree (V0.7: should not depend on it)
+        sig: set[tuple[str, Any, Any, str]] = set()
+        fts_titles: set[str] = set()
+        nblocks = 0
+        for d in docs:
+            did = corpus.doc_ids[d.name]
+            for blk in corpus.repo.get_document_blocks(did):
+                nblocks += 1
+                digest = hashlib.sha1(blk.content.encode("utf-8")).hexdigest()
+                sig.add((d.name, blk.start_offset, blk.end_offset, digest))
+        for row in corpus.repo.conn.execute("SELECT DISTINCT title FROM blocks_fts"):
+            fts_titles.add(str(row[0]))
+        evidence[v] = {"blocks": nblocks, "sig": sig, "fts_titles": len(fts_titles)}
         prec = m / p if p else 0.0
         rec = m / r if r else 0.0
         shape[v] = {
@@ -249,7 +281,20 @@ def main(argv: list[str] | None = None) -> int:
         if not args.quiet:
             print(f"variant {v}: done", file=sys.stderr)
 
+    base_sig = evidence[variants[0]]["sig"]
+    corpus_rows = {
+        v: {
+            "blocks": e["blocks"],
+            "corpus hash": hashlib.sha256(repr(sorted(e["sig"])).encode()).hexdigest()[:12],
+            f"shared with {variants[0]}": (
+                len(e["sig"] & base_sig) / len(e["sig"] | base_sig) if e["sig"] | base_sig else 1.0
+            ),
+            "FTS titles": e["fts_titles"],
+        }
+        for v, e in evidence.items()
+    }
     md = render(results, shape, outcomes, variants, names, docs, reviewed, queries, spec)
+    md += render_evidence(corpus_rows, base_cfg)
     print(md)
     if not args.no_save:
         out = Path(args.out)
@@ -261,6 +306,7 @@ def main(argv: list[str] | None = None) -> int:
                 {
                     "results": results,
                     "shape": shape,
+                    "evidence_corpus": corpus_rows,
                     "outcomes": [asdict(o) for o in outcomes],
                 },
                 ensure_ascii=False,
@@ -270,6 +316,30 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"\nsaved {stem}.md/.json", file=sys.stderr)
     return 0
+
+
+def render_evidence(rows: dict[str, dict[str, Any]], cfg: EngineConfig) -> str:
+    """V0.7 check: does the tree change the retrieval corpus?"""
+    first = next(iter(rows))
+    out = [
+        "",
+        "## Evidence corpus by structure (V0.7 invariant: should not depend on the tree)",
+        "",
+        f"evidence geometry `{cfg.evidence_geometry}`, index title `{cfg.index_title}`. "
+        f"A block is the same when its document, offsets and content hash are equal; 'shared' "
+        f"is the Jaccard overlap with the `{first}` corpus. FTS titles = distinct values of the "
+        "FTS title column (1 per document = no tree leaks into the index).",
+        "",
+        "| structure | blocks | corpus hash | shared | FTS titles |",
+        "|---|---|---|---|---|",
+    ]
+    for v, r in rows.items():
+        shared = r[f"shared with {first}"]
+        out.append(
+            f"| {v} | {r['blocks']} | `{r['corpus hash']}` | {100 * shared:.1f}% "
+            f"| {r['FTS titles']} |"
+        )
+    return "\n".join(out) + "\n"
 
 
 def render(

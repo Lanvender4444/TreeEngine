@@ -28,10 +28,12 @@ def _llm_from_env() -> LLMProvider | None:
     model = os.environ.get("TREEENGINE_LLM_MODEL")
     if not model:
         return None
+    extra = os.environ.get("TREEENGINE_LLM_EXTRA_BODY")  # provider-specific JSON, e.g. thinking
     return OpenAICompatibleLLM(
         model=model,
         api_key=os.environ.get("TREEENGINE_LLM_API_KEY"),
         base_url=os.environ.get("TREEENGINE_LLM_BASE_URL", "https://api.openai.com/v1"),
+        extra_body=json.loads(extra) if extra else None,
     )
 
 

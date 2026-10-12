@@ -353,6 +353,7 @@ def render(
         f"- skipped: {meta.get('skipped') or 'none'}",
         f"- tokens counted with {meta.get('tokenizer', '?')}; context = top {k} evidence items",
         f"- retrieval code: {meta.get('freeze', 'unknown')}",
+        f"- evidence geometry: {meta.get('evidence_geometry', 'coupled (pre-V0.7)')}",
     ]
     if meta.get("embedder"):
         q_ms = meta.get("query_embed_ms")

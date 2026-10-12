@@ -9,18 +9,25 @@ table-heavy pages. For every PDF and structure mode (text ``auto`` vs layout ``l
 verdict, two-column pages, TOC pages, and how much text the blocks keep. Hard checks (the run
 fails on them): no exception, every mode keeps >= 97% of the ``auto`` block text, and ``hybrid``
 never ends up with fewer headings than ``auto`` on a document whose bookmarks are graded high.
+
+V0.7 (evidence geometry) adds: the block corpus (offsets + content) is identical in every
+structure mode; blocks are unique, ordered, non-overlapping and all mapped to a node of the
+tree; and section-bounded reading contexts stay inside the anchor's node and the document.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import sys
 import time
 from dataclasses import replace
 from pathlib import Path
 
 from treeengine import build_components
+from treeengine.context import BlockContextBuilder
 from treeengine.core.config import EngineConfig
+from treeengine.core.models import Block, Evidence, Node
 from treeengine.ingest.base import get_adapter
 from treeengine.storage.sqlite import SQLiteRepository
 
@@ -63,6 +70,11 @@ def run_one(path: Path, mode: str) -> dict:
     secs = time.perf_counter() - t0
     nodes = [n for n in repo.get_document_nodes(doc.id) if n.node_type != "toc"]
     blocks = repo.get_document_blocks(doc.id)
+    corpus = hashlib.sha256(
+        repr([(b.start_offset, b.end_offset, b.content) for b in blocks]).encode()
+    ).hexdigest()[:12]
+    nodes_all = repo.get_document_nodes(doc.id)
+    problems = geometry_problems(repo, doc.id, nodes_all, blocks)
     q = doc.metadata.get("structure_quality") or {}
     if doc.metadata.get("ocr_required"):
         q = {**q, "reasons": ["OCR required: no text layer"]}
@@ -75,7 +87,48 @@ def run_one(path: Path, mode: str) -> dict:
         "bookmarks": q.get("bookmarks", ""),
         "reasons": "; ".join(q.get("reasons", []) + q.get("fallback", [])),
         "pages": doc.metadata.get("page_count"),
+        "blocks": len(blocks),
+        "corpus": corpus,
+        "spanning": sum(1 for b in blocks if len(b.metadata.get("node_ids") or []) > 1),
+        "nodes_all": len(nodes_all),
+        "problems": problems,
     }
+
+
+def geometry_problems(
+    repo: SQLiteRepository, doc_id: str, nodes: list[Node], blocks: list[Block]
+) -> list[str]:
+    """V0.7 invariants on one ingested document."""
+    out = []
+    ids = {n.id for n in nodes}
+    if len({b.id for b in blocks}) != len(blocks):
+        out.append("duplicate block ids")
+    if [b.position for b in blocks] != list(range(len(blocks))):
+        out.append("block positions not sequential")
+    for a, b in zip(blocks, blocks[1:], strict=False):
+        if a.start_offset is None or b.start_offset is None or a.end_offset is None:
+            out.append("block without offsets")
+            break
+        if not a.start_offset <= a.end_offset <= b.start_offset:
+            out.append(f"offsets not monotone at block {a.position}")
+            break
+    if any(b.node_id not in ids for b in blocks):
+        out.append("block mapped to no node of the tree")
+    # section-bounded context around a sample of anchors: inside the node and the document
+    builder = BlockContextBuilder(repo, policy="section600")
+    known = {b.id: b for b in blocks}
+    for b in blocks[:: max(1, len(blocks) // 40)]:
+        spans = builder.build(
+            [Evidence(doc_id, b.node_id, b.id, b.content, "fts")], token_budget=2000
+        )
+        for sp in spans:
+            if not set(sp.block_ids) <= set(known):
+                out.append("context span out of bounds")
+            elif {known[i].node_id for i in sp.block_ids} != {b.node_id}:
+                out.append("section context crosses its node")
+        if out:
+            break
+    return out
 
 
 def layout_stats(path: Path) -> tuple[int | str, int | str]:
@@ -90,7 +143,7 @@ def layout_stats(path: Path) -> tuple[int | str, int | str]:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m benchmarks.pdf_regression")
-    ap.add_argument("--out", default=str(HERE / "results" / "v0.6-pdf-regression.md"))
+    ap.add_argument("--out", default=str(HERE / "results" / "v0.7-pdf-regression.md"))
     ap.add_argument("--only", default=None, help="comma-separated file names")
     args = ap.parse_args(argv)
     todo = [s for s in SET if not args.only or s[1] in args.only.split(",")]
@@ -114,6 +167,12 @@ def main(argv: list[str] | None = None) -> int:
             r = res[mode]
             if r is None:
                 continue
+            failures += [f"{name} [{mode}]: {p}" for p in r["problems"]]
+            if base and r["corpus"] != base["corpus"]:
+                failures.append(
+                    f"{name} [{mode}]: block corpus differs from auto "
+                    f"({r['blocks']} vs {base['blocks']} blocks)"
+                )
             if base and r["chars"] < 0.97 * base["chars"]:
                 failures.append(f"{name} [{mode}]: keeps {r['chars']} of {base['chars']} chars")
         h = res.get("hybrid")
@@ -126,9 +185,10 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
     lines = [
-        "# PDF structure regression set (V0.6 layout-aware structure)",
+        "# PDF regression set (V0.6 layout-aware structure, V0.7 evidence geometry)",
         "",
         f"{len(rows)} real PDFs; modes: `auto` (text-based, current default), `layout`, `hybrid`.",
+        "Cells: structure source · headings · depth · ingest time.",
         "",
         "| PDF | covers | pages | 2-col pages | TOC pages | auto | layout | hybrid "
         "| hybrid: bookmarks / gate |",
@@ -148,9 +208,35 @@ def main(argv: list[str] | None = None) -> int:
             f"{cell(res.get('layout'))} | {cell(res.get('hybrid'))} | "
             f"{h.get('bookmarks', '')} / {h.get('reasons') or 'ok'} |"
         )
+    lines += [
+        "",
+        "## Evidence geometry (V0.7)",
+        "",
+        "The block corpus (offsets + content) per mode; `same` = identical to `auto`. Spanning = "
+        "blocks whose text falls in several nodes' own ranges (mapped to the majority owner).",
+        "",
+        "| PDF | blocks | corpus (auto) | layout | hybrid | spanning blocks auto / layout / hybrid "
+        "| nodes auto / layout / hybrid |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for name, _, res, _, _ in rows:
+        a = res.get("auto") or {}
+
+        def same(m: str, a: dict = a, res: dict = res) -> str:
+            r = res.get(m)
+            return "–" if not r else ("same" if r["corpus"] == a.get("corpus") else "**differs**")
+
+        sp = " / ".join(str((res.get(m) or {}).get("spanning", "–")) for m in MODES)
+        nn = " / ".join(str((res.get(m) or {}).get("nodes_all", "–")) for m in MODES)
+        lines.append(
+            f"| {name} | {a.get('blocks', '–')} | `{a.get('corpus', '–')}` | {same('layout')} "
+            f"| {same('hybrid')} | {sp} | {nn} |"
+        )
     lines += ["", "## Checks", ""]
     lines += [f"- FAIL {f}" for f in failures] or [
-        "- all passed (no crash, text kept, hybrid >= auto on good bookmarks)"
+        "- all passed (no crash, text kept, hybrid >= auto on good bookmarks; V0.7: identical "
+        "block corpus in every mode, unique ordered non-overlapping blocks, every block mapped, "
+        "section contexts inside their node)"
     ]
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)

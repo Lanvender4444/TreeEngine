@@ -31,7 +31,16 @@ from typing import Any
 HERE = Path(__file__).parent
 ROOT = HERE.parent
 FROZEN = HERE / "FROZEN.json"
-PACKAGES = ("core", "ingest", "structure", "pdf", "storage", "retrieval", "embeddings")
+PACKAGES = (
+    "core",
+    "ingest",
+    "structure",
+    "pdf",
+    "blocks",
+    "storage",
+    "retrieval",
+    "embeddings",
+)
 DEFAULT_CHUNK = {"size": 600, "overlap": 100, "selected_by": "default (design doc)"}
 # candidates every retriever returns before the answer context is filled / reconstructed;
 # RRF results depend on it (top 5 of a depth-5 fusion != top 5 of a depth-50 fusion)
@@ -48,6 +57,7 @@ def source_files(group: str = "retrieval") -> list[Path]:
             files += sorted((ROOT / "treeengine" / sub).glob("*.py"))
             files += sorted((ROOT / "treeengine" / sub).glob("*.sql"))
         files += sorted((HERE / "strategies").glob("*.py"))
+        files.append(ROOT / "treeengine" / "pipeline.py")  # wires evidence + structure builders
     elif group == "dataset":
         ds = HERE / "datasets"
         for pattern in ("*/manifest.json", "*/queries.jsonl", "*/structures/*.json"):

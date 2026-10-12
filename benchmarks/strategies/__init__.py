@@ -99,6 +99,22 @@ POLICY_STRATEGIES = {
         "max_llm_calls": 6,
     },
 }
+# V0.6 retrieval weight sweep: only the rank-fusion weights change; agentic_level fixed at 0.6
+# (guided), all budgets at the policy defaults. tree_weight = 0 switches the tree path off.
+WEIGHT_SWEEP = {
+    "weight_f1_v1_t0": {"fts_weight": 1.0, "vector_weight": 1.0, "tree_weight": 0.0},
+    "weight_f1_v05_t0": {"fts_weight": 1.0, "vector_weight": 0.5, "tree_weight": 0.0},
+    "weight_f05_v1_t0": {"fts_weight": 0.5, "vector_weight": 1.0, "tree_weight": 0.0},
+    "weight_f1_v1_t025": {"fts_weight": 1.0, "vector_weight": 1.0, "tree_weight": 0.25},
+    "weight_f1_v1_t05": {"fts_weight": 1.0, "vector_weight": 1.0, "tree_weight": 0.5},
+    "weight_f1_v1_t1": {"fts_weight": 1.0, "vector_weight": 1.0, "tree_weight": 1.0},
+}
+for _spec in WEIGHT_SWEEP.values():
+    _spec["agentic_level"] = 0.6
+POLICY_STRATEGIES.update(WEIGHT_SWEEP)
+_SWEEP_TREE = [n for n, sp in WEIGHT_SWEEP.items() if sp["tree_weight"] > 0]
+NEEDS_LLM += _SWEEP_TREE
+NEEDS_BOTH += _SWEEP_TREE
 NEEDS_LLM += [
     "policy_tree",
     "policy_hybrid_fallback",
@@ -110,6 +126,7 @@ QA_ONLY = ["full_context"]
 SCOPE_LEXICAL = list(SCOPE_BASES)
 SCOPE_VECTOR = [b + sfx for sfx in ("+vector", "+fts+vector") for b in SCOPE_BASES]
 NEEDS_VECTOR += SCOPE_VECTOR + ["policy_vector", "policy_hybrid"]
+NEEDS_VECTOR += [n for n in WEIGHT_SWEEP if n not in _SWEEP_TREE]
 LEXICAL_POLICY = ["policy_fts"]
 ALL = LEXICAL + SCOPE_LEXICAL + LEXICAL_POLICY + NEEDS_VECTOR + NEEDS_LLM + QA_ONLY
 RENAMED = {"tree": "tree_lexical", "tree+fts": "tree_lexical+fts"}  # V0.2 names
@@ -166,6 +183,8 @@ PRESETS = {
         "policy_hybrid_guided",
         "policy_hybrid_full",
     ],
+    # V0.6 retrieval weight sweep (W0-W5): fixed guided agent loop and auto context
+    "weight_sweep": list(WEIGHT_SWEEP),
     "llm_tree": [
         "tree_structure",
         "tree_lexical",
