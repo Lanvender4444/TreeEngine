@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 
 from .blocks import EvidenceBuilder, map_blocks
 from .core.ids import text_hash
@@ -43,10 +44,12 @@ class IngestionPipeline:
         repo: Repository,
         builder: StructureBuilder,
         indexer: VectorIndexer | None = None,
+        graph_indexer: Any = None,
     ) -> None:
         self.repo = repo
         self.builder = builder
         self.indexer = indexer
+        self.graph_indexer = graph_indexer  # Graph-lite entity links (EngineConfig.graph_index)
 
     def ingest(self, source: str | Path, source_type: str | None = None) -> Document:
         """Ingest a file (Markdown / HTML / PDF). Re-ingesting the same path replaces it in
@@ -89,6 +92,8 @@ class IngestionPipeline:
         self.repo.save_document(doc, nodes, blocks)
         if self.indexer is not None:
             self.indexer.index_document(doc.id)
+        if self.graph_indexer is not None:
+            self.graph_indexer.index_document(doc.id)
         stored = self.repo.get_document(doc.id)
         assert stored is not None
         return stored

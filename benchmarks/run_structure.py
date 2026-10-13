@@ -244,6 +244,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         m = r = p = h = 0
         nodes = depth = 0.0
+        tiny = dup = pages_total = 0
         methods: dict[str, int] = {}
         for d in docs:
             did = corpus.doc_ids[d.name]
@@ -251,6 +252,15 @@ def main(argv: list[str] | None = None) -> int:
             m, r, p, h = m + a, r + b, p + c, h + e
             ns = corpus.repo.get_document_nodes(did)
             nodes += len(ns)
+            # V0.8 tree hygiene: tiny sections (under 200 characters of own text and no
+            # children) and repeated titles
+            parents = {n.parent_id for n in ns}
+            tiny += sum(1 for n in ns if len(n.text or "") < 200 and n.id not in parents)
+            titles = [re.sub(r"\W+", "", n.title).lower() for n in ns]
+            dup += len(titles) - len(set(titles))
+            pages_total += int(
+                (corpus.repo.get_document(did).metadata or {}).get("page_count") or 1
+            )
             depth += max((n.depth for n in ns), default=0)
             meth = (corpus.repo.get_document(did).metadata or {}).get("structure_method", "?")
             methods[meth] = methods.get(meth, 0) + 1
@@ -276,6 +286,9 @@ def main(argv: list[str] | None = None) -> int:
             "heading R": rec,
             "heading F1": 2 * prec * rec / (prec + rec) if prec + rec else 0.0,
             "hierarchy acc": h / m if m else 0.0,
+            "nodes/page": nodes / max(1, pages_total),
+            "tiny sections": tiny / max(1.0, nodes),
+            "duplicate titles": dup / max(1.0, nodes),
             "methods": methods,  # type: ignore[dict-item]
         }
         if not args.quiet:
@@ -387,6 +400,9 @@ def render(
         "heading R",
         "heading F1",
         "hierarchy acc",
+        "nodes / page",
+        "tiny sections",
+        "duplicate titles",
         "structure method",
     ]
     sbody = [
@@ -398,6 +414,9 @@ def render(
             _fmt(shape[v]["heading R"]),
             _fmt(shape[v]["heading F1"]),
             _fmt(shape[v]["hierarchy acc"]),
+            f"{shape[v].get('nodes/page', 0):.2f}",
+            _fmt(shape[v].get("tiny sections")),
+            _fmt(shape[v].get("duplicate titles")),
             ", ".join(f"{k} {n}" for k, n in sorted(shape[v]["methods"].items())),
         ]
         for v in variants

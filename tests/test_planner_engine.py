@@ -80,16 +80,27 @@ def test_ask_with_llm_returns_block_level_citations(engine: TreeEngine, fixtures
             return "毛利率下降主要因为芯片成本上涨 [E1]，以及产品结构变化 [E2]。"
         return "not json"
 
+    # V0.9: the answer model reads ContextSpans; [E1] .. [En] are the spans
     te = TreeEngine(engine.repo.db_path, llm=CallableLLM(fn))
     doc = te.ingest(fixtures / "annual_report.md")
     r = te.ask("为什么毛利率下降？", document_id=doc.id)
     assert r.generated and "[E1]" in r.answer
-    assert [c.index for c in r.citations] == [1, 2]
+    assert all(e.source == "context" for e in r.evidence)
+    assert [c.index for c in r.citations] == [i for i in (1, 2) if i <= len(r.evidence)]
     for c in r.citations:
         assert c.document_id == doc.id and c.node_id and c.block_id
     assert r.citations[0].title == "毛利率分析"
     assert "[E1] (星河科技 2025 年度报告 >" in captured[0]
     te.close()
+    # pre-V0.9 behaviour: the top evidence items as they are
+    from treeengine import EngineConfig
+
+    legacy = TreeEngine(
+        engine.repo.db_path, llm=CallableLLM(fn), config=EngineConfig(answer_context_tokens=None)
+    )
+    r = legacy.ask("为什么毛利率下降？", document_id=doc.id)
+    assert [c.index for c in r.citations] == [1, 2]
+    legacy.close()
 
 
 def test_ask_without_llm_is_extractive(engine: TreeEngine, fixtures: Path) -> None:

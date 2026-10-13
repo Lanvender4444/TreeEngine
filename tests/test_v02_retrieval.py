@@ -92,7 +92,7 @@ def test_migration_v1_to_v2_rebuilds_fts(tmp_path: Path) -> None:
     conn.close()
 
     repo = SQLiteRepository(db)
-    assert repo.schema_version == SCHEMA_VERSION == 2
+    assert repo.schema_version == SCHEMA_VERSION == 3  # v1 -> v2 (porter) -> v3 (Graph-lite)
     assert [b.id for b, _ in repo.fts_query(["shuffle"])] == ["b"]  # stemmed after rebuild
     assert repo.fts_integrity() == (1, 1)
     repo.close()

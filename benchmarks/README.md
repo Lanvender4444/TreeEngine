@@ -575,6 +575,33 @@ Block（检索单元）只从 canonical text 生成（`treeengine/blocks`），T
 
 第一版 Block Builder 在 “像标题的短行” 处另起一个 Block，FinanceBench FTS 降到 19.1，而且这条规则违反计划 §6（不用标题边界切 Block），已经删掉。现在的 Block = V0.4 验证过的 flat 段落。
 
+## V0.8 — PDF Structure Precision
+
+`treeengine/pdf/headings.py` 给标题打分时加入了一组负信号：
+- 数字、金额、表头占比高的行（包括粘连的表头）
+- 表格区域里的行（带编号的除外）
+- 靠右的短行
+- 换行后的正文
+- 以句号结尾、没有编号的句子
+
+另外三条结构规则：
+- 3 条以上同样式、没有正文隔开的候选视为列表，整组压掉
+- 多行标题最多合并 3 行
+- “Notes to …” 下的 “Note N” 嵌套为子节点
+
+`pdf/validate.py` 去掉深度规则，只保留密度 > 4/页的闸门。审计工具：`python -m benchmarks.heading_audit`。
+
+| 问题 | 结果 |
+|---|---|
+| 假标题少了吗？（`results/v0.8-heading-error-audit.md`） | 12 份 10-K，真错误类别 layout 411 → 181（−56%），hybrid 321 → 107（−67%）。表格行 181 → 20，页眉 30 → 8。剩下不在参考结构里的条目 91% 是真标题（参考未列出的标题和附录标题），继续压就会删真标题 |
+| 标题召回保住了吗？（`results/v0.8-structure-financebench.md`） | 33 份 10-K：layout P 15.7 → 17.5、R 78.5 → 78.4、F1 26.1 → 28.6、层级 47.4 → 49.5；hybrid P 16.7 → 18.6、R 74.3 → 74.2、F1 27.3 → 29.8。节点数 −10%。对参考结构的精度离计划目标仍远，原因见上一行 |
+| 证据语料还稳定吗？ | 是：5 种树 × 33 份文档都是 39,587 块，哈希 `263b44b98526`；18 份 PDF 回归集每种模式语料都相同，所有检查通过 |
+| Tree 导航变好了吗？（`results/v0.8-tree-navigation-financebench.md`） | 方向一致向好，但幅度小、不显著：tree_lexical+fts R@5 layout 16.4 → 18.2、hybrid 19.1 → 20.9（都是 2:0）；R@2k +2.7 / +2.8。距参考树（30.9）和无结构 FTS（24.5）还差很多 |
+| 上下文 / QA 变了吗？（`results/v0.8-context-financebench.md`） | section span 稍大（+2–6%），跨节更少（layout @2000 0.41 → 0.33）。QA 8 组配置两轮合并都不显著（最好 7:3，p=0.34）。同一份代码重跑就会翻转 11–20/600 个判定，版本差异是 22/600，和噪声分不开 |
+| PDF 回归？（`results/v0.8-pdf-regression.md`） | 全部通过，auto 不变。mmdetection hybrid 被重复标题闸门拦下，回退到书签（927 → 399，更合理）。reg_bi_proposed layout 14 → 8（layout 在它上面本来就不可用，hybrid 走书签） |
+
+结论：V0.8 达成了 “减少假标题而不丢真标题”。不过 V0.7 之后检索已经与树无关，结构质量只通过节点边界影响上下文，在 FinanceBench 上测不出 QA 收益。下一步如果还要投入结构，瓶颈在层级（hierarchy 49%）和参考结构未覆盖的真标题，而不是假标题。
+
 ## 待完成
 
 | 实验 | 需要 |
@@ -585,6 +612,10 @@ Block（检索单元）只从 canonical text 生成（`treeengine/blocks`），T
 | P1 参考树人工校对（20 份） | 人工 |
 | P1 向量 Scope 消融：`--preset scope_ablation_vector` | embedding API |
 | P1 参考树 + LLM 导航：`run_structure --preset llm_tree --llm`；LLM 结构：`run_structure --llm` | LLM |
+| V0.9 NodeAnchor（`tree_anchor=node`）vs 旧 tree 路径（`blocks`）：longdoc / FinanceBench QA | Answer LLM |
+| V0.9 Graph-lite 召回增益（`graph_weight` 扫描，跨节问题）与延迟 | 无（词法）/ embedding |
+
+V0.9 的架构与接口说明见 `../docs/v0.9-architecture.md`。
 
 拿到 API 之后的运行顺序：
 

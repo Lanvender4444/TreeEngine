@@ -46,19 +46,24 @@ def corpus_key(docs: list[CorpusDoc]) -> str:
 
 
 def geometry_config(
-    evidence_geometry: str = "stable", index_title: str = "document"
+    evidence_geometry: str = "stable", index_title: str = "document", pdf_structure: str = "auto"
 ) -> tuple[EngineConfig, str]:
-    """(EngineConfig, corpus-cache variant tag) for an evidence-geometry setting (V0.7).
-    The default (stable blocks, document index titles) has no tag."""
+    """(EngineConfig, corpus-cache variant tag) for an evidence-geometry setting (V0.7) and a
+    PDF structure source (V0.8). The defaults have no tag."""
     from dataclasses import replace
 
-    cfg = replace(EngineConfig(), evidence_geometry=evidence_geometry, index_title=index_title)
-    tag = (
-        ""
-        if (evidence_geometry, index_title) == ("stable", "document")
-        else (f"geometry={evidence_geometry},title={index_title}")
+    cfg = replace(
+        EngineConfig(),
+        evidence_geometry=evidence_geometry,
+        index_title=index_title,
+        pdf_structure=pdf_structure,
     )
-    return cfg, tag
+    parts = []
+    if (evidence_geometry, index_title) != ("stable", "document"):
+        parts.append(f"geometry={evidence_geometry},title={index_title}")
+    if pdf_structure != "auto":
+        parts.append(f"pdf={pdf_structure}")
+    return cfg, ",".join(parts)
 
 
 def add_geometry_args(ap: Any) -> None:
@@ -67,6 +72,11 @@ def add_geometry_args(ap: Any) -> None:
         default="stable",
         choices=["stable", "coupled"],
         help="stable: blocks independent of the tree (V0.7 default); coupled: pre-V0.7",
+    )
+    ap.add_argument(
+        "--pdf-structure",
+        default="auto",
+        help="PDF tree source for the corpus (auto | layout | hybrid | ...; V0.8 experiments)",
     )
     ap.add_argument(
         "--index-title",

@@ -162,7 +162,9 @@ def setup(args: argparse.Namespace, default: list[str], extend: bool = True):
     llm = llm_from_args(args)
     wanted, skipped = choose_strategies(args, spec, llm, default, extend)
 
-    cfg, geometry_tag = geometry_config(args.evidence_geometry, args.index_title)
+    cfg, geometry_tag = geometry_config(
+        args.evidence_geometry, args.index_title, args.pdf_structure
+    )
     corpus = load_corpus(docs, not args.no_cache, args.quiet, config=cfg, variant=geometry_tag)
     paths, problems = check_queries(queries, corpus)
     if problems:
@@ -196,7 +198,8 @@ def base_meta(suite, docs, queries, corpus, ws, wanted, skipped, llm, spec):
     meta = {
         "suite": suite.name,
         "evidence_geometry": (
-            f"{ws.config.evidence_geometry} (index title: {ws.config.index_title})"
+            f"{ws.config.evidence_geometry} (index title: {ws.config.index_title}; "
+            f"pdf structure: {ws.config.pdf_structure})"
         ),
         "documents": len(docs),
         "real_documents": sum(1 for d in docs if not d.synthetic),

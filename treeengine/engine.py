@@ -5,8 +5,10 @@ It owns no retrieval logic; it only delegates to wired components (see ``factory
 * Ingest:            ingest / ingest_text / delete_document
 * Agent Navigation:  list_documents / get_document / get_roots / get_children / get_node /
                      get_ancestors / read_node / read_blocks / search_text / search_semantic
-* Managed Retrieval: retrieve (SearchResult with plan/trace/stats) / search (Evidence[])
-* Convenience:       ask (answer with citations) / get_tree / format_tree
+* Managed Retrieval: retrieve (SearchResult: anchors / evidence / context_spans / trace / stats)
+                     / search (Evidence[])
+* Context:           build_context (any hits -> ContextSpans; works with external retrievers)
+* Convenience:       ask (answer with citations, read from ContextSpans) / get_tree / format_tree
 """
 
 from __future__ import annotations
@@ -15,6 +17,8 @@ from pathlib import Path
 from typing import Any
 
 from .context import BlockContextBuilder
+from .context.builder import as_anchors
+from .context.span import ContextSpan
 from .core.config import EngineConfig
 from .core.models import AnswerResult, Block, Document, Evidence, Node, NodeView
 from .core.protocols import EmbeddingProvider, LLMProvider, Repository
@@ -141,6 +145,14 @@ class TreeEngine:
             query, document_id=document_id, node_id=node_id, limit=limit
         )
 
+    def build_graph_index(self) -> dict[str, int]:
+        """Graph-lite: (re)link entities to blocks for every document (needed once before a
+        policy with ``graph_weight > 0``, unless ``EngineConfig.graph_index`` was on at ingest)."""
+        from .graph import GraphIndexer
+
+        GraphIndexer(self.repo).index_all()
+        return self.repo.graph_stats()  # type: ignore[attr-defined]
+
     def reindex_vectors(self) -> int:
         """Re-embed every block (e.g. after changing the embedding model)."""
         if self.components.pipeline.indexer is None:
@@ -171,9 +183,13 @@ class TreeEngine:
             res = self.components.controller.retrieve(query, document_id=document_id, policy=policy)
         else:
             res = self.planner.retrieve(query, document_id=document_id, limit=limit, mode=mode)
-            if context_budget:
+            res.anchors = as_anchors(res.evidence)
+            budget = context_budget
+            if budget is None:
+                budget = self.config.retrieve_context_tokens
+            if budget:
                 res.context_spans = BlockContextBuilder(self.repo, policy=context_policy).build(
-                    res.evidence, token_budget=context_budget
+                    res.anchors, token_budget=budget
                 )
                 res.stats.context_tokens = sum(s.token_count for s in res.context_spans)
         if self.llm is not None and before is not None:
@@ -199,6 +215,25 @@ class TreeEngine:
     def tree_search(self, query: str, document_id: str) -> TreeSearchResult:
         return self.tree.locate(query, document_id)
 
+    # ------------------------------------------------------------------ context
+    def build_context(
+        self,
+        hits: Any,
+        token_budget: int = 2000,
+        policy: str = "auto",
+        *,
+        document_id: str | None = None,
+    ) -> list[ContextSpan]:
+        """Context Reconstruction on its own: rebuild continuous reading spans around any hits -
+        TreeEngine anchors / evidence, or results of an external retriever (``ExternalHit``,
+        dicts with ``text`` / ``document_id`` / ``block_id`` / ``start_offset`` / ``page``...).
+        External hits are mapped back to blocks by block id, offsets, text or page; a hit that
+        cannot be mapped is passed through as its own span."""
+        from .integrations.hits import resolve_hits
+
+        items = resolve_hits(self.repo, hits, document_id=document_id)
+        return BlockContextBuilder(self.repo, policy=policy).build(items, token_budget=token_budget)
+
     # ------------------------------------------------------------------ convenience
     def ask(
         self,
@@ -206,10 +241,44 @@ class TreeEngine:
         document_id: str | None = None,
         mode: QueryType | str | None = None,
         max_evidence: int | None = None,
+        *,
+        policy: RetrievalPolicy | None = None,
+        context_budget: int | None = None,
     ) -> AnswerResult:
+        """Retrieve -> anchors -> ContextSpans -> answer. The answer model reads continuous
+        spans (``EngineConfig.answer_context_tokens``); citations point at the spans' first
+        blocks. ``answer_context_tokens=None`` answers from the top evidence items as before."""
         k = max_evidence or self.config.answer_max_evidence
-        res = self.retrieve(question, document_id=document_id, limit=k, mode=mode)
-        return self.components.answerer.answer(question, res.evidence, res.query_type)
+        budget = context_budget or self.config.answer_context_tokens
+        res = self.retrieve(question, document_id=document_id, limit=k, mode=mode, policy=policy)
+        if not budget:
+            return self.components.answerer.answer(question, res.evidence, res.query_type)
+        spans = res.context_spans or BlockContextBuilder(
+            self.repo, policy=self.config.answer_context_policy
+        ).build(res.anchors[:k], token_budget=budget)
+        return self.components.answerer.answer(question, self._span_evidence(spans), res.query_type)
+
+    def _span_evidence(self, spans: list[ContextSpan]) -> list[Evidence]:
+        out = []
+        for sp in spans:
+            e = sp.to_evidence()
+            # the section the span was built for: its best anchor's node
+            anchor = sp.source_evidence_ids[0] if sp.source_evidence_ids else ""
+            node_id = anchor[5:] if anchor.startswith("node:") else None
+            if node_id is None and anchor:
+                b = self.repo.get_block(anchor)
+                node_id = b.node_id if b else None
+            node = self.repo.get_node(
+                node_id or sp.node_id or (sp.node_ids[0] if sp.node_ids else "")
+            )
+            if node is not None:
+                e.node_id = node.id
+                e.metadata["node_title"] = node.title
+            if sp.page_start is not None:
+                e.metadata["page"] = sp.page_start
+            e.metadata["start_offset"], e.metadata["end_offset"] = sp.start_offset, sp.end_offset
+            out.append(e)
+        return out
 
     def get_tree(
         self, document_id: str, max_depth: int | None = None, include_text: bool = False

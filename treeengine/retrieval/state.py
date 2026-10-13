@@ -1,34 +1,19 @@
-"""Mutable state of one controlled retrieval: observations, anchors, budgets spent."""
+"""Mutable state of one controlled retrieval: ranked anchors per path, budgets spent."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
 
 from ..core.models import Evidence
+from .anchor import Anchor, RetrievalAnchor
 from .result import Trace
-
-
-@dataclass
-class RetrievalAnchor:
-    """Where a path pointed: a block (FTS / Vector hits) or a node (tree reasoning). Internal to
-    the controller; node anchors are resolved to blocks before anything is read."""
-
-    kind: Literal["block", "node"]
-    document_id: str
-    block_id: str | None = None
-    node_id: str | None = None
-    source: str = ""
-    score: float | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class RetrievalState:
     query: str
     document_id: str | None = None
-    lists: dict[str, list[Evidence]] = field(default_factory=dict)  # path -> ranked evidence
-    node_anchors: list[RetrievalAnchor] = field(default_factory=list)
+    lists: dict[str, list[Anchor]] = field(default_factory=dict)  # path -> ranked anchors
     visited_nodes: set[str] = field(default_factory=set)
     used_retrievers: list[str] = field(default_factory=list)
     step: int = 0
@@ -39,23 +24,29 @@ class RetrievalState:
     stop_reason: str = ""
     trace: Trace = field(default_factory=Trace)
 
-    def add(self, path: str, evidence: list[Evidence]) -> None:
-        """Append a path's hits (several steps of one path accumulate in one ranked list)."""
-        have = {(e.document_id, e.block_id, e.node_id) for e in self.lists.get(path, [])}
-        new = [e for e in evidence if (e.document_id, e.block_id, e.node_id) not in have]
-        self.lists.setdefault(path, []).extend(new)
+    def add(self, path: str, anchors: list[Anchor]) -> None:
+        """Append a path's anchors (several steps of one path accumulate in one ranked list)."""
+        have = {a.key for a in self.lists.get(path, [])}
+        new = [a for a in anchors if a.key not in have]
+        lst = self.lists.setdefault(path, [])
+        for a in new:
+            a.rank = len(lst) + 1
+            lst.append(a)
         if path not in self.used_retrievers:
             self.used_retrievers.append(path)
 
+    @property
+    def node_anchors(self) -> list[Anchor]:
+        return [a for items in self.lists.values() for a in items if a.kind == "node"]
+
     def all_evidence(self) -> list[Evidence]:
-        seen: set[tuple[str, str | None, str | None]] = set()
+        seen: set[tuple[str, str]] = set()
         out = []
         for items in self.lists.values():
-            for e in items:
-                key = (e.document_id, e.block_id, e.node_id)
-                if key not in seen:
-                    seen.add(key)
-                    out.append(e)
+            for a in items:
+                if a.key not in seen and a.evidence is not None:
+                    seen.add(a.key)
+                    out.append(a.evidence)
         return out
 
 

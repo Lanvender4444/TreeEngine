@@ -5,6 +5,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
+from ..core.anchor import Anchor, anchor_from_evidence
 from ..core.models import Block, Evidence
 from ..core.protocols import Repository
 from ..llm.base import estimate_tokens
@@ -17,13 +18,17 @@ from .span import ContextSpan, evidence_id
 # auto         V0.5 heuristic: section600 for budgets <= 1000 tokens, adaptive600 above
 POLICIES = ["raw", "neighbor1", "neighbor2", "adaptive600", "section600", "auto"]
 AUTO_TIGHT_BUDGET = 1000
+NODE_SPAN_TOKENS = 600  # a NodeAnchor's span under raw / neighbor policies
 
 Kind = Literal["raw", "neighbor", "adaptive", "section"]
 
 
+Item = Evidence | Anchor
+
+
 class ContextBuilder(Protocol):
     def build(
-        self, evidence: Sequence[Evidence], *, token_budget: int, policy: str | None = None
+        self, evidence: Sequence[Item], *, token_budget: int, policy: str | None = None
     ) -> list[ContextSpan]: ...
 
 
@@ -68,6 +73,12 @@ class BlockContextBuilder:
     whose span does not fit is skipped. Spans are returned in rank order of their best anchor
     (``order="rank"``) or in document order (``order="document"``). Evidence without a block id
     (chunks, web results) passes through unchanged.
+
+    V0.9: items are ``Evidence`` or ``Anchor``. A BlockAnchor behaves like block evidence. A
+    NodeAnchor reads its section: the node's blocks (``node_scope="subtree"``: the node and its
+    children; "own": the node's own text; an anchor's ``metadata["scope"]`` wins) from the
+    section start, up to the policy's span size (adaptiveN / sectionN: N tokens; otherwise
+    ``NODE_SPAN_TOKENS``) - the section itself, not blocks re-searched inside it.
     """
 
     def __init__(
@@ -79,6 +90,7 @@ class BlockContextBuilder:
         order: Literal["rank", "document"] = "rank",
         allow_first_overflow: bool = False,
         overshoot: float = 1.25,
+        node_scope: Literal["subtree", "own"] = "subtree",
     ) -> None:
         self.repo = repo
         self.policy = policy
@@ -86,6 +98,7 @@ class BlockContextBuilder:
         self.order = order
         self.allow_first_overflow = allow_first_overflow
         self.overshoot = overshoot  # adaptive growth stops before a block would exceed size*this
+        self.node_scope = node_scope
         self._blocks: dict[str, list[Block]] = {}
         self._where: dict[str, tuple[str, int]] = {}  # block id -> (document, index)
         self._tokens: dict[str, int] = {}
@@ -104,8 +117,31 @@ class BlockContextBuilder:
             self._tokens[b.id] = self.count(b.content)
         return self._tokens[b.id]
 
-    def interval(self, e: Evidence, policy: Policy) -> tuple[str, int, int] | None:
+    def node_interval(self, a: Anchor, policy: Policy) -> tuple[str, int, int] | None:
+        """(document, first, last block index) of a NodeAnchor's section span."""
+        blocks = self.blocks(a.document_id)
+        scope = a.metadata.get("scope") or self.node_scope
+        ids = {str(a.node_id)}
+        if scope != "own":
+            ids = set(self.repo.get_subtree_ids(str(a.node_id))) | ids
+        idx = [i for i, b in enumerate(blocks) if b.node_id in ids]
+        if not idx:
+            return None
+        lo, end = idx[0], idx[-1]
+        size = policy.size if policy.kind in ("adaptive", "section") else NODE_SPAN_TOKENS
+        used = self.tokens(blocks[lo])
+        hi = lo
+        while hi < end and used + self.tokens(blocks[hi + 1]) <= size * self.overshoot:
+            hi += 1
+            used += self.tokens(blocks[hi])
+            if used >= size:
+                break
+        return a.document_id, lo, hi
+
+    def interval(self, e: Evidence | Anchor, policy: Policy) -> tuple[str, int, int] | None:
         """(document, first, last block index) of the span around one anchor block."""
+        if isinstance(e, Anchor) and e.kind == "node":
+            return self.node_interval(e, policy)
         if not e.block_id:
             return None
         blocks = self.blocks(e.document_id)
@@ -140,13 +176,14 @@ class BlockContextBuilder:
 
     # ---- spans under a budget
     def build(
-        self, evidence: Sequence[Evidence], *, token_budget: int, policy: str | None = None
+        self, evidence: Sequence[Item], *, token_budget: int, policy: str | None = None
     ) -> list[ContextSpan]:
         pol = resolve_policy(policy or self.policy, token_budget)
         items: list[tuple[int, _Open | ContextSpan]] = []  # (rank, open span | passthrough)
         total = 0
         for rank, e in enumerate(evidence):
-            iv = None if pol.kind == "raw" else self.interval(e, pol)
+            is_node = isinstance(e, Anchor) and e.kind == "node"
+            iv = None if pol.kind == "raw" and not is_node else self.interval(e, pol)
             if iv is None:
                 span = self._passthrough(e, pol)
                 if not self._fits(total, span.token_count, token_budget, bool(items)):
@@ -165,7 +202,7 @@ class BlockContextBuilder:
             new_tokens = sum(self.tokens(b) for b in self.blocks(doc)[new_lo : new_hi + 1])
             old_tokens = sum(o.tokens for o in merged)
             if not self._fits(total - old_tokens, new_tokens, token_budget, bool(items)):
-                if pol.kind != "raw" and not items and not self.allow_first_overflow:
+                if pol.kind != "raw" and not items and not self.allow_first_overflow and e.block_id:
                     # nothing fits around the best anchor: fall back to the anchor block alone
                     lo2 = hi2 = self._where[str(e.block_id)][1]
                     t2 = self.tokens(self.blocks(doc)[lo2])
@@ -173,7 +210,7 @@ class BlockContextBuilder:
                         items.append((rank, _Open(doc, lo2, hi2, [str(e.block_id)], rank, t2)))
                         total = t2
                 continue
-            anchors = [str(e.block_id)] + [a for o in merged for a in o.anchors]
+            anchors = [_anchor_id(e)] + [a for o in merged for a in o.anchors]
             first_rank = min([rank, *[o.rank for o in merged]])
             items = [(r, o) for r, o in items if not any(o is m for m in merged)]
             items.append((first_rank, _Open(doc, new_lo, new_hi, anchors, first_rank, new_tokens)))
@@ -192,7 +229,8 @@ class BlockContextBuilder:
             return True
         return not have_any and self.allow_first_overflow
 
-    def _passthrough(self, e: Evidence, pol: Policy) -> ContextSpan:
+    def _passthrough(self, item: Item, pol: Policy) -> ContextSpan:
+        e = _as_evidence(item, self.repo)
         md = e.metadata or {}
         pages = md.get("pages") or ([md["page"]] if md.get("page") is not None else [])
         pages = sorted({int(p) for p in pages})
@@ -235,4 +273,46 @@ class BlockContextBuilder:
         )
 
 
-__all__ = ["AUTO_TIGHT_BUDGET", "POLICIES", "BlockContextBuilder", "ContextBuilder", "Policy"]
+def _anchor_id(item: Item) -> str:
+    """Source id recorded on a span: the block id, or "node:<id>" for a NodeAnchor."""
+    if isinstance(item, Anchor) and item.kind == "node":
+        return f"node:{item.node_id}"
+    return str(item.block_id)
+
+
+def _as_evidence(item: Item, repo: Repository) -> Evidence:
+    if isinstance(item, Evidence):
+        return item
+    if item.evidence is not None:
+        return item.evidence
+    if item.kind == "node":
+        node = repo.get_node(str(item.node_id))
+        text = (node.text or node.summary or node.title) if node else ""
+        return Evidence(item.document_id, item.node_id, None, text, item.source, item.score)
+    b = repo.get_block(str(item.block_id))
+    return Evidence(
+        item.document_id, item.node_id, item.block_id, b.content if b else "", item.source
+    )
+
+
+def as_anchors(items: Sequence[Item]) -> list[Anchor]:
+    """Evidence / anchors -> anchors (evidence without a block or node id is dropped)."""
+    out: list[Anchor] = []
+    for it in items:
+        if isinstance(it, Anchor):
+            out.append(it)
+        elif it.block_id or it.node_id:
+            out.append(anchor_from_evidence(it, rank=len(out) + 1))
+    return out
+
+
+__all__ = [
+    "AUTO_TIGHT_BUDGET",
+    "NODE_SPAN_TOKENS",
+    "POLICIES",
+    "BlockContextBuilder",
+    "ContextBuilder",
+    "Item",
+    "Policy",
+    "as_anchors",
+]

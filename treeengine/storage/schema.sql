@@ -63,3 +63,21 @@ CREATE VIRTUAL TABLE IF NOT EXISTS blocks_fts USING fts5(
     content,
     tokenize = 'porter unicode61'
 );
+
+-- v3: Graph-lite (one-hop entity expansion). Entities are corpus-wide (normalised name);
+-- entity_blocks links an entity to every block it occurs in.
+CREATE TABLE IF NOT EXISTS entities (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    normalized TEXT NOT NULL UNIQUE,
+    type TEXT
+);
+CREATE TABLE IF NOT EXISTS entity_blocks (
+    entity_id INTEGER NOT NULL,
+    block_id TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    frequency INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (entity_id, block_id)
+);
+CREATE INDEX IF NOT EXISTS idx_entity_blocks_block ON entity_blocks(block_id);
+CREATE INDEX IF NOT EXISTS idx_entity_blocks_doc ON entity_blocks(document_id, entity_id);

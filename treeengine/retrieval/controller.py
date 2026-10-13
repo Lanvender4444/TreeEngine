@@ -2,15 +2,18 @@
 going, enforces budgets, and hands the result to the ContextBuilder.
 
     Query
-      -> fast paths (FTS / Vector, by weight)        observations
+      -> fast paths (FTS / Vector, by weight)        BlockAnchors
       -> evaluate: enough evidence?                   deterministic soft stop
-      -> tree reasoning steps (LLM, bounded actions)  only when the policy allows / needs it
-      -> weighted rank fusion of all paths            ranks only, never raw scores
+      -> tree reasoning steps (LLM, bounded actions)  NodeAnchors (policy allowing / needing it)
+      -> Graph-lite expansion (graph_weight > 0)      BlockAnchors one entity hop from the seeds
+      -> weighted rank fusion of all anchors          ranks only, never raw scores
       -> ContextBuilder                               ContextSpan[] within the context budget
 
-The controller does no retrieval itself; it calls the existing retrievers and navigation
-primitives (roots / children / read blocks / search in a subtree). Tree reasoning never filters
-the global retrieval: its hits are one more ranked list.
+Every path produces anchors (``retrieval.anchor``): positions worth reading. A NodeAnchor is a
+whole section - the ContextBuilder reads that section itself instead of re-searching blocks in
+it (``policy.tree_anchor = "blocks"`` keeps the pre-V0.9 "node -> FTS in the node" path for
+comparison). The controller does no retrieval itself; it calls the retrievers and navigation
+primitives. Tree reasoning never filters the global retrieval: its anchors are one more list.
 """
 
 from __future__ import annotations
@@ -28,12 +31,12 @@ from ..core.protocols import LLMProvider, Repository
 from ..core.text import query_terms, truncate
 from ..llm import prompts
 from ..llm.base import estimate_tokens, extract_json
+from .anchor import Anchor, NodeAnchor, anchors_from_evidence, fuse_anchors
 from .corpus import CorpusRetriever
 from .fts import FTSRetriever
-from .fusion import EvidenceMerger
 from .policy import RetrievalPolicy
 from .result import SearchResult, SearchStats
-from .state import RetrievalAnchor, RetrievalState
+from .state import RetrievalState
 from .tree import TreeRetriever
 from .vector import VectorRetriever
 
@@ -67,6 +70,7 @@ class RetrievalController:
         llm: LLMProvider | None = None,
         config: EngineConfig | None = None,
         token_counter: Callable[[str], int] = estimate_tokens,
+        graph: Any = None,
     ) -> None:
         self.repo = repo
         self.fts = fts
@@ -76,6 +80,7 @@ class RetrievalController:
         self.llm = llm
         self.config = config or EngineConfig()
         self.count = token_counter
+        self.graph = graph  # GraphExpander (Graph-lite), used when policy.graph_weight > 0
 
     # ------------------------------------------------------------------ main loop
     def retrieve(
@@ -112,7 +117,7 @@ class RetrievalController:
                 query, document_id=document_id, limit=policy.candidate_pool, trace=tr
             )
             st.fts_queries += 1
-            st.add("fts", hits)
+            st.add("fts", anchors_from_evidence(hits, "fts"))
         if policy.vector_weight > 0:
             if self.vector is None:
                 tr.add("vector", skipped="no embedder configured")
@@ -121,7 +126,7 @@ class RetrievalController:
                     query, document_id=document_id, limit=policy.candidate_pool, trace=tr
                 )
                 st.vector_queries += 1
-                st.add("vector", hits)
+                st.add("vector", anchors_from_evidence(hits, "vector"))
 
         # 2) evaluate, 3) tree reasoning when the policy allows / needs it
         enough, why = self._enough(st, policy)
@@ -137,11 +142,20 @@ class RetrievalController:
             )
         tr.add("stop", reason=st.stop_reason, steps=st.step, llm_calls=st.llm_calls)
 
-        # 4) fuse paths by rank, 5) build the reading context
-        evidence = self._fuse(st, policy)
+        # 4) Graph-lite: one entity hop from the best block anchors (an expansion, not a seed)
+        if policy.graph_weight > 0:
+            if self.graph is None:
+                tr.add("graph", skipped="no graph index (EngineConfig.graph_index)")
+            else:
+                seeds = [a for a in self._fuse(st, policy) if a.kind == "block"]
+                st.add("graph", self.graph.expand(seeds, policy, trace=tr))
+
+        # 5) fuse anchors by rank, 6) build the reading context
+        anchors = self._fuse(st, policy)
+        evidence = [self._evidence(a) for a in anchors]
         spans = BlockContextBuilder(
             self.repo, policy=policy.context_policy, token_counter=self.count
-        ).build(evidence, token_budget=policy.context_budget)
+        ).build(anchors, token_budget=policy.context_budget)
         ctx_tokens = sum(s.token_count for s in spans)
         tr.add(
             "context",
@@ -149,6 +163,7 @@ class RetrievalController:
             spans=len(spans),
             tokens=ctx_tokens,
             budget=policy.context_budget,
+            node_anchors=sum(1 for a in anchors if a.kind == "node"),
         )
         stats = SearchStats(
             latency_ms=(time.perf_counter() - t0) * 1000,
@@ -158,11 +173,13 @@ class RetrievalController:
             visited_nodes=len(st.visited_nodes),
             llm_calls=st.llm_calls,
             tree_steps=st.tree_steps,
-            candidate_count=len(evidence),
+            candidate_count=len(anchors),
             context_tokens=ctx_tokens,
         )
         plan = ControllerPlan(policy, policy.mode, list(st.used_retrievers), st.stop_reason)
-        return SearchResult(query, evidence, plan, tr.steps, stats, context_spans=spans)
+        return SearchResult(
+            query, evidence, plan, tr.steps, stats, context_spans=spans, anchors=anchors
+        )
 
     # ------------------------------------------------------------------ decisions
     def _tree_plan(self, policy: RetrievalPolicy, enough: bool) -> tuple[bool, int, bool]:
@@ -184,9 +201,9 @@ class RetrievalController:
     def _enough(self, st: RetrievalState, policy: RetrievalPolicy) -> tuple[bool, str]:
         """Deterministic soft stop: enough distinct evidence that covers the query's terms."""
         top = self._fuse(st, policy)[:10]
-        distinct = len({(e.document_id, e.block_id or e.node_id) for e in top})
+        distinct = len({a.key for a in top})
         terms = query_terms(st.query)
-        text = " ".join(e.content.lower() for e in top)
+        text = " ".join(self._evidence(a).content.lower() for a in top)
         coverage = sum(1 for t in terms if t.lower() in text) / len(terms) if terms else 1.0
         ok = distinct >= policy.min_evidence and coverage >= policy.min_term_coverage
         return ok, f"{distinct} distinct items, {coverage:.0%} of query terms covered"
@@ -240,7 +257,7 @@ class RetrievalController:
                     return
             options = self._options(doc, position)
             if not options and position is not None:
-                self._read(st, doc, position, "leaf section reached")
+                self._read(st, doc, position, "leaf section reached", policy)
                 st.stop_reason = "leaf section read"
                 return
             for n in options:
@@ -281,16 +298,13 @@ class RetrievalController:
                 path.append(node.title)
             elif action == "READ":
                 assert node is not None
-                self._read(st, doc, node, reason)
+                self._read(st, doc, node, reason, policy)
             elif action == "SEARCH":
                 assert node is not None
                 q = str((reply or {}).get("query") or st.query)
                 hits = self.fts.fts_search(q, document_id=doc, node_id=node.id, limit=READ_BLOCKS)
                 st.fts_queries += 1
-                st.add("tree", [self._tag(e, node, reason) for e in hits])
-                st.node_anchors.append(
-                    RetrievalAnchor("node", doc, node_id=node.id, source="tree_search")
-                )
+                st.add("tree", anchors_from_evidence([self._tag(e, node, reason) for e in hits]))
         st.stop_reason = st.stop_reason or "tree step budget used"
 
     def _options(self, doc: str, position: Node | None) -> list[Node]:
@@ -314,7 +328,7 @@ class RetrievalController:
             summary = truncate(" ".join((n.summary or n.text or "").split()), 160)
             label = "(current section)" if a == "here" else f"(subsections: {counts.get(n.id, 0)})"
             lines.append(f"- {a}: {n.title} {label} — {summary}")
-        known = self._fuse_lists(st.lists, {})[:3]
+        known = [self._evidence(a) for a in fuse_anchors(st.lists, {}, limit=3)]
         evidence = (
             "\n".join(f"- {truncate(' '.join(e.content.split()), 160)}" for e in known)
             or "(none yet)"
@@ -336,9 +350,15 @@ class RetrievalController:
         data = extract_json(reply)
         return data if isinstance(data, dict) else None
 
-    def _read(self, st: RetrievalState, doc: str, node: Node, reason: str) -> None:
-        """READ: resolve a node anchor to its most relevant blocks (search in the subtree),
-        or its first blocks when the question's words do not occur there."""
+    def _read(
+        self, st: RetrievalState, doc: str, node: Node, reason: str, policy: RetrievalPolicy
+    ) -> None:
+        """READ: the section itself is worth reading -> a NodeAnchor (the ContextBuilder reads
+        its text). ``tree_anchor="blocks"`` (pre-V0.9): resolve the node to its most relevant
+        blocks (FTS in the subtree), or its first blocks when the query words do not occur."""
+        if policy.tree_anchor == "node":
+            st.add("tree", [self._node_anchor(doc, node, reason)])
+            return
         hits = self.fts.fts_search(st.query, document_id=doc, node_id=node.id, limit=READ_BLOCKS)
         st.fts_queries += 1
         if not hits:
@@ -346,8 +366,14 @@ class RetrievalController:
                 Evidence(doc, b.node_id, b.id, b.content, "tree", metadata={"page": b.page})
                 for b in self.repo.get_blocks(node.id, limit=READ_BLOCKS)
             ]
-        st.add("tree", [self._tag(e, node, reason) for e in hits])
-        st.node_anchors.append(RetrievalAnchor("node", doc, node_id=node.id, source="tree_read"))
+        st.add("tree", anchors_from_evidence([self._tag(e, node, reason) for e in hits]))
+
+    def _node_anchor(self, doc: str, node: Node, reason: str, scope: str = "subtree") -> Anchor:
+        md: dict[str, Any] = {"tree_node": node.title, "tree_reason": reason}
+        md.update({"node_title": node.title, "page": node.page_start, "scope": scope})
+        text = node.text or node.summary or node.title
+        ev = Evidence(doc, node.id, None, truncate(text, 2000), "tree", None, dict(md))
+        return NodeAnchor(doc, node.id, "tree", metadata=md, evidence=ev)
 
     @staticmethod
     def _tag(e: Evidence, node: Node, reason: str) -> Evidence:
@@ -370,6 +396,17 @@ class RetrievalController:
         st.tree_steps += 1
         st.step += 1
         st.visited_nodes.update(n.id for n in loc.targets)
+        if policy.tree_anchor == "node":
+            own = set(loc.own_text_target_ids)
+            st.add(
+                "tree",
+                [
+                    self._node_anchor(doc, n, "heuristic", "own" if n.id in own else "subtree")
+                    for n in loc.targets
+                ],
+            )
+            st.stop_reason = "heuristic tree pass (no LLM)"
+            return
         hits = (
             self.fts.fts_search(
                 st.query, document_id=doc, node_ids=loc.scope_node_ids, limit=READ_BLOCKS
@@ -380,51 +417,55 @@ class RetrievalController:
         st.fts_queries += 1 if loc.scope_node_ids else 0
         st.add(
             "tree",
-            [
-                Evidence(
-                    e.document_id,
-                    e.node_id,
-                    e.block_id,
-                    e.content,
-                    "tree",
-                    e.score,
-                    {**e.metadata, "tree_node": "heuristic"},
-                )
-                for e in hits
-            ],
+            anchors_from_evidence(
+                [
+                    Evidence(
+                        e.document_id,
+                        e.node_id,
+                        e.block_id,
+                        e.content,
+                        "tree",
+                        e.score,
+                        {**e.metadata, "tree_node": "heuristic"},
+                    )
+                    for e in hits
+                ]
+            ),
         )
         st.stop_reason = "heuristic tree pass (no LLM)"
 
     # ------------------------------------------------------------------ fusion
-    def _fuse(self, st: RetrievalState, policy: RetrievalPolicy) -> list[Evidence]:
+    def _fuse(self, st: RetrievalState, policy: RetrievalPolicy) -> list[Anchor]:
         weights = {
             "fts": policy.fts_weight,
             "vector": policy.vector_weight,
             "tree": policy.tree_weight,
+            "graph": policy.graph_weight,
         }
-        return self._fuse_lists(st.lists, weights)[: policy.candidate_pool]
+        active = {k: v for k, v in st.lists.items() if v and weights.get(k, 1.0) > 0}
+        return fuse_anchors(active, weights, limit=policy.candidate_pool)
 
-    @staticmethod
-    def _fuse_lists(lists: dict[str, list[Evidence]], weights: dict[str, float]) -> list[Evidence]:
-        active = {k: v for k, v in lists.items() if v and weights.get(k, 1.0) > 0}
-        if not active:
-            return []
-        fused = EvidenceMerger(weights={k: weights.get(k, 1.0) for k in active}).rrf(active)
-        out = []
-        for e in fused:
-            paths = sorted((e.metadata.get("signals") or {}).keys()) or [e.source]
-            out.append(
-                Evidence(
-                    e.document_id,
-                    e.node_id,
-                    e.block_id,
-                    e.content,
-                    e.source,
-                    e.score,
-                    {**e.metadata, "retrieval_paths": paths},
-                )
+    def _evidence(self, a: Anchor) -> Evidence:
+        """The citable record of an anchor (a node anchor without one: its section text)."""
+        if a.evidence is not None:
+            return a.evidence
+        if a.kind == "node":
+            node = self.repo.get_node(str(a.node_id))
+            text = (node.text or node.summary or node.title) if node else ""
+            md = {**a.metadata, "node_title": node.title if node else None}
+            return Evidence(
+                a.document_id, a.node_id, None, truncate(text, 2000), a.source, a.score, md
             )
-        return out
+        b = self.repo.get_block(str(a.block_id))
+        return Evidence(
+            a.document_id,
+            a.node_id,
+            a.block_id,
+            b.content if b else "",
+            a.source,
+            a.score,
+            dict(a.metadata),
+        )
 
 
 __all__ = ["ACTIONS", "ControllerPlan", "RetrievalController"]

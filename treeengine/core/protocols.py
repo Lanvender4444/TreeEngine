@@ -11,7 +11,7 @@ second implementation actually needs a finer split.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Literal, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from .models import Block, Document, Evidence, Node
 
@@ -140,3 +140,20 @@ class VectorIndex(Protocol):
         ...
 
     def count(self) -> int: ...
+
+
+@runtime_checkable
+class GraphStore(Protocol):
+    """Graph-lite storage: entity <-> block links (one hop, no relations)."""
+
+    def save_entity_links(
+        self, document_id: str, links: Sequence[tuple[str, str, str | None, str, int]]
+    ) -> int: ...
+
+    def block_entities(self, block_ids: Sequence[str]) -> dict[str, list[dict[str, Any]]]: ...
+
+    def entity_blocks(
+        self, entity_id: int, *, document_id: str | None = None, limit: int = 10
+    ) -> list[tuple[str, str, int]]: ...
+
+    def graph_stats(self) -> dict[str, int]: ...

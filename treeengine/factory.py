@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .answer import Answerer
 from .core.config import EngineConfig
@@ -45,6 +45,7 @@ class Components:
     planner: RetrievalPlanner
     answerer: Answerer
     controller: RetrievalController
+    graph: Any = None  # GraphExpander when the repository has a Graph-lite store
 
 
 def build_components(
@@ -79,6 +80,11 @@ def build_components(
         vector = VectorRetriever(repository, vector_index, embedder, cfg)
         indexer = VectorIndexer(repository, vector_index, embedder)
 
+    from .core.protocols import GraphStore
+    from .graph import GraphExpander, GraphIndexer
+
+    graph = GraphExpander(repository) if isinstance(repository, GraphStore) else None
+    graph_indexer = GraphIndexer(repository) if graph is not None and cfg.graph_index else None
     corpus = CorpusRetriever(repository, vector if use_vector else None)
     tree = TreeRetriever(repository, metered, cfg, use_llm=llm_tree_navigation, corpus=corpus)
     fts = FTSRetriever(repository, cfg)
@@ -87,7 +93,7 @@ def build_components(
         repository=repository,
         llm=metered,
         builder=builder,
-        pipeline=IngestionPipeline(repository, builder, indexer),
+        pipeline=IngestionPipeline(repository, builder, indexer, graph_indexer),
         navigator=Navigator(repository, cfg),
         corpus=corpus,
         tree=tree,
@@ -113,7 +119,9 @@ def build_components(
             tree=TreeRetriever(repository, None, cfg, use_llm=False, corpus=corpus),
             llm=metered,
             config=cfg,
+            graph=graph,
         ),
+        graph=graph,
     )
 
 

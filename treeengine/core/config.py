@@ -30,6 +30,11 @@ class EngineConfig:
     pdf_structure: str = "auto"
     llm_structure_window: int = 200  # blocks per LLM structure call (long documents: several)
 
+    # Graph-lite (V0.9): link entities to blocks at ingest (cheap, deterministic) so a policy
+    # with graph_weight > 0 can expand one entity hop. Off by default; backfill with
+    # TreeEngine.build_graph_index().
+    graph_index: bool = False
+
     # tree retrieval
     tree_beam: int = 2  # nodes kept per level (1-3)
     tree_use_fts_signal: bool = True  # heuristic scorer also uses subtree FTS hits
@@ -44,3 +49,10 @@ class EngineConfig:
 
     # answer
     answer_max_evidence: int = 8
+    # V0.9: ask() answers from ContextSpans rebuilt around the retrieved anchors within this
+    # many tokens (None: the pre-V0.9 behaviour, the top evidence items as they are)
+    answer_context_tokens: int | None = 2000
+    answer_context_policy: str = "auto"
+    # retrieve() without a RetrievalPolicy also fills result.context_spans within this many
+    # tokens (None / 0: evidence only, the pre-V0.9 behaviour)
+    retrieve_context_tokens: int | None = None

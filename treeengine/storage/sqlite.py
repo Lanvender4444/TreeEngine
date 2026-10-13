@@ -19,7 +19,7 @@ from ..core.models import Block, Document, Node, dumps_meta, loads_meta
 from ..core.protocols import MatchMode
 from .fts5 import fts_match_expr, segment_for_index
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _NODE_COLS = (
     "id, document_id, parent_id, depth, position, title, summary, text, node_type, "
@@ -71,7 +71,9 @@ def _row_to_block(r: sqlite3.Row) -> Block:
 class SQLiteRepository:
     def __init__(self, db_path: str | Path = ":memory:") -> None:
         self.db_path = str(db_path)
-        self.conn = sqlite3.connect(self.db_path, isolation_level=None)
+        # check_same_thread=False: servers (MCP, HTTP) call in from worker threads; callers that
+        # share one repository across threads serialise access (``EngineService`` holds a lock)
+        self.conn = sqlite3.connect(self.db_path, isolation_level=None, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
         if self.db_path != ":memory:":
@@ -219,6 +221,7 @@ class SQLiteRepository:
                 "(SELECT rowid FROM blocks WHERE document_id = ?)",
                 (document_id,),
             )
+            self.conn.execute("DELETE FROM entity_blocks WHERE document_id = ?", (document_id,))
             self.conn.execute("DELETE FROM blocks WHERE document_id = ?", (document_id,))
             self.conn.execute("DELETE FROM nodes WHERE document_id = ?", (document_id,))
             self.conn.execute("DELETE FROM documents WHERE id = ?", (document_id,))
@@ -493,6 +496,74 @@ class SQLiteRepository:
         ).fetchall()
         return [_row_to_block(r) for r in rows]
 
+    # ------------------------------------------------------------------ graph-lite
+    def save_entity_links(
+        self, document_id: str, links: Sequence[tuple[str, str, str | None, str, int]]
+    ) -> int:
+        """Replace a document's entity links. ``links``: (name, normalized, type, block_id,
+        frequency). Entities are shared across documents (by normalised name)."""
+        with self.transaction():
+            self.conn.execute("DELETE FROM entity_blocks WHERE document_id = ?", (document_id,))
+            ids: dict[str, int] = {}
+            for name, norm, typ, _, _ in links:
+                if norm in ids:
+                    continue
+                self.conn.execute(
+                    "INSERT INTO entities (name, normalized, type) VALUES (?, ?, ?) "
+                    "ON CONFLICT(normalized) DO NOTHING",
+                    (name, norm, typ),
+                )
+                row = self.conn.execute(
+                    "SELECT id FROM entities WHERE normalized = ?", (norm,)
+                ).fetchone()
+                ids[norm] = int(row[0])
+            self.conn.executemany(
+                "INSERT OR REPLACE INTO entity_blocks (entity_id, block_id, document_id, frequency)"
+                " VALUES (?, ?, ?, ?)",
+                [(ids[norm], bid, document_id, freq) for _, norm, _, bid, freq in links],
+            )
+        return len(links)
+
+    def block_entities(self, block_ids: Sequence[str]) -> dict[str, list[dict[str, Any]]]:
+        """block id -> its entities with corpus document frequency (``df``: blocks containing
+        the entity) and frequency in that block."""
+        out: dict[str, list[dict[str, Any]]] = {}
+        if not block_ids:
+            return out
+        q = ",".join("?" * len(block_ids))
+        rows = self.conn.execute(
+            "SELECT eb.block_id, e.id, e.name, e.type, eb.frequency, "
+            "(SELECT COUNT(*) FROM entity_blocks x WHERE x.entity_id = e.id) AS df "
+            "FROM entity_blocks eb JOIN entities e ON e.id = eb.entity_id "
+            f"WHERE eb.block_id IN ({q})",
+            list(block_ids),
+        ).fetchall()
+        for r in rows:
+            out.setdefault(r[0], []).append(
+                {"id": r[1], "name": r[2], "type": r[3], "frequency": r[4], "df": r[5]}
+            )
+        return out
+
+    def entity_blocks(
+        self, entity_id: int, *, document_id: str | None = None, limit: int = 10
+    ) -> list[tuple[str, str, int]]:
+        """(block id, document id, frequency) of the blocks an entity occurs in; with
+        ``document_id``: that document's blocks first."""
+        rows = self.conn.execute(
+            "SELECT block_id, document_id, frequency FROM entity_blocks WHERE entity_id = ? "
+            "ORDER BY (document_id = ?) DESC, frequency DESC, block_id LIMIT ?",
+            (entity_id, document_id or "", limit),
+        ).fetchall()
+        return [(r[0], r[1], int(r[2])) for r in rows]
+
+    def graph_stats(self) -> dict[str, int]:
+        e = self.conn.execute("SELECT COUNT(*) FROM entities").fetchone()[0]
+        links = self.conn.execute("SELECT COUNT(*) FROM entity_blocks").fetchone()[0]
+        blocks = self.conn.execute("SELECT COUNT(DISTINCT block_id) FROM entity_blocks").fetchone()[
+            0
+        ]
+        return {"entities": int(e), "links": int(links), "blocks": int(blocks)}
+
     # ------------------------------------------------------------------ fts
     def fts_query(
         self,
@@ -547,4 +618,12 @@ def _migrate_v2(repo: SQLiteRepository) -> None:
     repo.rebuild_fts()
 
 
-_MIGRATIONS = {2: _migrate_v2}
+def _migrate_v3(repo: SQLiteRepository) -> None:
+    """v2 -> v3: Graph-lite tables (empty until a document is indexed)."""
+    sql = resources.files("treeengine.storage").joinpath("schema.sql").read_text("utf-8")
+    for stmt in _split_sql(sql):
+        if "entit" in stmt:
+            repo.conn.execute(stmt)
+
+
+_MIGRATIONS = {2: _migrate_v2, 3: _migrate_v3}

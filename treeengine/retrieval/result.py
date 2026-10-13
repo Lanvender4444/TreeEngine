@@ -54,6 +54,9 @@ class SearchResult:
     # what the answer model should read: continuous spans rebuilt around the evidence (filled
     # when a context budget is given; Evidence stays the retrieval record / citations)
     context_spans: list[ContextSpan] = field(default_factory=list)
+    # V0.9: the retrieval decisions - ranked positions worth reading (BlockAnchor / NodeAnchor,
+    # after fusion). ``evidence`` is their citable record; ``context_spans`` what to read.
+    anchors: list[Any] = field(default_factory=list)
 
     @property
     def query_type(self) -> str:

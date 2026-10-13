@@ -32,7 +32,7 @@ def structure_quality(outline: list[Entry], page_count: int) -> StructureQuality
     reasons = []
     if n < 2:
         reasons.append("fewer than 2 headings")
-    if density > 6:
+    if density > 4:
         reasons.append(f"{density:.1f} headings per page")
     if orphan_ratio > 0.3:
         reasons.append(f"{orphan_ratio:.0%} level jumps")

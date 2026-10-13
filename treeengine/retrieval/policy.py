@@ -37,6 +37,16 @@ class RetrievalPolicy:
     max_llm_calls: int = 2
     max_tree_visits: int = 20
 
+    # V0.9 Graph-lite: one entity hop from the best block anchors (an expansion signal, 0 = off)
+    graph_weight: float = 0.0
+    graph_seeds: int = 5
+    graph_entities_per_seed: int = 5
+    graph_blocks_per_entity: int = 3
+    graph_max_blocks: int = 10
+    # what a tree READ contributes: "node" = the section itself (NodeAnchor, V0.9);
+    # "blocks" = FTS inside the section -> BlockAnchors (pre-V0.9 path, for comparison)
+    tree_anchor: str = "node"
+
     candidate_pool: int = 50
     context_budget: int = 2000
     context_policy: str = "auto"
@@ -46,7 +56,7 @@ class RetrievalPolicy:
     min_term_coverage: float = 0.6
 
     def __post_init__(self) -> None:
-        for name in ("fts_weight", "vector_weight", "tree_weight", "agentic_level"):
+        for name in ("fts_weight", "vector_weight", "tree_weight", "graph_weight", "agentic_level"):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} must be >= 0")
         if self.agentic_level > 1:
@@ -55,6 +65,8 @@ class RetrievalPolicy:
             raise ValueError("at least one retrieval path needs a weight > 0")
         if min(self.max_steps, self.candidate_pool, self.context_budget) <= 0:
             raise ValueError("budgets must be positive")
+        if self.tree_anchor not in ("node", "blocks"):
+            raise ValueError('tree_anchor must be "node" or "blocks"')
 
     @property
     def mode(self) -> AgenticMode:
