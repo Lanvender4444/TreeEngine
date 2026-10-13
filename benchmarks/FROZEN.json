@@ -1,7 +1,7 @@
 {
- "frozen_at": "2026-10-13 04:55",
- "note": "V0.9: unified anchors (core.anchor, fuse_anchors, NodeAnchor context, tree_anchor node|blocks), embeddable integration (build_context/ExternalHit, service, MCP, HTTP, LangChain/LlamaIndex), Graph-lite (schema v3, graph_weight=0 default). Default policy, fts-only, tree blocks-mode and search() outputs verified identical to V0.8 on 42 queries x 2 scopes",
- "fingerprint": "cb01e71f27f78cb3",
+ "frozen_at": "2026-10-13 15:40",
+ "note": "V0.9: unified anchors (fuse_anchors + absorb_contained before the candidate-pool cut: a NodeAnchor takes over the best fast-path block inside its section and reads around it), embeddable integration, Graph-lite (expansion only adds blocks no other path found; graph_weight=0 default). Default, fts-only, tree blocks-mode and search() outputs identical to V0.8 (42 queries x 2 scopes)",
+ "fingerprint": "073659fa006e41eb",
  "chunk": {
   "size": 600,
   "overlap": 100,
@@ -47,9 +47,9 @@
   "treeengine/storage/vectors.py": "dfed39e95b85ec41",
   "treeengine/storage/schema.sql": "5d87795970fb4a4c",
   "treeengine/retrieval/__init__.py": "481a061d55619046",
-  "treeengine/retrieval/anchor.py": "b1e2bef8189049f1",
+  "treeengine/retrieval/anchor.py": "408d42dc6c9c9b97",
   "treeengine/retrieval/base.py": "1f9176cd2e9fca48",
-  "treeengine/retrieval/controller.py": "46eadecce7ab1070",
+  "treeengine/retrieval/controller.py": "fb87a0bbe656d71c",
   "treeengine/retrieval/corpus.py": "65c548c4f14e4d12",
   "treeengine/retrieval/fts.py": "8f3605d2a9dd888c",
   "treeengine/retrieval/fusion.py": "20f53586421c2bc9",
@@ -60,13 +60,13 @@
   "treeengine/retrieval/result.py": "e67ac77ed8154cb4",
   "treeengine/retrieval/scoped.py": "c5b55902f8eea359",
   "treeengine/retrieval/semantic.py": "70ccdd55c6a9325e",
-  "treeengine/retrieval/state.py": "8ba03ea57d8d2948",
+  "treeengine/retrieval/state.py": "d76b0af1c2b3c27a",
   "treeengine/retrieval/structural.py": "0466f0636c326b00",
   "treeengine/retrieval/tree.py": "59e9de4568914375",
   "treeengine/retrieval/vector.py": "40d693d717b4dea8",
   "treeengine/embeddings/__init__.py": "0b5e16d9b873ea8d",
   "treeengine/embeddings/providers.py": "40428511d1654bc7",
-  "benchmarks/strategies/__init__.py": "5bba0a6df6b577db",
+  "benchmarks/strategies/__init__.py": "ed6cdb6e61fad049",
   "benchmarks/strategies/base.py": "f050bd6321f45749",
   "benchmarks/strategies/chunk_rag.py": "38d7ac8625166270",
   "benchmarks/strategies/full_context.py": "7b1cd566dfcbd4cc",
@@ -119,7 +119,7 @@
   }
  },
  "evaluation": {
-  "fingerprint": "7d7b2ec001947210",
+  "fingerprint": "b12dc90569a893b8",
   "files": {
    "benchmarks/metrics/__init__.py": "93dab04a69f3aefa",
    "benchmarks/metrics/cost.py": "a406c1605156aaab",
@@ -130,10 +130,10 @@
    "benchmarks/judges/human_audit.py": "8c8d9b33679b49e8",
    "benchmarks/judges/semantic.py": "227838d8a81ba0bf",
    "treeengine/context/__init__.py": "0cb365a2dc8c3007",
-   "treeengine/context/builder.py": "f7b06d0f291ac00f",
+   "treeengine/context/builder.py": "16bd5bde7cca93f0",
    "treeengine/context/span.py": "34067c36639adaad",
    "benchmarks/answer.py": "491f9eaf73d5c3af",
-   "benchmarks/context.py": "3d1511998134a0f0",
+   "benchmarks/context.py": "315d8b557651eed3",
    "benchmarks/loader.py": "d420134764efd29b",
    "benchmarks/datasets/__init__.py": "538de764583c789d"
   }

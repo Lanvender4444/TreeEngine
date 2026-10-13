@@ -602,6 +602,16 @@ Block（检索单元）只从 canonical text 生成（`treeengine/blocks`），T
 
 结论：V0.8 达成了 “减少假标题而不丢真标题”。不过 V0.7 之后检索已经与树无关，结构质量只通过节点边界影响上下文，在 FinanceBench 上测不出 QA 收益。下一步如果还要投入结构，瓶颈在层级（hierarchy 49%）和参考结构未覆盖的真标题，而不是假标题。
 
+## V0.9 — Unified Anchors · Embeddable Integration · Graph-lite
+
+架构与接口见 `../docs/v0.9-architecture.md`。默认策略、FTS-only、tree blocks 模式和 `search()` 的输出与 V0.8 逐位一致（42 个查询 × 2 种范围），并按新代码重新冻结。新增 preset：`anchor`、`graph`、`graph_vector`。
+
+| 问题 | 结果 |
+|---|---|
+| NodeAnchor 比旧 tree 路径好吗？（`results/v0.9-node-anchor.md`） | @2000 时是：longdoc 上 node 对不开 tree 7:0（p=0.016），FinanceBench 上 node 对 blocks 13:4（p=0.049）；旧路径在 FinanceBench 上反而不如不开 tree（3:10）。@1000 时 tree 没有帮助。考虑到 12 次检验和轮间噪声，真实收益约 2 分。tree 仍默认关闭，开启时默认 `tree_anchor="node"` |
+| Graph-lite 能多召回吗？（`results/v0.9-graph-lite.md`） | longdoc 和 FinanceBench 上测不出：权重 ≤ 0.5 时前 5、前 10 和 2k 预算内几乎不变；权重 1.0 时挤掉真命中（FinanceBench FTS R@5 34.7 → 31.3，1:9）；QA 全部不显著；延迟增加 30–100%。两个题集都是单跳，保持 `graph_weight=0` |
+| 修掉的设计问题 | ① NodeAnchor 在 RRF 里永远排在所有块之后，现在节点会接管本节内排名最高的块（`absorb_contained`），而且这一步要在候选池截断之前做；② graph 列表原来会给快路径已找到的块多加一项分，把 FTS 第一名挤下去（recall@1 47.8 → 25.0），现在只补充新块 |
+
 ## 待完成
 
 | 实验 | 需要 |
@@ -612,8 +622,7 @@ Block（检索单元）只从 canonical text 生成（`treeengine/blocks`），T
 | P1 参考树人工校对（20 份） | 人工 |
 | P1 向量 Scope 消融：`--preset scope_ablation_vector` | embedding API |
 | P1 参考树 + LLM 导航：`run_structure --preset llm_tree --llm`；LLM 结构：`run_structure --llm` | LLM |
-| V0.9 NodeAnchor（`tree_anchor=node`）vs 旧 tree 路径（`blocks`）：longdoc / FinanceBench QA | Answer LLM |
-| V0.9 Graph-lite 召回增益（`graph_weight` 扫描，跨节问题）与延迟 | 无（词法）/ embedding |
+| V0.9 Graph-lite 多跳 / 跨节题集（现有数据集是单跳，测不出扩展的价值） | 人工 / LLM 出题 |
 
 V0.9 的架构与接口说明见 `../docs/v0.9-architecture.md`。
 

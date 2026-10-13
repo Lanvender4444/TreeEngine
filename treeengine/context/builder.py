@@ -129,6 +129,11 @@ class BlockContextBuilder:
             return None
         lo, end = idx[0], idx[-1]
         size = policy.size if policy.kind in ("adaptive", "section") else NODE_SPAN_TOKENS
+        focus = a.metadata.get("focus_block_id")
+        if focus and focus in self._where:
+            # the node took over a fast-path hit inside it: read around that hit, bounded by
+            # the section (its subtree), instead of from the section's first block
+            return a.document_id, *self._grow(blocks, self._where[focus][1], size, ids)
         used = self.tokens(blocks[lo])
         hi = lo
         while hi < end and used + self.tokens(blocks[hi + 1]) <= size * self.overshoot:
@@ -137,6 +142,27 @@ class BlockContextBuilder:
             if used >= size:
                 break
         return a.document_id, lo, hi
+
+    def _grow(self, blocks: list[Block], i: int, size: int, ids: set[str]) -> tuple[int, int]:
+        """Grow [i, i] alternately left / right while blocks stay in ``ids`` and the span stays
+        under ``size`` tokens (same growth rule as the section policy)."""
+        lo = hi = i
+        used = self.tokens(blocks[i])
+        open_side = {"left": True, "right": True}
+        while used < size and any(open_side.values()):
+            for side in ("left", "right"):
+                if used >= size or not open_side[side]:
+                    continue
+                j = lo - 1 if side == "left" else hi + 1
+                if not 0 <= j < len(blocks) or blocks[j].node_id not in ids:
+                    open_side[side] = False
+                    continue
+                if used + self.tokens(blocks[j]) > size * self.overshoot:
+                    open_side = {"left": False, "right": False}
+                    break
+                used += self.tokens(blocks[j])
+                lo, hi = (j, hi) if side == "left" else (lo, j)
+        return lo, hi
 
     def interval(self, e: Evidence | Anchor, policy: Policy) -> tuple[str, int, int] | None:
         """(document, first, last block index) of the span around one anchor block."""
@@ -202,12 +228,16 @@ class BlockContextBuilder:
             new_tokens = sum(self.tokens(b) for b in self.blocks(doc)[new_lo : new_hi + 1])
             old_tokens = sum(o.tokens for o in merged)
             if not self._fits(total - old_tokens, new_tokens, token_budget, bool(items)):
-                if pol.kind != "raw" and not items and not self.allow_first_overflow and e.block_id:
+                one = e.block_id or (
+                    e.metadata.get("focus_block_id") if isinstance(e, Anchor) else None
+                )
+                if pol.kind != "raw" and not items and not self.allow_first_overflow and one:
                     # nothing fits around the best anchor: fall back to the anchor block alone
-                    lo2 = hi2 = self._where[str(e.block_id)][1]
+                    # (a node anchor: its focus block)
+                    lo2 = hi2 = self._where[str(one)][1]
                     t2 = self.tokens(self.blocks(doc)[lo2])
                     if t2 <= token_budget:
-                        items.append((rank, _Open(doc, lo2, hi2, [str(e.block_id)], rank, t2)))
+                        items.append((rank, _Open(doc, lo2, hi2, [_anchor_id(e)], rank, t2)))
                         total = t2
                 continue
             anchors = [_anchor_id(e)] + [a for o in merged for a in o.anchors]

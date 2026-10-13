@@ -31,7 +31,7 @@ from ..core.protocols import LLMProvider, Repository
 from ..core.text import query_terms, truncate
 from ..llm import prompts
 from ..llm.base import estimate_tokens, extract_json
-from .anchor import Anchor, NodeAnchor, anchors_from_evidence, fuse_anchors
+from .anchor import Anchor, NodeAnchor, absorb_contained, anchors_from_evidence, fuse_anchors
 from .corpus import CorpusRetriever
 from .fts import FTSRetriever
 from .policy import RetrievalPolicy
@@ -148,7 +148,11 @@ class RetrievalController:
                 tr.add("graph", skipped="no graph index (EngineConfig.graph_index)")
             else:
                 seeds = [a for a in self._fuse(st, policy) if a.kind == "block"]
-                st.add("graph", self.graph.expand(seeds, policy, trace=tr))
+                # only positions no other path found: the graph adds blocks, it does not
+                # re-rank the fast paths' own results (a shared block would gain an extra
+                # RRF term and overtake the fast paths' top hits)
+                found = {str(a.block_id) for a in st.all_anchors() if a.kind == "block"}
+                st.add("graph", self.graph.expand(seeds, policy, trace=tr, exclude=found))
 
         # 5) fuse anchors by rank, 6) build the reading context
         anchors = self._fuse(st, policy)
@@ -443,7 +447,17 @@ class RetrievalController:
             "graph": policy.graph_weight,
         }
         active = {k: v for k, v in st.lists.items() if v and weights.get(k, 1.0) > 0}
-        return fuse_anchors(active, weights, limit=policy.candidate_pool)
+        # absorb before the pool cut: a NodeAnchor's own tree term alone ranks below the
+        # pool, so cutting first would drop it before it can take over the evidence inside it
+        fused = fuse_anchors(active, weights)
+        return absorb_contained(fused, self._section_ids)[: policy.candidate_pool]
+
+    def _section_ids(self, a: Anchor) -> set[str]:
+        """The node ids a NodeAnchor covers: itself (scope "own") or its whole subtree."""
+        nid = str(a.node_id)
+        if a.metadata.get("scope") == "own":
+            return {nid}
+        return {nid, *self.repo.get_subtree_ids(nid)}
 
     def _evidence(self, a: Anchor) -> Evidence:
         """The citable record of an anchor (a node anchor without one: its section text)."""

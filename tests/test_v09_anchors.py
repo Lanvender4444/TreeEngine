@@ -119,3 +119,60 @@ def test_tree_anchor_modes_without_llm(fixtures: Path, mode: str) -> None:
 def test_tree_anchor_policy_validation() -> None:
     with pytest.raises(ValueError):
         RetrievalPolicy(tree_anchor="leaf")
+
+
+def test_absorb_contained_gives_nodes_credit_for_their_evidence() -> None:
+    from treeengine.retrieval.anchor import absorb_contained
+
+    fts = [BlockAnchor("d", f"b{i}", f"n{i}", "fts", i) for i in range(1, 6)]
+    tree = [NodeAnchor("d", "n4", rank=1, metadata={"scope": "own"}), NodeAnchor("d", "n9")]
+    fused = fuse_anchors({"fts": fts, "tree": tree}, {"tree": 0.5})
+    # plain RRF: both nodes rank below every block
+    assert [a.kind for a in fused] == ["block"] * 5 + ["node"] * 2
+    sections = {"n4": {"n4"}, "n9": {"n9"}}
+    out = absorb_contained(fused, lambda a: sections[str(a.node_id)])
+    keys = [a.key for a in out]
+    # n4 takes over b4 (b4 leaves the list) and outranks b3 - like a block found twice
+    assert ("block", "b4") not in keys
+    assert keys.index(("node", "n4")) < keys.index(("block", "b5"))
+    assert keys.index(("node", "n4")) == 0  # 1/64 + 0.5/61 > 1/61
+    n4 = out[0]
+    assert n4.metadata["focus_block_id"] == "b4" and n4.sources == ["fts", "tree"]
+    # a node with nothing inside keeps its tree-only score at the end
+    assert keys[-1] == ("node", "n9") and [a.rank for a in out] == list(range(1, len(out) + 1))
+    # no node anchors: identity
+    assert absorb_contained(fts, lambda a: set()) == fts
+
+
+def test_focus_node_span_reads_around_the_hit(fixtures: Path) -> None:
+    te, doc = _engine(fixtures)
+    blocks = te.repo.get_document_blocks(doc)
+    parent = next(
+        n
+        for n in te.repo.get_document_nodes(doc)
+        if len(te.repo.get_subtree_ids(n.id)) >= 3 and n.parent_id
+    )
+    ids = {parent.id, *te.repo.get_subtree_ids(parent.id)}
+    inside = [b for b in blocks if b.node_id in ids]
+    focus = inside[len(inside) // 2]
+    a = NodeAnchor(doc, parent.id, metadata={"focus_block_id": focus.id})
+    [span] = BlockContextBuilder(te.repo).build([a], token_budget=1000, policy="section600")
+    assert focus.id in span.block_ids
+    assert all(te.repo.get_block(b).node_id in ids for b in span.block_ids)  # type: ignore[union-attr]
+    plain = BlockContextBuilder(te.repo).build(
+        [NodeAnchor(doc, parent.id)], token_budget=1000, policy="section600"
+    )
+    assert plain[0].block_ids[0] == inside[0].id  # without a focus: from the section start
+
+
+def test_node_anchor_survives_the_candidate_pool() -> None:
+    from treeengine.retrieval.anchor import absorb_contained
+
+    fts = [BlockAnchor("d", f"b{i}", "n1" if i == 40 else f"x{i}", "fts", i) for i in range(1, 61)]
+    vec = [BlockAnchor("d", f"b{i}", None, "vector", i) for i in range(1, 61)]
+    tree = [NodeAnchor("d", "n1", rank=1, metadata={"scope": "own"})]
+    fused = fuse_anchors({"fts": fts, "vector": vec, "tree": tree}, {"tree": 0.5})
+    assert ("node", "n1") not in [a.key for a in fused[:50]]  # cut first: the node is gone
+    out = absorb_contained(fused, lambda a: {"n1"})[:50]
+    node = next(a for a in out if a.kind == "node")
+    assert node.metadata["focus_block_id"] == "b40"

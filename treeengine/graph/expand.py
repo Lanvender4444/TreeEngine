@@ -7,8 +7,9 @@ are the best block anchors of the fast paths, and the related blocks come back a
 Entity choice per seed: specificity = log(1 + blocks / df) (rare across the corpus = more
 informative) x occurrences in the seed; entities found in only the seed itself (df < 2) or in a
 large share of the corpus are skipped. Related blocks: same document first, then by the
-entity's frequency there. Budgets (``RetrievalPolicy``): ``graph_seeds``,
-``graph_entities_per_seed``, ``graph_blocks_per_entity``, ``graph_max_blocks``.
+entity's frequency there; blocks any other path already found are skipped, so the graph only
+adds positions and never re-ranks the fast paths' own results. Budgets (``RetrievalPolicy``):
+``graph_seeds``, ``graph_entities_per_seed``, ``graph_blocks_per_entity``, ``graph_max_blocks``.
 """
 
 from __future__ import annotations
@@ -28,7 +29,15 @@ class GraphExpander:
         self.repo = repo
         self.store: GraphStore | None = repo if isinstance(repo, GraphStore) else None
 
-    def expand(self, seeds: list[Anchor], policy: Any, trace: Any = None) -> list[Anchor]:
+    def expand(
+        self,
+        seeds: list[Anchor],
+        policy: Any,
+        trace: Any = None,
+        exclude: set[str] | None = None,
+    ) -> list[Anchor]:
+        """Related blocks one entity hop from ``seeds``; never a seed, never a block id in
+        ``exclude`` (the controller passes every block another path already found)."""
         if self.store is None:
             return []
         stats = self.store.graph_stats()
@@ -50,7 +59,7 @@ class GraphExpander:
                 picked.append((r, spec, seed, e))
         picked.sort(key=lambda x: (x[0], -x[1]))
         out: list[Anchor] = []
-        seen = set(seed_ids)
+        seen = set(seed_ids) | set(exclude or ())
         for _, _, seed, e in picked:
             if len(out) >= policy.graph_max_blocks:
                 break

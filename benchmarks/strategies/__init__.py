@@ -122,13 +122,39 @@ NEEDS_LLM += [
     "policy_hybrid_full",
 ]
 NEEDS_BOTH += ["policy_hybrid_fallback", "policy_hybrid_guided", "policy_hybrid_full"]
+# V0.9 unified anchors: the same tree pass, read as a whole section (NodeAnchor, "node") or
+# resolved to FTS blocks inside the node (pre-V0.9, "blocks"); full = the tree always runs
+_FULL = {"tree_weight": 0.5, "agentic_level": 1.0, "max_steps": 6, "max_llm_calls": 6}
+ANCHOR_STRATEGIES = {
+    "anchor_hybrid_full_node": {**_FULL, "tree_anchor": "node"},
+    "anchor_hybrid_full_blocks": {**_FULL, "tree_anchor": "blocks"},
+    "anchor_fts_full_node": {**_FULL, "vector_weight": 0.0, "tree_anchor": "node"},
+    "anchor_fts_full_blocks": {**_FULL, "vector_weight": 0.0, "tree_anchor": "blocks"},
+}
+# V0.9 Graph-lite: one-hop entity expansion fused at graph_weight (index built on demand)
+GRAPH_STRATEGIES = {
+    f"graph_{base}_g{str(w).replace('.', '')}": {
+        "fts_weight": 1.0,
+        "vector_weight": 1.0 if base == "hybrid" else 0.0,
+        "tree_weight": 0.0,
+        "graph_weight": w,
+    }
+    for base in ("fts", "hybrid")
+    for w in (0.25, 0.5, 1.0)
+}
+POLICY_STRATEGIES.update(ANCHOR_STRATEGIES)
+POLICY_STRATEGIES.update(GRAPH_STRATEGIES)
+NEEDS_LLM += list(ANCHOR_STRATEGIES)
+NEEDS_BOTH += ["anchor_hybrid_full_node", "anchor_hybrid_full_blocks"]
+GRAPH_LEXICAL = [n for n in GRAPH_STRATEGIES if n.startswith("graph_fts")]
+NEEDS_VECTOR += [n for n in GRAPH_STRATEGIES if n.startswith("graph_hybrid")]
 QA_ONLY = ["full_context"]
 SCOPE_LEXICAL = list(SCOPE_BASES)
 SCOPE_VECTOR = [b + sfx for sfx in ("+vector", "+fts+vector") for b in SCOPE_BASES]
 NEEDS_VECTOR += SCOPE_VECTOR + ["policy_vector", "policy_hybrid"]
 NEEDS_VECTOR += [n for n in WEIGHT_SWEEP if n not in _SWEEP_TREE]
 LEXICAL_POLICY = ["policy_fts"]
-ALL = LEXICAL + SCOPE_LEXICAL + LEXICAL_POLICY + NEEDS_VECTOR + NEEDS_LLM + QA_ONLY
+ALL = LEXICAL + SCOPE_LEXICAL + LEXICAL_POLICY + GRAPH_LEXICAL + NEEDS_VECTOR + NEEDS_LLM + QA_ONLY
 RENAMED = {"tree": "tree_lexical", "tree+fts": "tree_lexical+fts"}  # V0.2 names
 PRESETS = {
     # benchmark design doc, first round: is Tree useful, does Vector add semantics, is the
@@ -185,6 +211,13 @@ PRESETS = {
     ],
     # V0.6 retrieval weight sweep (W0-W5): fixed guided agent loop and auto context
     "weight_sweep": list(WEIGHT_SWEEP),
+    # V0.9: NodeAnchor vs the pre-V0.9 tree path; Graph-lite weight sweep
+    "anchor": ["policy_hybrid", *ANCHOR_STRATEGIES],
+    "graph": ["policy_fts", *GRAPH_LEXICAL],
+    "graph_vector": [
+        "policy_hybrid",
+        *[n for n in GRAPH_STRATEGIES if n.startswith("graph_hybrid")],
+    ],
     "llm_tree": [
         "tree_structure",
         "tree_lexical",
@@ -347,6 +380,16 @@ def build_strategies(ws: Workspace, names: Sequence[str]) -> dict[str, Benchmark
         "rag_hybrid": (rag("hybrid"), ("chunks", "chunk_vectors")),
     }
 
+    def graph() -> Any:
+        """Graph-lite expander; the entity index is built once per workspace on demand."""
+        if not any(n in GRAPH_STRATEGIES for n in names):
+            return None
+        from treeengine.graph import GraphExpander, GraphIndexer
+
+        if not repo.graph_stats().get("links"):
+            GraphIndexer(repo).index_all()
+        return GraphExpander(repo)
+
     # agentic retrieval policy: the RetrievalController with fixed policies
     def controller() -> Any:
         if "controller" not in lazy:
@@ -363,6 +406,7 @@ def build_strategies(ws: Workspace, names: Sequence[str]) -> dict[str, Benchmark
                 llm=ws.llm,
                 config=cfg,
                 token_counter=count_tokens,
+                graph=graph(),
             )
         return lazy["controller"]
 
@@ -375,7 +419,29 @@ def build_strategies(ws: Workspace, names: Sequence[str]) -> dict[str, Benchmark
             pol = RetrievalPolicy(**{"candidate_pool": max(k, candidate_pool()), **spec})
             res = controller().retrieve(q, document_id=d, policy=pol)
             t.steps.extend(res.trace)
-            return res.evidence[:k]
+            if not any(a.kind == "node" for a in res.anchors):
+                return res.evidence[:k]
+            # NodeAnchors in the fused order: node-level Evidence that carries the anchor, so
+            # the benchmark ContextBuilder reads the section (benchmarks/context.py)
+            out: list[Evidence] = []
+            for a in res.anchors[:k]:
+                if a.kind == "node":
+                    node = repo.get_node(str(a.node_id))
+                    text = (node.summary or node.title) if node else ""
+                    out.append(
+                        Evidence(
+                            a.document_id,
+                            a.node_id,
+                            None,
+                            text or "",
+                            a.source,
+                            a.score,
+                            {**a.metadata, "anchor": a},
+                        )
+                    )
+                elif a.evidence is not None:
+                    out.append(a.evidence)
+            return out
 
         return run
 
@@ -415,6 +481,8 @@ def build_strategies(ws: Workspace, names: Sequence[str]) -> dict[str, Benchmark
 
 __all__ = [
     "ALL",
+    "ANCHOR_STRATEGIES",
+    "GRAPH_STRATEGIES",
     "LEXICAL",
     "NEEDS_BOTH",
     "NEEDS_LLM",

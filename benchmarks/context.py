@@ -35,7 +35,9 @@ class ContextBuilder:
         )
 
     def spans(self, evidence: Sequence[Evidence], mode: str, budget: int) -> list[ContextSpan]:
-        return self.inner.build(evidence, token_budget=budget, policy=mode)
+        # a node-level hit from a V0.9 policy carries its NodeAnchor: read the section
+        items = [e.metadata.get("anchor", e) if e.metadata else e for e in evidence]
+        return self.inner.build(items, token_budget=budget, policy=mode)
 
     def build(
         self, evidence: Sequence[Evidence], mode: str, budget: int

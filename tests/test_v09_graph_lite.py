@@ -117,6 +117,12 @@ def test_graph_expansion_adds_related_block(doc_path: Path) -> None:
     assert ids.index(seed) < ids.index(other)
     step = next(t for t in on.trace if t["step"] == "graph")
     assert step["added"] == 1
+    # the expansion never re-ranks a block the fast paths found themselves
+    fast = {a.block_id for a in off.anchors}
+    assert not fast & {a.block_id for a in graph}
+    assert [a.block_id for a in on.anchors if a.block_id in fast] == [
+        a.block_id for a in off.anchors
+    ]
 
 
 def test_graph_expansion_is_bounded_and_safe_without_index(doc_path: Path) -> None:

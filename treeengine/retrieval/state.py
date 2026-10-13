@@ -35,6 +35,9 @@ class RetrievalState:
         if path not in self.used_retrievers:
             self.used_retrievers.append(path)
 
+    def all_anchors(self) -> list[Anchor]:
+        return [a for items in self.lists.values() for a in items]
+
     @property
     def node_anchors(self) -> list[Anchor]:
         return [a for items in self.lists.values() for a in items if a.kind == "node"]
