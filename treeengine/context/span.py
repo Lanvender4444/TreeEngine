@@ -28,6 +28,9 @@ class ContextSpan:
     token_count: int
     pages: list[int] = field(default_factory=list)  # every page a block of the span is on
     node_ids: list[str] = field(default_factory=list)  # every node the span touches, in order
+    # adaptive resolution (policy "resolution"): window | section | section_window, "+"-joined
+    # when merged units differ; None for the fixed policies
+    resolution: str | None = None
 
     @property
     def section_crossings(self) -> int:

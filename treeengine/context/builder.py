@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 from ..core.anchor import Anchor, anchor_from_evidence
 from ..core.models import Block, Evidence
@@ -16,7 +16,9 @@ from .span import ContextSpan, evidence_id
 # adaptiveN    grow left / right around the anchor, alternating, up to ~N tokens
 # sectionN     like adaptiveN, but never leaves the anchor's own node
 # auto         V0.5 heuristic: section600 for budgets <= 1000 tokens, adaptive600 above
-POLICIES = ["raw", "neighbor1", "neighbor2", "adaptive600", "section600", "auto"]
+# resolution   V0.10 adaptive resolution: auto windows, whole sections or a section's dense
+#              stretch, chosen by evidence mass per token (context/resolution.py)
+POLICIES = ["raw", "neighbor1", "neighbor2", "adaptive600", "section600", "auto", "resolution"]
 AUTO_TIGHT_BUDGET = 1000
 NODE_SPAN_TOKENS = 600  # a NodeAnchor's span under raw / neighbor policies
 
@@ -102,6 +104,8 @@ class BlockContextBuilder:
         self._blocks: dict[str, list[Block]] = {}
         self._where: dict[str, tuple[str, int]] = {}  # block id -> (document, index)
         self._tokens: dict[str, int] = {}
+        self._resolution: Any = None  # ResolutionPlanner, created on first "resolution" build
+        self._budget = 0  # token budget of the build in progress (section-read NodeAnchors)
 
     # ---- document geometry (one read per document, cached)
     def blocks(self, document_id: str) -> list[Block]:
@@ -129,6 +133,10 @@ class BlockContextBuilder:
             return None
         lo, end = idx[0], idx[-1]
         size = policy.size if policy.kind in ("adaptive", "section") else NODE_SPAN_TOKENS
+        if a.metadata.get("read") == "section":  # Retrieval Tree: read the section itself,
+            # up to its share of the budget this context is built with
+            share = float(a.metadata.get("share") or 0.5)
+            size = max(size, int(self._budget * share))
         focus = a.metadata.get("focus_block_id")
         if focus and focus in self._where:
             # the node took over a fast-path hit inside it: read around that hit, bounded by
@@ -204,6 +212,15 @@ class BlockContextBuilder:
     def build(
         self, evidence: Sequence[Item], *, token_budget: int, policy: str | None = None
     ) -> list[ContextSpan]:
+        if (policy or self.policy) == "resolution":
+            from .resolution import ResolutionPlanner
+
+            if self._resolution is None:
+                self._resolution = ResolutionPlanner(self)
+            return self._resolution.build(
+                evidence, token_budget, resolve_policy("auto", token_budget)
+            )
+        self._budget = token_budget
         pol = resolve_policy(policy or self.policy, token_budget)
         items: list[tuple[int, _Open | ContextSpan]] = []  # (rank, open span | passthrough)
         total = 0

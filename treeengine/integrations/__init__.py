@@ -30,6 +30,7 @@ def span_record(span: Any) -> dict[str, Any]:
             "end_offset": span.end_offset,
             "anchors": list(span.source_evidence_ids),
             "tokens": span.token_count,
+            "resolution": getattr(span, "resolution", None),
         },
     }
 

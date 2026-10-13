@@ -40,6 +40,8 @@ PACKAGES = (
     "storage",
     "retrieval",
     "embeddings",
+    "graph",
+    "rtree",
 )
 DEFAULT_CHUNK = {"size": 600, "overlap": 100, "selected_by": "default (design doc)"}
 # candidates every retriever returns before the answer context is filled / reconstructed;

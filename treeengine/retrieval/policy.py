@@ -47,6 +47,16 @@ class RetrievalPolicy:
     # "blocks" = FTS inside the section -> BlockAnchors (pre-V0.9 path, for comparison)
     tree_anchor: str = "node"
 
+    # V0.10 how the signals become anchors. "rrf": every path returns a ranked list and the
+    # lists are rank-fused (V0.6-V0.9). "tree": the Retrieval Tree (treeengine/rtree) - FTS,
+    # Vector and Graph-lite only activate blocks, node titles / centroids activate nodes, the
+    # activation propagates up the document tree, a best-first walk decides where to stop and
+    # emits BlockAnchors or NodeAnchors (adaptive resolution). Tree reasoning by LLM is not run;
+    # with an LLM and agentic_level > 0 the walk asks it only to break near-ties.
+    fusion: str = "rrf"
+    node_signal_weight: float = 1.0  # node title (lexical) + centroid (semantic) activation
+    section_share: float = 0.5  # a section may be emitted whole if it fits this budget share
+
     candidate_pool: int = 50
     context_budget: int = 2000
     context_policy: str = "auto"
@@ -67,6 +77,10 @@ class RetrievalPolicy:
             raise ValueError("budgets must be positive")
         if self.tree_anchor not in ("node", "blocks"):
             raise ValueError('tree_anchor must be "node" or "blocks"')
+        if self.fusion not in ("rrf", "tree"):
+            raise ValueError('fusion must be "rrf" or "tree"')
+        if self.node_signal_weight < 0 or not 0 < self.section_share <= 1:
+            raise ValueError("node_signal_weight must be >= 0 and section_share in (0, 1]")
 
     @property
     def mode(self) -> AgenticMode:

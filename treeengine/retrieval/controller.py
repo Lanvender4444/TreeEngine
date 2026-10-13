@@ -81,6 +81,7 @@ class RetrievalController:
         self.config = config or EngineConfig()
         self.count = token_counter
         self.graph = graph  # GraphExpander (Graph-lite), used when policy.graph_weight > 0
+        self.rtree: Any = None  # TreeSignalSearch (V0.10), created on first fusion="tree" call
 
     # ------------------------------------------------------------------ main loop
     def retrieve(
@@ -111,51 +112,55 @@ class RetrievalController:
             },
         )
 
-        # 1) fast paths
-        if policy.fts_weight > 0:
-            hits = self.fts.fts_search(
-                query, document_id=document_id, limit=policy.candidate_pool, trace=tr
-            )
-            st.fts_queries += 1
-            st.add("fts", anchors_from_evidence(hits, "fts"))
-        if policy.vector_weight > 0:
-            if self.vector is None:
-                tr.add("vector", skipped="no embedder configured")
-            else:
-                hits = self.vector.vector_search(
+        if policy.fusion == "tree":
+            # V0.10 Retrieval Tree: signals on one tree, best-first walk, adaptive resolution
+            anchors = self._retrieval_tree(st, policy)
+        else:
+            # 1) fast paths
+            if policy.fts_weight > 0:
+                hits = self.fts.fts_search(
                     query, document_id=document_id, limit=policy.candidate_pool, trace=tr
                 )
-                st.vector_queries += 1
-                st.add("vector", anchors_from_evidence(hits, "vector"))
+                st.fts_queries += 1
+                st.add("fts", anchors_from_evidence(hits, "fts"))
+            if policy.vector_weight > 0:
+                if self.vector is None:
+                    tr.add("vector", skipped="no embedder configured")
+                else:
+                    hits = self.vector.vector_search(
+                        query, document_id=document_id, limit=policy.candidate_pool, trace=tr
+                    )
+                    st.vector_queries += 1
+                    st.add("vector", anchors_from_evidence(hits, "vector"))
 
-        # 2) evaluate, 3) tree reasoning when the policy allows / needs it
-        enough, why = self._enough(st, policy)
-        tr.add("evaluate", at_step=st.step, enough=enough, why=why)
-        run, steps, stop_on_enough = self._tree_plan(policy, enough)
-        if run:
-            self._tree_episode(st, policy, steps, stop_on_enough)
-        elif not st.stop_reason:
-            st.stop_reason = (
-                "enough evidence after the first pass"
-                if enough
-                else ("tree reasoning disabled" if not policy.tree_enabled else "agentic off")
-            )
-        tr.add("stop", reason=st.stop_reason, steps=st.step, llm_calls=st.llm_calls)
+            # 2) evaluate, 3) tree reasoning when the policy allows / needs it
+            enough, why = self._enough(st, policy)
+            tr.add("evaluate", at_step=st.step, enough=enough, why=why)
+            run, steps, stop_on_enough = self._tree_plan(policy, enough)
+            if run:
+                self._tree_episode(st, policy, steps, stop_on_enough)
+            elif not st.stop_reason:
+                st.stop_reason = (
+                    "enough evidence after the first pass"
+                    if enough
+                    else ("tree reasoning disabled" if not policy.tree_enabled else "agentic off")
+                )
+            tr.add("stop", reason=st.stop_reason, steps=st.step, llm_calls=st.llm_calls)
 
-        # 4) Graph-lite: one entity hop from the best block anchors (an expansion, not a seed)
-        if policy.graph_weight > 0:
-            if self.graph is None:
-                tr.add("graph", skipped="no graph index (EngineConfig.graph_index)")
-            else:
-                seeds = [a for a in self._fuse(st, policy) if a.kind == "block"]
-                # only positions no other path found: the graph adds blocks, it does not
-                # re-rank the fast paths' own results (a shared block would gain an extra
-                # RRF term and overtake the fast paths' top hits)
-                found = {str(a.block_id) for a in st.all_anchors() if a.kind == "block"}
-                st.add("graph", self.graph.expand(seeds, policy, trace=tr, exclude=found))
+            # 4) Graph-lite: one entity hop from the best block anchors (an expansion, not a seed)
+            if policy.graph_weight > 0:
+                if self.graph is None:
+                    tr.add("graph", skipped="no graph index (EngineConfig.graph_index)")
+                else:
+                    seeds = [a for a in self._fuse(st, policy) if a.kind == "block"]
+                    # only positions no other path found: the graph adds blocks, it does not
+                    # re-rank the fast paths' own results (a shared block would gain an extra
+                    # RRF term and overtake the fast paths' top hits)
+                    found = {str(a.block_id) for a in st.all_anchors() if a.kind == "block"}
+                    st.add("graph", self.graph.expand(seeds, policy, trace=tr, exclude=found))
 
-        # 5) fuse anchors by rank, 6) build the reading context
-        anchors = self._fuse(st, policy)
+            # 5) fuse anchors by rank, 6) build the reading context
+            anchors = self._fuse(st, policy)
         evidence = [self._evidence(a) for a in anchors]
         spans = BlockContextBuilder(
             self.repo, policy=policy.context_policy, token_counter=self.count
@@ -184,6 +189,24 @@ class RetrievalController:
         return SearchResult(
             query, evidence, plan, tr.steps, stats, context_spans=spans, anchors=anchors
         )
+
+    def _retrieval_tree(self, st: RetrievalState, policy: RetrievalPolicy) -> list[Anchor]:
+        if self.rtree is None:
+            from ..rtree import TreeSignalSearch
+
+            self.rtree = TreeSignalSearch(
+                self.repo, self.fts, vector=self.vector, graph=self.graph, llm=self.llm
+            )
+        anchors, stats = self.rtree.retrieve(st.query, st.document_id, policy, st.trace)
+        st.fts_queries += stats["fts_queries"]
+        st.vector_queries += stats["vector_queries"]
+        st.llm_calls += stats["llm_calls"]
+        st.stop_reason = "retrieval tree walk"
+        for a in anchors:
+            if a.node_id:
+                st.visited_nodes.add(str(a.node_id))
+        st.trace.add("stop", reason=st.stop_reason, steps=0, llm_calls=stats["llm_calls"])
+        return anchors
 
     # ------------------------------------------------------------------ decisions
     def _tree_plan(self, policy: RetrievalPolicy, enough: bool) -> tuple[bool, int, bool]:

@@ -98,6 +98,21 @@ class SQLiteVectorIndex:
         self.dim = None
 
     # -- reads
+    def vectors(self, block_ids: Sequence[str]) -> dict[str, list[float]]:
+        """Stored vectors of these blocks (missing ids are left out)."""
+        if self.dim is None or not block_ids:
+            return {}
+        out: dict[str, list[float]] = {}
+        for i in range(0, len(block_ids), 500):
+            chunk = list(block_ids[i : i + 500])
+            for bid, blob in self.conn.execute(
+                f"SELECT block_id, embedding FROM {self.table} "
+                f"WHERE block_id IN ({','.join('?' * len(chunk))})",
+                chunk,
+            ):
+                out[bid] = list(struct.unpack(f"{self.dim}f", blob))
+        return out
+
     def count(self) -> int:
         if self.dim is None:
             return 0
@@ -163,6 +178,9 @@ class MemoryVectorIndex:
 
     def rebuild(self) -> None:
         self.rows.clear()
+
+    def vectors(self, block_ids: Sequence[str]) -> dict[str, list[float]]:
+        return {b: list(self.rows[b][1]) for b in block_ids if b in self.rows}
 
     def count(self) -> int:
         return len(self.rows)

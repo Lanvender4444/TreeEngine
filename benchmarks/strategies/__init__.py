@@ -142,12 +142,21 @@ GRAPH_STRATEGIES = {
     for base in ("fts", "hybrid")
     for w in (0.25, 0.5, 1.0)
 }
+# V0.10 Retrieval Tree: the same FTS / Vector signals on one tree, best-first walk, adaptive
+# resolution (fusion="tree"); "_nonode" switches the node title / centroid signals off
+RTREE_STRATEGIES = {
+    "rtree_hybrid": {"fusion": "tree"},
+    "rtree_hybrid_nonode": {"fusion": "tree", "node_signal_weight": 0.0},
+    "rtree_fts": {"fusion": "tree", "vector_weight": 0.0},
+}
+POLICY_STRATEGIES.update(RTREE_STRATEGIES)
 POLICY_STRATEGIES.update(ANCHOR_STRATEGIES)
 POLICY_STRATEGIES.update(GRAPH_STRATEGIES)
 NEEDS_LLM += list(ANCHOR_STRATEGIES)
 NEEDS_BOTH += ["anchor_hybrid_full_node", "anchor_hybrid_full_blocks"]
-GRAPH_LEXICAL = [n for n in GRAPH_STRATEGIES if n.startswith("graph_fts")]
+GRAPH_LEXICAL = [n for n in GRAPH_STRATEGIES if n.startswith("graph_fts")] + ["rtree_fts"]
 NEEDS_VECTOR += [n for n in GRAPH_STRATEGIES if n.startswith("graph_hybrid")]
+NEEDS_VECTOR += ["rtree_hybrid", "rtree_hybrid_nonode"]
 QA_ONLY = ["full_context"]
 SCOPE_LEXICAL = list(SCOPE_BASES)
 SCOPE_VECTOR = [b + sfx for sfx in ("+vector", "+fts+vector") for b in SCOPE_BASES]
@@ -213,7 +222,8 @@ PRESETS = {
     "weight_sweep": list(WEIGHT_SWEEP),
     # V0.9: NodeAnchor vs the pre-V0.9 tree path; Graph-lite weight sweep
     "anchor": ["policy_hybrid", *ANCHOR_STRATEGIES],
-    "graph": ["policy_fts", *GRAPH_LEXICAL],
+    "graph": ["policy_fts", *[n for n in GRAPH_LEXICAL if n.startswith("graph_")]],
+    "rtree": ["policy_hybrid", *RTREE_STRATEGIES],
     "graph_vector": [
         "policy_hybrid",
         *[n for n in GRAPH_STRATEGIES if n.startswith("graph_hybrid")],

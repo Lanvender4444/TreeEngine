@@ -25,7 +25,7 @@ from treeengine.core.models import Evidence
 
 from .metrics.cost import count_tokens
 
-MODES = ["raw", "neighbor1", "neighbor2", "adaptive600", "section600", "auto"]
+MODES = ["raw", "neighbor1", "neighbor2", "adaptive600", "section600", "auto", "resolution"]
 
 
 class ContextBuilder:
