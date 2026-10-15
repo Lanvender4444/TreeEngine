@@ -10,8 +10,8 @@
     propagation up the document tree:  score(N) = node activation(N) + descendant evidence(N)
       v
     best-first walk from the roots: pop the best node, then
-      * readable (fits section_share of the budget) and >= 2 of its parts (children / own
-        blocks) hold strong evidence (one of the query's STRONG_BLOCKS best blocks)
+      * readable (fits section_share of the budget) and ``min_regions`` of its parts (children / own
+        blocks) hold strong evidence (one of the query's ``strong_blocks`` best blocks)
                                                    -> NodeAnchor (read the section)
       * otherwise                                  -> push its children, emit its own hit
                                                       blocks as BlockAnchors (stay fine)
@@ -46,8 +46,9 @@ RRF_K = 60
 POOL = 100  # block hits read per signal
 NODE_POOL = 20  # nodes ranked per node signal and document
 DOCS = 5  # documents walked when no document is given
-STRONG_BLOCKS = 10  # strong evidence = the query's 10 best activated blocks (rank, not ratio:
-# rank masses are flat - rank 1 and rank 4 differ by < 10% - so ratio thresholds pass everything)
+# strong evidence = the query's policy.strong_blocks (default 10) best activated blocks - by
+# rank, not ratio: rank masses are flat (rank 1 and rank 4 differ by < 10%), so ratio
+# thresholds pass everything; a section is read whole with >= policy.min_regions strong parts
 STRONG_NODE_RANK = 3  # a node with no block hit is strong when both node signals rank it top 3
 DECAY = (1.0, 0.5, 0.25)
 TIE = 0.85  # siblings within this ratio of the best are a near-tie (LLM may break it)
@@ -149,12 +150,14 @@ class TreeSignalSearch:
         self, act: Activation, di: DocIndex, query: str, qv: Any, policy: Any
     ) -> None:
         w = policy.node_signal_weight
-        if w <= 0:
+        if w <= 0 or policy.node_signals == "none":
             return
-        for signal, ranked in (
-            ("node_lexical", self.index.lexical(di, query, NODE_POOL)),
-            ("node_semantic", self.index.semantic(di, qv, NODE_POOL)),
-        ):
+        signals = []
+        if policy.node_signals in ("both", "lexical"):
+            signals.append(("node_lexical", self.index.lexical(di, query, NODE_POOL)))
+        if policy.node_signals in ("both", "semantic"):
+            signals.append(("node_semantic", self.index.semantic(di, qv, NODE_POOL)))
+        for signal, ranked in signals:
             for r, nid in enumerate(ranked, 1):
                 act.node[nid] = act.node.get(nid, 0.0) + w / (RRF_K + r)
                 act.node_signals.setdefault(nid, {})[signal] = r
@@ -251,7 +254,7 @@ class TreeSignalSearch:
                 heapq.heappush(heap, (-score[r], seq, r))
                 seq += 1
         llm_ok = self.llm is not None and policy.agentic_level > 0
-        top = sorted(act.block, key=lambda b: -act.block[b])[:STRONG_BLOCKS]
+        top = sorted(act.block, key=lambda b: -act.block[b])[: policy.strong_blocks]
         strong_blocks = set(top)
         strong_nodes: set[str] = set()  # nodes holding a strong block, or strong by themselves
         for bid in top:
@@ -259,7 +262,8 @@ class TreeSignalSearch:
             if i is not None:
                 strong_nodes.update(di.ancestors(di.blocks[i].node_id))
         for nid, sig in act.node_signals.items():
-            if nid in di.nodes and len(sig) == 2 and max(sig.values()) <= STRONG_NODE_RANK:
+            enabled = 2 if policy.node_signals == "both" else 1
+            if nid in di.nodes and len(sig) == enabled and max(sig.values()) <= STRONG_NODE_RANK:
                 strong_nodes.add(nid)
         while heap and len(out) < policy.candidate_pool:
             neg, _, nid = heapq.heappop(heap)
@@ -295,7 +299,7 @@ class TreeSignalSearch:
                 for _, kind, x in parts
                 if (x in strong_nodes if kind == "n" else x in strong_blocks)
             )
-            if readable and spread >= 2:
+            if readable and spread >= policy.min_regions:
                 why = f"evidence spread over {spread} parts"
                 out.append(
                     (-neg, self._node_anchor(di, nid, -neg, act, why, cap, policy.context_budget))

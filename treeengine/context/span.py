@@ -28,8 +28,9 @@ class ContextSpan:
     token_count: int
     pages: list[int] = field(default_factory=list)  # every page a block of the span is on
     node_ids: list[str] = field(default_factory=list)  # every node the span touches, in order
-    # adaptive resolution (policy "resolution"): window | section | section_window, "+"-joined
-    # when merged units differ; None for the fixed policies
+    # the reading resolution: block (the anchor alone) | window (around anchor blocks) |
+    # section (a NodeAnchor's section) | section_window (a section's dense stretch); "+"-joined
+    # when merged units differ (policy "resolution"); None for pass-through items
     resolution: str | None = None
 
     @property

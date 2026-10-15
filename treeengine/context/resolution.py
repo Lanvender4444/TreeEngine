@@ -40,6 +40,16 @@ if TYPE_CHECKING:  # pragma: no cover
 RRF_K = 60
 SECTION_SHARE = 0.5  # a section unit may take at most this share of the token budget
 MIN_SECTION_HITS = 2  # a node without a tree prior needs this many hits to be read whole
+# V0.11b: a section is read only if, after it, the budget still holds the hit blocks of the
+# next RESERVE_REGIONS hits outside it - a section must not crowd out the other evidence regions
+# (cross-section questions collapsed into one section otherwise). Fixed before validation.
+RESERVE_REGIONS = 2
+# V0.11b: breadth before depth. With ~600-token windows only the first ~3 hits fit a 2,000
+# budget, so the second region of a cross-section question (typically ranked 6-15) was never
+# read - by auto or by resolution. Pass 1 puts the hit blocks themselves in rank order into at
+# most BREADTH_SHARE of the budget; pass 2 grows them (window / section) with the rest.
+# Fixed before validation on multires2.
+BREADTH_SHARE = 0.5
 
 
 @dataclass
@@ -76,8 +86,12 @@ class ResolutionPlanner:
         k: int = RRF_K,
         section_share: float = SECTION_SHARE,
         min_section_hits: int = MIN_SECTION_HITS,
+        reserve_regions: int = RESERVE_REGIONS,
+        breadth_share: float = BREADTH_SHARE,
     ) -> None:
         self.ctx = ctx
+        self.reserve_regions = reserve_regions
+        self.breadth_share = breadth_share
         self.repo = ctx.repo
         self.k = k
         self.section_share = section_share
@@ -340,6 +354,30 @@ class ResolutionPlanner:
             cov.setdefault(doc, set()).update(range(seed.lo, seed.hi + 1))
         return value
 
+    def _reserve(
+        self,
+        rest: list[tuple[int, str, int | None, Unit | str]],
+        docs: dict[str, _Doc],
+        covered: dict[str, set[int]],
+        u: Unit,
+    ) -> int:
+        """Tokens of the next ``reserve_regions`` hit *blocks* outside ``u`` (not yet covered):
+        the least a section must leave so the other evidence regions can still be read. Their
+        full windows are not reserved - at 2,000 tokens two ~600-token windows plus a section
+        left no section readable at all (multires dev)."""
+        need, taken = 0, 0
+        for _, doc, i, seed in rest:
+            if taken >= self.reserve_regions:
+                break
+            if i is None or not isinstance(seed, Unit):
+                continue
+            cov = covered.get(doc, set())
+            if i in cov or (doc == u.doc and u.lo <= i <= u.hi):
+                continue
+            need += self.ctx.tokens(self.ctx.blocks(doc)[i])
+            taken += 1
+        return need
+
     def _select(
         self,
         seeds: list[tuple[int, str, int | None, Unit | str]],
@@ -359,6 +397,20 @@ class ResolutionPlanner:
         for u in sections:
             by_node.setdefault((u.doc, str(u.node_id)), []).append(u)
         order = sorted(seeds, key=lambda x: x[0])
+        # pass 1 - breadth: the hit blocks themselves, in rank order, within breadth_share
+        breadth = budget * self.breadth_share
+        for _, doc, i, seed in order:
+            if i is None or not isinstance(seed, Unit):
+                continue
+            cov = covered.setdefault(doc, set())
+            t = self.ctx.tokens(self.ctx.blocks(doc)[i])
+            if i in cov or used + t > breadth:
+                continue
+            chosen.append(Unit(doc, i, i, "block", anchors=list(seed.anchors)))
+            cov.add(i)
+            used += t
+        # pass 2 - depth: grow each hit (window / section) in rank order with the rest
+        deep: dict[str, set[int]] = {}  # blocks covered by a pass-2 unit
         for n, (_, doc, i, seed) in enumerate(order):
             cov = covered.setdefault(doc, set())
             d = docs.get(doc)
@@ -367,11 +419,12 @@ class ResolutionPlanner:
             if i is None:  # tree prior: its section (or dense stretch) if it fits
                 for u in by_node.get((doc, str(seed)), []):
                     g, c = self._gain_cost(doc, d, u, cov)
-                    if g > 0 and used + c <= budget:
+                    reserve = self._reserve(order[n + 1 :], docs, covered, u)
+                    if g > 0 and used + c + reserve <= budget:
                         pick, cost = u, c
                         break
             else:
-                if i in cov or not isinstance(seed, Unit):
+                if i in deep.get(doc, set()) or not isinstance(seed, Unit):
                     continue
                 g_w, c_w = self._gain_cost(doc, d, seed, cov)
                 if used + c_w <= budget:
@@ -381,16 +434,24 @@ class ResolutionPlanner:
                     if u.doc != doc or not u.lo <= i <= u.hi:
                         continue
                     g_s, c_s = self._gain_cost(doc, d, u, cov)
-                    if used + c_s > budget:
+                    # the section must leave room for the next evidence regions outside it
+                    if used + c_s + self._reserve(order[n + 1 :], docs, covered, u) > budget:
                         continue
                     alt = self._continuation(order[n + 1 :], docs, covered, c_s - c_w)
                     if g_s > best_gain + alt:
                         pick, cost, best_gain = u, c_s, g_s - alt
             if pick is None:
                 continue
+            if cost == 0 and pick is seed and pick.lo == pick.hi:
+                # its window is just the block pass 1 already read: that block is the window
+                for u in chosen:
+                    if u.kind == "block" and (u.doc, u.lo) == (doc, pick.lo):
+                        u.kind = "window"
+                continue
             chosen.append(pick)
             used += cost
             cov.update(range(pick.lo, pick.hi + 1))
+            deep.setdefault(doc, set()).update(range(pick.lo, pick.hi + 1))
         return chosen
 
     # ---- spans
@@ -431,7 +492,9 @@ class ResolutionPlanner:
             tokens = self._tokens(doc, lo, hi)
             total += tokens
             span = self.ctx._span(_Open(doc, lo, hi, list(dict.fromkeys(anchors)), rank, tokens))
-            kinds = sorted({u.kind for u in us}, key=["section", "section_window", "window"].index)
+            kinds = sorted(
+                {u.kind for u in us}, key=["section", "section_window", "window", "block"].index
+            )
             span.resolution = "+".join(kinds)
             spans.append((rank, span))
         for rank, it in loose:  # items that are not blocks: passed through, budget permitting
@@ -446,4 +509,11 @@ class ResolutionPlanner:
         return out
 
 
-__all__ = ["MIN_SECTION_HITS", "RRF_K", "SECTION_SHARE", "ResolutionPlanner", "Unit"]
+__all__ = [
+    "MIN_SECTION_HITS",
+    "RESERVE_REGIONS",
+    "RRF_K",
+    "SECTION_SHARE",
+    "ResolutionPlanner",
+    "Unit",
+]

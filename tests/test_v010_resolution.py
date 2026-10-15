@@ -108,3 +108,31 @@ def test_engine_retrieve_with_resolution_context(fixtures: Path) -> None:
     )
     assert res.context_spans and sum(s.token_count for s in res.context_spans) <= 800
     assert all(s.resolution for s in res.context_spans)
+
+
+def test_section_leaves_room_for_other_regions(te: tuple[TreeEngine, str]) -> None:
+    """V0.11b: a section must not crowd out the other evidence regions (cross-section
+    questions). With a section allowed the whole budget, the pre-V0.11b planner (no reserve,
+    no breadth pass) reads only the section; the reserve or the breadth pass keep the distant
+    hit."""
+    from treeengine.context.resolution import ResolutionPlanner
+
+    engine, doc = te
+    rules = _blocks(engine, doc, "payments service")
+    [hotel] = _blocks(engine, doc, "hotels only")
+    hits = [BlockAnchor(doc, b, rank=i) for i, b in enumerate(rules[0:7:3], 1)]
+    hits.append(BlockAnchor(doc, hotel, rank=4))
+
+    def read(reserve: int, breadth: float = 0.5) -> set[str]:
+        cb = BlockContextBuilder(engine.repo)
+        cb._resolution = ResolutionPlanner(
+            cb, reserve_regions=reserve, breadth_share=breadth, section_share=1.0
+        )
+        spans = cb.build(hits, token_budget=150, policy="resolution")
+        assert sum(s.token_count for s in spans) <= 150
+        return {b for s in spans for b in s.block_ids}
+
+    assert hotel not in read(0, breadth=0.0)  # pre-V0.11b planner: the section takes it all
+    assert hotel in read(2, breadth=0.0)  # the reserve alone keeps the other region
+    assert hotel in read(0)  # breadth first alone too
+    assert hotel in read(2)  # default

@@ -622,6 +622,29 @@ FTS、向量、Graph 不再各自返回结果列表，而是在同一棵检索�
 | 节点信号有用吗？ | 没有：rtree 对 rtree 无节点信号四个配置都不显著 |
 | 默认值 | 不变（rrf + auto）。tree 和 resolution 作为可选项，适合证据成段分布的财报类文档 |
 
+## V0.11 — Multi-Resolution Benchmark（`results/v0.11-multires.md`）
+
+新题集 `multires`：90 题（单点 point / 局部多块 local / 跨节 cross 各 30），每类分 dev 10 / test 20。金标准是块级 needle 和金标准粒度（BLOCK / SECTION / MULTI_SECTION），题目经过留一验证。评测器 `python -m benchmarks.run_multires` 不调用 LLM，输出粒度选择准确率、覆盖率、证据密度和错误分类。
+
+| 问题 | 结果 |
+|---|---|
+| 自适应阅读粒度成立吗？ | 部分成立：2000 预算下，`context_policy="resolution"` 在 local 题上把 QA 从 52.5 提到 70（按题 5:0，p=0.06），完整率 55 → 65。1000 预算下没有收益；cross 题出现 collapse（整节挤掉第二处证据，1:3） |
+| 收益来自哪里？ | 来自 ContextBuilder（resolution），不来自 Retrieval Tree。检索树在三类题上都没有优势，1000 预算下 wrong_branch 更多 |
+| 节点信号？ | 继续没有贡献，建议默认关闭 |
+| 参数稳定吗？ | 不崩溃，但也没有一组参数在两档预算下都稳定优于基线（dev 每类 10 题），默认值不改 |
+| 默认值 | 不变（rrf + auto）。下一步如果改算法，只修 cross 题的 collapse，并在新的独立题集上验证 |
+
+## V0.11b — 跨节修复 + 广度 vs 连贯（`results/v0.11b-breadth-vs-coherence.md`）
+
+新增独立题集 `multires2`：88 题，换了一批文档（另外 12 份 10-K 和 8 份 longdoc 文档）和随机种子，全部作为 test。修复在 multires dev 上定稿，之后只在 multires2 上验证一次。
+
+| 问题 | 结果 |
+|---|---|
+| 跨节题为什么读不全？ | 主要是广度瓶颈，不是整节挤占：2000 预算只装得下约 3 个 600-token 窗口，而第二处证据通常排在第 6–15 名 |
+| 修复（先读命中块，再扩展；整节要给其他区域留位置）有效吗？ | multires2 上跨节完整率 25 → 54，2000 预算下 QA 10:4（跨节 7:2）；但局部题完整率下降，在自然题集上略差于 auto（24:34） |
+| 连贯阅读有没有优势？ | 取决于题：multires 上只读命中块显著更好（60:30，p=0.002）；自然题集（longdoc + FinanceBench）上连贯窗口更好（47:64，p=0.13，4 组里 3 组方向一致）。multires 的出题方式偏向广度 |
+| 默认值 | 不变（auto）。resolution 和 raw 都是可选项；下一步是让广度和连贯的权衡随问题自适应 |
+
 ## 待完成
 
 | 实验 | 需要 |

@@ -1,7 +1,7 @@
 {
- "frozen_at": "2026-10-13 18:09",
- "note": "V0.10: Retrieval Tree (fusion=\"tree\": FTS/Vector/Graph activate blocks, node title BM25 + subtree centroid activate nodes, upward decaying propagation, best-first walk, adaptive resolution NodeAnchor/BlockAnchor) and the \"resolution\" context policy; freeze now also covers treeengine/graph and treeengine/rtree. Default (fusion rrf, context auto) outputs identical to V0.8",
- "fingerprint": "5a09069f732ea561",
+ "frozen_at": "2026-10-14 00:28",
+ "note": "V0.11b: resolution context policy - breadth before depth (hit blocks first within half the budget, then windows / sections) + a section must leave room for the next 2 hit blocks outside it; fixed on multires dev, validated on multires2. Default (rrf + auto) outputs identical to V0.8",
+ "fingerprint": "62ab7cf246954b2b",
  "chunk": {
   "size": 600,
   "overlap": 100,
@@ -56,7 +56,7 @@
   "treeengine/retrieval/lexical.py": "18c97902ec187348",
   "treeengine/retrieval/navigation.py": "b115ac24a9d21730",
   "treeengine/retrieval/planner.py": "4ee00fed6cb29591",
-  "treeengine/retrieval/policy.py": "4817d44b9c9451c2",
+  "treeengine/retrieval/policy.py": "65f1b3b7f4e366ea",
   "treeengine/retrieval/result.py": "e67ac77ed8154cb4",
   "treeengine/retrieval/scoped.py": "c5b55902f8eea359",
   "treeengine/retrieval/semantic.py": "70ccdd55c6a9325e",
@@ -72,8 +72,8 @@
   "treeengine/graph/index.py": "163188401d717d91",
   "treeengine/rtree/__init__.py": "ebfa5703fa73974c",
   "treeengine/rtree/index.py": "ebab666618827d56",
-  "treeengine/rtree/search.py": "5f664e74924f805b",
-  "benchmarks/strategies/__init__.py": "3fc0bb8955ebd0a8",
+  "treeengine/rtree/search.py": "62570ea7019103f6",
+  "benchmarks/strategies/__init__.py": "2264714a371499e2",
   "benchmarks/strategies/base.py": "f050bd6321f45749",
   "benchmarks/strategies/chunk_rag.py": "38d7ac8625166270",
   "benchmarks/strategies/full_context.py": "7b1cd566dfcbd4cc",
@@ -82,14 +82,18 @@
   "treeengine/pipeline.py": "afc317e2a640c159"
  },
  "dataset": {
-  "fingerprint": "43deeb6d8bff0c1f",
+  "fingerprint": "d33f520f6ce7ef08",
   "files": {
    "benchmarks/datasets/controlled/manifest.json": "568b5f4f37242255",
    "benchmarks/datasets/financebench/manifest.json": "fea7034147bf0eae",
    "benchmarks/datasets/longdoc/manifest.json": "573b43f8aa6ea62d",
+   "benchmarks/datasets/multires/manifest.json": "f945ebe26211fd09",
+   "benchmarks/datasets/multires2/manifest.json": "9366f7fa0a259874",
    "benchmarks/datasets/controlled/queries.jsonl": "f0b1a813134db55c",
    "benchmarks/datasets/financebench/queries.jsonl": "df531c506b5f1809",
    "benchmarks/datasets/longdoc/queries.jsonl": "2edc75d833bc86cf",
+   "benchmarks/datasets/multires/queries.jsonl": "670bd157879ff695",
+   "benchmarks/datasets/multires2/queries.jsonl": "28dc1a9effdb5a27",
    "benchmarks/datasets/financebench/structures/3M_2018_10K.json": "80ebaa1699be5525",
    "benchmarks/datasets/financebench/structures/3M_2022_10K.json": "5c585790ffc7eca7",
    "benchmarks/datasets/financebench/structures/AES_2022_10K.json": "3073956cecd7227c",
@@ -126,7 +130,7 @@
   }
  },
  "evaluation": {
-  "fingerprint": "763f95097d6db59f",
+  "fingerprint": "e760ca7cab4ec766",
   "files": {
    "benchmarks/metrics/__init__.py": "93dab04a69f3aefa",
    "benchmarks/metrics/cost.py": "a406c1605156aaab",
@@ -137,13 +141,13 @@
    "benchmarks/judges/human_audit.py": "8c8d9b33679b49e8",
    "benchmarks/judges/semantic.py": "227838d8a81ba0bf",
    "treeengine/context/__init__.py": "0cb365a2dc8c3007",
-   "treeengine/context/builder.py": "180ba76ba727a559",
-   "treeengine/context/resolution.py": "bfa3d595cf85eabc",
-   "treeengine/context/span.py": "7ff327d232c5ba8c",
+   "treeengine/context/builder.py": "fdf975b4c7b3389f",
+   "treeengine/context/resolution.py": "72bae401376dccbd",
+   "treeengine/context/span.py": "7302c774cd9a3d96",
    "benchmarks/answer.py": "491f9eaf73d5c3af",
    "benchmarks/context.py": "d23e0099fb00640e",
    "benchmarks/loader.py": "d420134764efd29b",
-   "benchmarks/datasets/__init__.py": "538de764583c789d"
+   "benchmarks/datasets/__init__.py": "150f68c18476e10d"
   }
  }
 }

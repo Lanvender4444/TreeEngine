@@ -56,6 +56,9 @@ class RetrievalPolicy:
     fusion: str = "rrf"
     node_signal_weight: float = 1.0  # node title (lexical) + centroid (semantic) activation
     section_share: float = 0.5  # a section may be emitted whole if it fits this budget share
+    node_signals: str = "both"  # which node signals: both | lexical | semantic | none
+    strong_blocks: int = 10  # strong evidence = the query's N best activated blocks
+    min_regions: int = 2  # strong parts a section needs to be read whole
 
     candidate_pool: int = 50
     context_budget: int = 2000
@@ -79,6 +82,10 @@ class RetrievalPolicy:
             raise ValueError('tree_anchor must be "node" or "blocks"')
         if self.fusion not in ("rrf", "tree"):
             raise ValueError('fusion must be "rrf" or "tree"')
+        if self.node_signals not in ("both", "lexical", "semantic", "none"):
+            raise ValueError("node_signals must be both | lexical | semantic | none")
+        if self.strong_blocks < 1 or self.min_regions < 1:
+            raise ValueError("strong_blocks and min_regions must be >= 1")
         if self.node_signal_weight < 0 or not 0 < self.section_share <= 1:
             raise ValueError("node_signal_weight must be >= 0 and section_share in (0, 1]")
 

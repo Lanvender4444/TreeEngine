@@ -148,6 +148,10 @@ RTREE_STRATEGIES = {
     "rtree_hybrid": {"fusion": "tree"},
     "rtree_hybrid_nonode": {"fusion": "tree", "node_signal_weight": 0.0},
     "rtree_fts": {"fusion": "tree", "vector_weight": 0.0},
+    # V0.11 node-signal ablation: B = propagation only (nonode), C = + node lexical,
+    # D = + node semantic, E = full (rtree_hybrid)
+    "rtree_hybrid_nodelex": {"fusion": "tree", "node_signals": "lexical"},
+    "rtree_hybrid_nodesem": {"fusion": "tree", "node_signals": "semantic"},
 }
 POLICY_STRATEGIES.update(RTREE_STRATEGIES)
 POLICY_STRATEGIES.update(ANCHOR_STRATEGIES)
@@ -156,7 +160,12 @@ NEEDS_LLM += list(ANCHOR_STRATEGIES)
 NEEDS_BOTH += ["anchor_hybrid_full_node", "anchor_hybrid_full_blocks"]
 GRAPH_LEXICAL = [n for n in GRAPH_STRATEGIES if n.startswith("graph_fts")] + ["rtree_fts"]
 NEEDS_VECTOR += [n for n in GRAPH_STRATEGIES if n.startswith("graph_hybrid")]
-NEEDS_VECTOR += ["rtree_hybrid", "rtree_hybrid_nonode"]
+NEEDS_VECTOR += [
+    "rtree_hybrid",
+    "rtree_hybrid_nonode",
+    "rtree_hybrid_nodelex",
+    "rtree_hybrid_nodesem",
+]
 QA_ONLY = ["full_context"]
 SCOPE_LEXICAL = list(SCOPE_BASES)
 SCOPE_VECTOR = [b + sfx for sfx in ("+vector", "+fts+vector") for b in SCOPE_BASES]
@@ -237,6 +246,17 @@ PRESETS = {
     ],
 }
 T = TypeVar("T")
+
+
+def _value(v: str) -> Any:
+    for cast in (int, float):
+        try:
+            return cast(v)
+        except ValueError:
+            pass
+    return v
+
+
 # (query, document_id, scope node ids, limit, trace) -> evidence
 Inner = Callable[[str, str | None, Sequence[str] | None, int, Trace | None], list[Evidence]]
 FAMILY = {"full_context": "baseline", **{s: "traditional" for s in ALL if s.startswith("rag_")}}
@@ -458,6 +478,17 @@ def build_strategies(ws: Workspace, names: Sequence[str]) -> dict[str, Benchmark
     for pname, spec in POLICY_STRATEGIES.items():
         needs: tuple[str, ...] = ("block_vectors",) if pname in NEEDS_VECTOR + NEEDS_BOTH else ()
         table[pname] = (policy_search(spec), needs)
+    # "<policy strategy>@key=value;...": the same policy with fields overridden (sweeps)
+    for name in names:
+        if "@" in name and name not in table:
+            base, _, ov = name.partition("@")
+            if base not in POLICY_STRATEGIES:
+                raise KeyError(f"unknown policy strategy {base!r} in {name!r}")
+            spec = dict(POLICY_STRATEGIES[base])
+            for kv in ov.split(";"):
+                k, _, v = kv.partition("=")
+                spec[k.strip()] = _value(v.strip())
+            table[name] = (policy_search(spec), table[base][1])
     # scope ablation (benchmark only): hard scope / soft prior / structural rerank
     scoper = ScopeBuilder(repo, r(tree_lex), r(corpus))
     table.update(

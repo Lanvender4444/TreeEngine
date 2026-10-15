@@ -11,6 +11,10 @@ Suites:
                 (evidence = text needles, node paths); retrieval only
   longdoc       MMLongBench-Doc, pure-text answerable subset (evidence = pages, gold answers)
   financebench  FinanceBench open-source sample (evidence = pages + text, gold answers)
+  multires      V0.11 Multi-Resolution benchmark: point / local multi-block / cross-section
+                questions with a gold reading resolution (evidence = text needles, answers)
+  multires2     the same construction over other documents and another seed: an independent
+                validation set for changes designed while looking at multires (all test)
 
     python -m benchmarks.datasets controlled     # download / verify one suite's documents
 """
@@ -27,7 +31,7 @@ from typing import Any
 
 HERE = Path(__file__).parent
 ROOT = HERE.parent.parent
-SUITES = ("controlled", "longdoc", "financebench")
+SUITES = ("controlled", "longdoc", "financebench", "multires", "multires2")
 
 
 @dataclass

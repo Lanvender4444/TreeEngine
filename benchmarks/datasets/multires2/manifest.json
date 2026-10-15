@@ -1,0 +1,210 @@
+{
+  "description": "Multi-Resolution benchmark (V0.11): point / local multi-block / cross-section questions generated from FinanceBench and MMLongBench-Doc documents, verified leave-one-out by an LLM; evidence = text needles of the gold blocks.",
+  "has_answers": true,
+  "documents": [
+    {
+      "name": "ACTIVISIONBLIZZARD_2019_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/ACTIVISIONBLIZZARD_2019_10K.pdf",
+      "sha256": "017f1bbc1e37f2945a41fa2b5cf39d822e1e9d435a2c2b9c6b1cc76cd114a2df",
+      "lang": "en",
+      "kind": "10k Communication Services",
+      "pages": 198,
+      "company": "Activision Blizzard",
+      "period": 2019,
+      "source_suite": "financebench"
+    },
+    {
+      "name": "AMCOR_2023_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/AMCOR_2023_10K.pdf",
+      "sha256": "84d7a0291a12f4e68352750dccda3754c78eefdf06e0b5462046357a1ed53332",
+      "lang": "en",
+      "kind": "10k Materials",
+      "pages": 156,
+      "company": "Amcor",
+      "period": 2023,
+      "source_suite": "financebench"
+    },
+    {
+      "name": "BLOCK_2020_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/BLOCK_2020_10K.pdf",
+      "sha256": "c19a9fb25db3270e3a908c202855f4a54f000a06bf19a8b284331810228646fe",
+      "lang": "en",
+      "kind": "10k Information Technology",
+      "pages": 158,
+      "company": "Block",
+      "period": 2020,
+      "source_suite": "financebench"
+    },
+    {
+      "name": "COSTCO_2021_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/COSTCO_2021_10K.pdf",
+      "sha256": "29e05b3862cf6ffa6cfda34ac82a9fa0fe76b67338c5924da3325c2ee3b08748",
+      "lang": "en",
+      "kind": "10k Consumer Staples",
+      "pages": 76,
+      "company": "Costco",
+      "period": 2021,
+      "source_suite": "financebench"
+    },
+    {
+      "name": "CVSHEALTH_2022_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/CVSHEALTH_2022_10K.pdf",
+      "sha256": "183c196a41793cd50002ff6b88f8c6d32e4fcb1117ab490a732414e1208cda8f",
+      "lang": "en",
+      "kind": "10k Health Care",
+      "pages": 213,
+      "company": "CVS Health",
+      "period": 2022,
+      "source_suite": "financebench"
+    },
+    {
+      "name": "JOHNSON_JOHNSON_2022_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/JOHNSON_JOHNSON_2022_10K.pdf",
+      "sha256": "dba7d6cc97734abd6dcbc1a6a34f82b5d228e60d0a1a32425a90404fd4d3e290",
+      "lang": "en",
+      "kind": "10k Health Care",
+      "pages": 151,
+      "company": "Johnson & Johnson",
+      "period": 2022,
+      "source_suite": "financebench"
+    },
+    {
+      "name": "KRAFTHEINZ_2019_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/KRAFTHEINZ_2019_10K.pdf",
+      "sha256": "df1340e7b002e5f412d4c9073292d0f48a2988fd347d5a4f44d017b9680fbae2",
+      "lang": "en",
+      "kind": "10k Consumer Staples",
+      "pages": 152,
+      "company": "Kraft Heinz",
+      "period": 2019,
+      "source_suite": "financebench"
+    },
+    {
+      "name": "LOCKHEEDMARTIN_2021_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/LOCKHEEDMARTIN_2021_10K.pdf",
+      "sha256": "d2486265fedea887bcc621f0b2dbb9670e66fe05203e1378b8e650c9564732fb",
+      "lang": "en",
+      "kind": "10k Industrials",
+      "pages": 136,
+      "company": "Lockheed Martin",
+      "period": 2021,
+      "source_suite": "financebench"
+    },
+    {
+      "name": "MGMRESORTS_2020_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/MGMRESORTS_2020_10K.pdf",
+      "sha256": "98a9a55baf838309d16a730fd63efbcd146be1911b61abb3658b1774f360b099",
+      "lang": "en",
+      "kind": "10k Consumer Discretionary",
+      "pages": 150,
+      "company": "MGM Resorts",
+      "period": 2020,
+      "source_suite": "financebench"
+    },
+    {
+      "name": "NETFLIX_2017_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/NETFLIX_2017_10K.pdf",
+      "sha256": "981a69bba010dd1709c74ccec9ca26c61635c02a4f22b76345d26021e88077d6",
+      "lang": "en",
+      "kind": "10k Communication Services",
+      "pages": 73,
+      "company": "Netflix",
+      "period": 2017,
+      "source_suite": "financebench"
+    },
+    {
+      "name": "PFIZER_2021_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/PFIZER_2021_10K.pdf",
+      "sha256": "ff3307d5f633c5dbe59a976f5ff5e086af04ba5a5135f2b6411c89538a22a665",
+      "lang": "en",
+      "kind": "10k Health Care",
+      "pages": 143,
+      "company": "Pfizer",
+      "period": 2021,
+      "source_suite": "financebench"
+    },
+    {
+      "name": "ULTABEAUTY_2023_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/ULTABEAUTY_2023_10K.pdf",
+      "sha256": "cdf2ebcfbc2eb9ecf880126d38b186cac1f683dae5bcb50cad15176bfc449ff4",
+      "lang": "en",
+      "kind": "10k Consumer Discretionary",
+      "pages": 105,
+      "company": "Ulta Beauty",
+      "period": 2023,
+      "source_suite": "financebench"
+    },
+    {
+      "name": "2310.09158v1.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/2310.09158v1.pdf",
+      "sha256": "45e8a907fb0c10450be68cd1711548df85f806d66a8bfea9eb7adf51f4a3e227",
+      "lang": "en",
+      "kind": "Academic paper",
+      "pages": 23,
+      "source_suite": "longdoc"
+    },
+    {
+      "name": "f1f5242528411b262be447e61e2eb10f.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/f1f5242528411b262be447e61e2eb10f.pdf",
+      "sha256": "120054270633261077812b834bf62fe3d60d812adcd750c9f082e71a12725622",
+      "lang": "en",
+      "kind": "Academic paper",
+      "pages": 20,
+      "source_suite": "longdoc"
+    },
+    {
+      "name": "379f44022bb27aa53efd5d322c7b57bf.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/379f44022bb27aa53efd5d322c7b57bf.pdf",
+      "sha256": "08408fea6869f71b8bb85b86143ded39b28fc8b32a9090ceb64211febd446a67",
+      "lang": "en",
+      "kind": "Research report / Introduction",
+      "pages": 17,
+      "source_suite": "longdoc"
+    },
+    {
+      "name": "698bba535087fa9a7f9009e172a7f763.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/698bba535087fa9a7f9009e172a7f763.pdf",
+      "sha256": "be8b8e31e4804cd3a8dc5e67f4cf877b0295ded30f9db250a5694c3264acbbe0",
+      "lang": "en",
+      "kind": "Research report / Introduction",
+      "pages": 20,
+      "source_suite": "longdoc"
+    },
+    {
+      "name": "efd88e41c5f2606c57929cac6c1c0605.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/efd88e41c5f2606c57929cac6c1c0605.pdf",
+      "sha256": "6c5b29bf0cba703de3ce7baa19aaf61771596e906d388cee5fb40a1bda740d18",
+      "lang": "en",
+      "kind": "Research report / Introduction",
+      "pages": 20,
+      "source_suite": "longdoc"
+    },
+    {
+      "name": "0e94b4197b10096b1f4c699701570fbf.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/0e94b4197b10096b1f4c699701570fbf.pdf",
+      "sha256": "13ff22623b747d1facbb405369001c6d3793322b24a56365bb8cef89db2f903e",
+      "lang": "en",
+      "kind": "Tutorial/Workshop",
+      "pages": 15,
+      "source_suite": "longdoc"
+    },
+    {
+      "name": "c31e6580d0175ab3f9d99d1ff0bfa000.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/c31e6580d0175ab3f9d99d1ff0bfa000.pdf",
+      "sha256": "972056ce39de67fc3eef402099a8f58fa3388a5142b4314a286968e7999bbc74",
+      "lang": "en",
+      "kind": "Tutorial/Workshop",
+      "pages": 20,
+      "source_suite": "longdoc"
+    },
+    {
+      "name": "Sinopolis-Chengdu.pdf",
+      "url": "https://huggingface.co/datasets/yubo2333/MMLongBench-Doc/resolve/2ff6aa9237fc777b6627dc57a486e9225ac5fb86/documents/Sinopolis-Chengdu.pdf",
+      "sha256": "850436eff14422e68332c66ad72c58232afe8983ce15dfb04a848a742ca4f0db",
+      "lang": "en",
+      "kind": "Guidebook",
+      "pages": 96,
+      "source_suite": "longdoc"
+    }
+  ]
+}

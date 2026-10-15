@@ -266,6 +266,14 @@ class BlockContextBuilder:
             (r, o if isinstance(o, ContextSpan) else self._span(o))
             for r, o in sorted(items, key=lambda x: x[0])
         ]
+        # what each span is, for resolution metrics: a section read for a NodeAnchor, the
+        # anchor block alone (raw), or a window around anchor blocks
+        for (_, o), (_, sp) in zip(sorted(items, key=lambda x: x[0]), spans, strict=True):
+            if isinstance(o, _Open):
+                if any(a.startswith("node:") for a in o.anchors):
+                    sp.resolution = "section"
+                else:
+                    sp.resolution = "block" if pol.kind == "raw" else "window"
         out = [s for _, s in spans]
         if self.order == "document":
             out.sort(key=lambda s: (s.document_id, s.start_offset or 0))

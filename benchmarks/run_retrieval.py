@@ -128,17 +128,21 @@ def choose_strategies(
             wanted += [s for s in NEEDS_VECTOR if s not in wanted]
         if extend and llm is not None:
             wanted += [s for s in NEEDS_LLM if s not in wanted]
+
+    def base(s: str) -> str:  # "<policy strategy>@key=value;..." -> the policy strategy
+        return s.partition("@")[0]
+
     for s in wanted:
-        if s not in ALL:
+        if base(s) not in ALL:
             raise SystemExit(f"unknown strategy {s!r}; choose from {ALL}")
     skipped = []
     if llm is None:
-        skipped += [f"{s} (no LLM)" for s in wanted if s in NEEDS_LLM]
-        wanted = [s for s in wanted if s not in NEEDS_LLM]
+        skipped += [f"{s} (no LLM)" for s in wanted if base(s) in NEEDS_LLM]
+        wanted = [s for s in wanted if base(s) not in NEEDS_LLM]
     if not spec:
         need_emb = NEEDS_VECTOR + NEEDS_BOTH
-        skipped += [f"{s} (no embedder)" for s in wanted if s in need_emb]
-        wanted = [s for s in wanted if s not in need_emb]
+        skipped += [f"{s} (no embedder)" for s in wanted if base(s) in need_emb]
+        wanted = [s for s in wanted if base(s) not in need_emb]
     return wanted, skipped
 
 
