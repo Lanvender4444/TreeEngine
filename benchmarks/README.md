@@ -645,6 +645,17 @@ FTS、向量、Graph 不再各自返回结果列表，而是在同一棵检索�
 | 连贯阅读有没有优势？ | 取决于题：multires 上只读命中块显著更好（60:30，p=0.002）；自然题集（longdoc + FinanceBench）上连贯窗口更好（47:64，p=0.13，4 组里 3 组方向一致）。multires 的出题方式偏向广度 |
 | 默认值 | 不变（auto）。resolution 和 raw 都是可选项；下一步是让广度和连贯的权衡随问题自适应 |
 
+## V0.12 — Adaptive Evidence Geometry（`results/v0.12-adaptive-context.md`）
+
+检索部分固定（FTS + Vector），只比较读法：BROAD（`raw`）/ AUTO / COHERENT（`section600`）/ ADAPTIVE（按证据几何选读法）/ clustered。新增代码：`treeengine/context/geometry.py`、`treeengine/context/adaptive.py`、`benchmarks/context_oracle.py`。
+
+| 问题 | 结果 |
+|---|---|
+| Oracle Gap | 8–11.5 分（噪声对照 0.5–3.3 分）：每题都选对读法，空间是真实的 |
+| 几何能否预测读法 | 自然题集上较弱：同节比例在 4 个条件下方向一致，@1000 时 AUC 0.18 / 0.21（p=0.02）；合成题集上分不开 |
+| 简单规则（同节比例 < 0.4 → BROAD，否则 AUTO；θ 只在 longdoc 上定） | dev +3.8；留出集 FinanceBench @1000 +3.7（11:5）、@2000 −1.7（7:10），合并 18:15，不优于 auto |
+| 决策 | 触发停止条件：保持 FTS + Vector + auto；adaptive / clustered 作为实验性选项保留 |
+
 ## 待完成
 
 | 实验 | 需要 |

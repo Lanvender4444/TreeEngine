@@ -18,7 +18,20 @@ from .span import ContextSpan, evidence_id
 # auto         V0.5 heuristic: section600 for budgets <= 1000 tokens, adaptive600 above
 # resolution   V0.10 adaptive resolution: auto windows, whole sections or a section's dense
 #              stretch, chosen by evidence mass per token (context/resolution.py)
-POLICIES = ["raw", "neighbor1", "neighbor2", "adaptive600", "section600", "auto", "resolution"]
+# clustered    V0.12: breadth across evidence clusters, coherence inside each
+# adaptive     V0.12: per query broad (raw) / coherent (section600) / clustered from the
+#              evidence geometry (context/adaptive.py)
+POLICIES = [
+    "raw",
+    "neighbor1",
+    "neighbor2",
+    "adaptive600",
+    "section600",
+    "auto",
+    "resolution",
+    "clustered",
+    "adaptive",
+]
 AUTO_TIGHT_BUDGET = 1000
 NODE_SPAN_TOKENS = 600  # a NodeAnchor's span under raw / neighbor policies
 
@@ -105,6 +118,7 @@ class BlockContextBuilder:
         self._where: dict[str, tuple[str, int]] = {}  # block id -> (document, index)
         self._tokens: dict[str, int] = {}
         self._resolution: Any = None  # ResolutionPlanner, created on first "resolution" build
+        self._adaptive: Any = None  # AdaptiveContextPolicy (V0.12), on first "adaptive" build
         self._budget = 0  # token budget of the build in progress (section-read NodeAnchors)
 
     # ---- document geometry (one read per document, cached)
@@ -212,6 +226,14 @@ class BlockContextBuilder:
     def build(
         self, evidence: Sequence[Item], *, token_budget: int, policy: str | None = None
     ) -> list[ContextSpan]:
+        if (policy or self.policy) in ("clustered", "adaptive"):
+            from .adaptive import AdaptiveContextPolicy, ClusteredPlanner
+
+            if (policy or self.policy) == "clustered":
+                return ClusteredPlanner(self).build(evidence, token_budget)
+            if self._adaptive is None:
+                self._adaptive = AdaptiveContextPolicy(self)
+            return self._adaptive.build(evidence, token_budget)
         if (policy or self.policy) == "resolution":
             from .resolution import ResolutionPlanner
 

@@ -1,6 +1,6 @@
 {
- "frozen_at": "2026-10-14 00:28",
- "note": "V0.11b: resolution context policy - breadth before depth (hit blocks first within half the budget, then windows / sections) + a section must leave room for the next 2 hit blocks outside it; fixed on multires dev, validated on multires2. Default (rrf + auto) outputs identical to V0.8",
+ "frozen_at": "2026-10-16 02:17",
+ "note": "V0.12: adaptive context (context/geometry.py + context/adaptive.py): same_section_ratio of the top-10 hits < 0.4 -> broad (raw), else auto; threshold fixed on longdoc dev verdicts; heldout FinanceBench. Default (rrf + auto) outputs identical to V0.8",
  "fingerprint": "62ab7cf246954b2b",
  "chunk": {
   "size": 600,
@@ -130,7 +130,7 @@
   }
  },
  "evaluation": {
-  "fingerprint": "e760ca7cab4ec766",
+  "fingerprint": "2c5573d2319ab5ec",
   "files": {
    "benchmarks/metrics/__init__.py": "93dab04a69f3aefa",
    "benchmarks/metrics/cost.py": "a406c1605156aaab",
@@ -141,11 +141,13 @@
    "benchmarks/judges/human_audit.py": "8c8d9b33679b49e8",
    "benchmarks/judges/semantic.py": "227838d8a81ba0bf",
    "treeengine/context/__init__.py": "0cb365a2dc8c3007",
-   "treeengine/context/builder.py": "fdf975b4c7b3389f",
+   "treeengine/context/adaptive.py": "e87f05720e9d214e",
+   "treeengine/context/builder.py": "1294a63e049ae115",
+   "treeengine/context/geometry.py": "337101aaf583c7cb",
    "treeengine/context/resolution.py": "72bae401376dccbd",
    "treeengine/context/span.py": "7302c774cd9a3d96",
    "benchmarks/answer.py": "491f9eaf73d5c3af",
-   "benchmarks/context.py": "d23e0099fb00640e",
+   "benchmarks/context.py": "69fd34198e98c423",
    "benchmarks/loader.py": "d420134764efd29b",
    "benchmarks/datasets/__init__.py": "150f68c18476e10d"
   }
