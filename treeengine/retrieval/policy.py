@@ -54,6 +54,10 @@ class RetrievalPolicy:
     # emits BlockAnchors or NodeAnchors (adaptive resolution). Tree reasoning by LLM is not run;
     # with an LLM and agentic_level > 0 the walk asks it only to break near-ties.
     fusion: str = "rrf"
+    # V0.15 fusion="gate": weight of the document tree as a third candidate source (sections
+    # ranked by title path / subtree centroid, best block each). Off by default: on the V0.15
+    # dev sweep any weight > 0 diluted the FTS + Vector ranking (results/v0.15-confidence-gate.md)
+    node_source_weight: float = 0.0
     node_signal_weight: float = 1.0  # node title (lexical) + centroid (semantic) activation
     section_share: float = 0.5  # a section may be emitted whole if it fits this budget share
     node_signals: str = "both"  # which node signals: both | lexical | semantic | none
@@ -69,7 +73,14 @@ class RetrievalPolicy:
     min_term_coverage: float = 0.6
 
     def __post_init__(self) -> None:
-        for name in ("fts_weight", "vector_weight", "tree_weight", "graph_weight", "agentic_level"):
+        for name in (
+            "fts_weight",
+            "vector_weight",
+            "tree_weight",
+            "graph_weight",
+            "agentic_level",
+            "node_source_weight",
+        ):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} must be >= 0")
         if self.agentic_level > 1:
@@ -80,8 +91,8 @@ class RetrievalPolicy:
             raise ValueError("budgets must be positive")
         if self.tree_anchor not in ("node", "blocks"):
             raise ValueError('tree_anchor must be "node" or "blocks"')
-        if self.fusion not in ("rrf", "tree"):
-            raise ValueError('fusion must be "rrf" or "tree"')
+        if self.fusion not in ("rrf", "tree", "gate"):
+            raise ValueError('fusion must be "rrf", "tree" or "gate"')
         if self.node_signals not in ("both", "lexical", "semantic", "none"):
             raise ValueError("node_signals must be both | lexical | semantic | none")
         if self.strong_blocks < 1 or self.min_regions < 1:

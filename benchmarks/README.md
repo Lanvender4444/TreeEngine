@@ -680,6 +680,17 @@ FTS、向量、Graph 不再各自返回结果列表，而是在同一棵检索�
 | 按难度自适应 | LLM 很少要求补检索（5%），也很少判断需要路由（11%）；自适应变体不如所有题都做路由 |
 | 决策 | 长 PDF / 财报场景推荐 `reason_toc`；通用场景用 `reason`（= node_sum）；默认仍为 `auto` |
 
+## V0.15 — Confidence Gate：多路候选、按置信度分流、合并式 PageIndex（`results/v0.15-confidence-gate.md`）
+
+多路候选（FTS、向量，可选树节点）各自记录排名，用 dev 上拟合的逻辑回归算出置信度。置信度 ≥ accept_tau 的候选直接读入；其余交给**一次** PageIndex 式 LLM 调用：低置信候选的目录和文档逐页目录放在同一个提示里，LLM 可以直接选页。可选：本题最高置信度 ≥ skip_tau 时整题不调 LLM。代码在 `treeengine/reason/gate.py`、`fusion="gate"`，上下文策略为 `gate` / `gate_fast`。
+
+| 问题 | 结果 |
+|---|---|
+| 置信度校准（dev 168 题） | 置信度 ≥0.7 的候选 79% 是证据，≥0.5 的 68%；FTS 排名的系数最大，树节点最小 |
+| dev 扫描 | 不用树节点 + at=0.5 最好（23:12）；整题跳过 LLM 越多越差；去掉逐页目录变成 22:33；树节点混进排名有害 |
+| test（251 题 × 2 轮，对 V0.13） | **G-full 50:16，p=3e-5**（FinanceBench @2000 65.2，auto 43.0）；G-skip 50:20，27% 的题不调 LLM；outline 44:12；V0.14 toc 42:19（每题 2 次调用） |
+| 决策 | 推荐 `fusion="gate"` + `context_policy="gate"`（每题 1 次调用），省钱用 `gate_fast`；默认仍为 `auto` |
+
 ## 待完成
 
 | 实验 | 需要 |

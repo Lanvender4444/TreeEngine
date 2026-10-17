@@ -49,6 +49,10 @@ REASON = [
     "reason_x_search",
     "reason_all",
     "reason_plan",
+    # V0.15: page outline in the selector call; confidence gate ("gate@at=0.7;st=0.9")
+    "reason_outline",
+    "gate",
+    "gate_fast",
 ]
 MODES += REASON
 

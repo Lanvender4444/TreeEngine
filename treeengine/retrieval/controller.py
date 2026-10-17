@@ -25,6 +25,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from ..context import BlockContextBuilder
+from ..core.anchor import BlockAnchor
 from ..core.config import EngineConfig
 from ..core.models import Evidence, Node
 from ..core.protocols import LLMProvider, Repository
@@ -133,6 +134,11 @@ class RetrievalController:
                     st.vector_queries += 1
                     st.add("vector", anchors_from_evidence(hits, "vector"))
 
+            if policy.fusion == "gate":
+                # V0.15: the document tree as a third candidate source (sections ranked by
+                # their title path / opening and by their subtree centroid)
+                self._node_source(st, policy)
+
             # 2) evaluate, 3) tree reasoning when the policy allows / needs it
             enough, why = self._enough(st, policy)
             tr.add("evaluate", at_step=st.step, enough=enough, why=why)
@@ -161,6 +167,10 @@ class RetrievalController:
 
             # 5) fuse anchors by rank, 6) build the reading context
             anchors = self._fuse(st, policy)
+            if policy.fusion == "gate":
+                from ..reason.gate import annotate
+
+                annotate(anchors, st.lists)
         evidence = [self._evidence(a) for a in anchors]
         from ..reason import build_context, reason_spec
 
@@ -492,12 +502,48 @@ class RetrievalController:
             "vector": policy.vector_weight,
             "tree": policy.tree_weight,
             "graph": policy.graph_weight,
+            "node": policy.node_source_weight,
         }
         active = {k: v for k, v in st.lists.items() if v and weights.get(k, 1.0) > 0}
         # absorb before the pool cut: a NodeAnchor's own tree term alone ranks below the
         # pool, so cutting first would drop it before it can take over the evidence inside it
         fused = fuse_anchors(active, weights)
         return absorb_contained(fused, self._section_ids)[: policy.candidate_pool]
+
+    def _node_source(self, st: RetrievalState, policy: RetrievalPolicy, top: int = 10) -> None:
+        """Best block of each of the ``top`` sections the tree ranks highest for the query."""
+        doc = st.document_id
+        if not doc or policy.node_source_weight <= 0:
+            return
+        from ..core.text import lexical_score, query_terms
+        from ..rtree.index import NodeIndex
+
+        if getattr(self, "_node_index", None) is None:
+            vec_index = getattr(self.vector, "index", None) if self.vector else None
+            self._node_index = NodeIndex(self.repo, vec_index)
+        di = self._node_index.get(doc, centroids=self.vector is not None)
+        if di is None:
+            return
+        ranked = [self._node_index.lexical(di, st.query, top)]
+        if self.vector is not None:
+            qv = self.vector.embedder.embed_query(st.query)
+            ranked.append(self._node_index.semantic(di, qv, top))
+        score: dict[str, float] = {}
+        for lst in ranked:
+            for r, nid in enumerate(lst, 1):
+                score[nid] = score.get(nid, 0.0) + 1.0 / (60 + r)
+        terms = query_terms(st.query)
+        out = []
+        for nid in sorted(score, key=lambda n: -score[n])[:top]:
+            ni = di.nodes.get(nid)
+            idx = (ni.own or ni.blocks) if ni else []
+            if not idx:
+                continue
+            i = max(idx, key=lambda j: (lexical_score(terms, di.blocks[j].content), -j))
+            b = di.blocks[i]
+            ev = Evidence(b.document_id, b.node_id, b.id, b.content, "node", None, {"page": b.page})
+            out.append(BlockAnchor(b.document_id, b.id, b.node_id, "node", 0, None, {}, ev))
+        st.add("node", out)
 
     def _title(self, document_id: str | None) -> str:
         doc = self.repo.get_document(document_id) if document_id else None

@@ -156,11 +156,22 @@ RTREE_STRATEGIES = {
 POLICY_STRATEGIES.update(RTREE_STRATEGIES)
 POLICY_STRATEGIES.update(ANCHOR_STRATEGIES)
 POLICY_STRATEGIES.update(GRAPH_STRATEGIES)
+# V0.15: FTS + Vector, every candidate annotated with its source ranks and a calibrated
+# confidence (treeengine/reason/gate.py); "policy_gate@node_source_weight=1" adds the document
+# tree as a third source (the V0.15 sweep ran it as node_signal_weight=0 / 0.3 / 1 before the
+# field was split off; the default here is the swept winner, no tree source)
+POLICY_STRATEGIES["policy_gate"] = {
+    "fts_weight": 1.0,
+    "vector_weight": 1.0,
+    "tree_weight": 0.0,
+    "fusion": "gate",
+}
 NEEDS_LLM += list(ANCHOR_STRATEGIES)
 NEEDS_BOTH += ["anchor_hybrid_full_node", "anchor_hybrid_full_blocks"]
 GRAPH_LEXICAL = [n for n in GRAPH_STRATEGIES if n.startswith("graph_fts")] + ["rtree_fts"]
 NEEDS_VECTOR += [n for n in GRAPH_STRATEGIES if n.startswith("graph_hybrid")]
 NEEDS_VECTOR += [
+    "policy_gate",
     "rtree_hybrid",
     "rtree_hybrid_nonode",
     "rtree_hybrid_nodelex",

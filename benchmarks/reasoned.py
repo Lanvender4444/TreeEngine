@@ -160,7 +160,14 @@ def run_reasoned(
         assert j.plan is not None
         j.plan.reply = _llm(llm, prompts.REASON_SYSTEM, j.plan.prompt, 300, j)
 
-    par(stage_c, [j for j in jobs_in if j.plan and j.plan.catalog.regions])
+    par(
+        stage_c,
+        [
+            j
+            for j in jobs_in
+            if j.plan and not j.plan.skip and (j.plan.catalog.regions or j.plan.outline)
+        ],
+    )
 
     # D / E: follow-up search chosen by the selector
     second = []

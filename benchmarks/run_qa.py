@@ -225,15 +225,19 @@ def main(argv: list[str] | None = None) -> int:
     modes = args.context.split(",") if args.context else ["raw"]
     if args.context and not budgets:
         raise SystemExit("--context needs --budget")
-    bad = [m for m in modes if m not in MODES]
+    bad = [m for m in modes if m.partition("@")[0] not in MODES]
     if bad:
         raise SystemExit(f"unknown context mode(s) {bad}; choose from {MODES}")
     if args.candidates is None:
         args.candidates = candidate_pool()
     builder = ContextBuilder(ws.repo)
-    from treeengine.reason import REASON_MODES, ReasonedReader
+    from treeengine.reason import ReasonedReader, reason_spec
 
-    readers = {m: ReasonedReader(builder.inner, REASON_MODES[m]) for m in REASON}
+    readers = {
+        m: ReasonedReader(builder.inner, reason_spec(m))
+        for m in modes
+        if m.partition("@")[0] in REASON
+    }
     pending: list[Any] = []
     names: list[str] = []  # report rows: strategy, or "retriever:policy @budget"
     family: dict[str, str] = {}
@@ -270,7 +274,7 @@ def main(argv: list[str] | None = None) -> int:
                 if m is None or b is None or name == "full_context":
                     jobs.append((labels[(m, b)], q, run, recall5, dict(base_extra)))
                     continue
-                if m in REASON and not chunked:
+                if m.partition("@")[0] in REASON and not chunked:
                     # V0.13 / V0.14: the LLM stages run in parallel below (benchmarks/reasoned.py)
                     pending.append(
                         Job(

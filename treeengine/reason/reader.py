@@ -12,7 +12,7 @@ stays on one thread:
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -31,12 +31,20 @@ Candidate regions, best search match first. Each shows its section path, pages, 
 whole region in tokens, and matching excerpts:
 
 {catalog}
-
+{outline_block}
 Choose what to read, most useful first, staying within the budget:
 - an excerpt id (e.g. "R1a") reads that excerpt with a little surrounding text (~{window} tokens);
 {whole_rule}Skip what is clearly irrelevant. Prefer text that directly states the needed facts
 or numbers.
 {search_rule}Reply as JSON: {{"read": ["R2", "R1a"], {search_key}"reason": "short"}}
+"""
+
+OUTLINE_BLOCK = """
+The rest of the document, one line per page (section titles starting there, or the page's first
+line). A page id (e.g. "p57") reads that page (cut to ~{cap} tokens around its best match if
+larger): use it when the regions above miss what the question needs, for example the statement,
+table or note it asks about.
+{outline}
 """
 
 SEARCH_RULE = (
@@ -70,6 +78,14 @@ class ReasonSpec:
     toc: bool = False  # PageIndex-style: route on a page outline, reserve catalog places
     search: bool = False  # the selector may ask for one more search, then choose again
     plan: bool = False  # one planner call: expansions + whether to route on the page outline
+    # V0.15 confidence gate (treeengine/reason/gate.py; needs a pool from fusion="gate")
+    gate: bool = False  # confident candidates go in directly; the LLM only sees the rest
+    accept_tau: float = 0.6  # confidence to accept a candidate without the LLM
+    skip_tau: float = 0.9  # best confidence at which the question needs no LLM call at all
+    accept_max: int = 2  # at most this many accepted candidates
+    accept_share: float = 0.5  # accepted candidates take at most this share of the budget
+    outline: bool = False  # the page outline goes into the selector prompt (page ids "p57")
+    outline_lines: int = 150
 
 
 # context-mode name -> spec (benchmarks: --context reason_node,...)
@@ -87,7 +103,38 @@ REASON_MODES: dict[str, ReasonSpec] = {
     # the LLM picks the retrieval mix per question: expansions always, outline routing only
     # when it judges the answer to sit in a specific statement / table / note
     "reason_plan": ReasonSpec(summaries=True, plan=True, search=True),
+    # V0.15: PageIndex in the same call (catalog + page outline), with / without the gate
+    "reason_outline": ReasonSpec(summaries=True, outline=True),
+    # recommended (V0.15 test): accept confident candidates, ONE call with catalog + outline
+    "gate": ReasonSpec(summaries=True, outline=True, gate=True, accept_tau=0.5, skip_tau=1.01),
+    # cheaper: questions whose best candidate is >= 0.65 confident make no LLM call (~27%)
+    "gate_fast": ReasonSpec(summaries=True, outline=True, gate=True, accept_tau=0.5, skip_tau=0.65),
 }
+
+_GATE_KEYS: dict[str, tuple[str, Callable[[str], Any]]] = {
+    "at": ("accept_tau", float),
+    "st": ("skip_tau", float),
+    "am": ("accept_max", int),
+    "as": ("accept_share", float),
+    "ol": ("outline", lambda v: v not in ("0", "false", "no")),
+    "mr": ("max_regions", int),
+}
+
+
+def _parse_mode(name: str) -> ReasonSpec | None:
+    """ "gate@at=0.7;st=0.9" -> the gate spec with those fields (benchmark sweeps)."""
+    base, _, params = name.partition("@")
+    spec = REASON_MODES.get(REASON_ALIASES.get(base, base))
+    if spec is None or not params:
+        return spec
+    kw: dict[str, Any] = {}
+    for kv in params.split(";"):
+        k, _, v = kv.partition("=")
+        if k.strip() not in _GATE_KEYS:
+            raise ValueError(f"unknown reasoned-reading parameter {k!r} in {name!r}")
+        field_name, conv = _GATE_KEYS[k.strip()]
+        kw[field_name] = conv(v.strip())
+    return replace(spec, **kw)
 
 
 # "reason" = the recommended variant (V0.13 test split: best paired result against auto)
@@ -98,7 +145,7 @@ def reason_spec(policy: str | None) -> ReasonSpec | None:
     """The ReasonSpec of a reasoned context policy name, or None for an ordinary policy."""
     if not policy:
         return None
-    return REASON_MODES.get(REASON_ALIASES.get(policy, policy))
+    return _parse_mode(policy)
 
 
 def build_context(
@@ -143,6 +190,11 @@ class ReasonPlan:
     prompt: str
     reply: str | None = None
     usage: dict[str, int] = field(default_factory=dict)
+    # V0.15 gate / outline
+    accepted: list[tuple[str, int, int, str, str]] = field(default_factory=list)
+    skip: bool = False
+    outline: Any = None
+    gate_info: dict[str, Any] = field(default_factory=dict)
 
 
 def render_catalog(cat: RegionCatalog) -> str:
@@ -171,8 +223,11 @@ def parse_search(reply: str | None, limit: int = 2) -> list[str]:
     return list(dict.fromkeys(out))[:limit]
 
 
-def parse_choice(reply: str | None, cat: RegionCatalog, whole: bool) -> list[str]:
-    """Valid, de-duplicated ids from the LLM reply (whole-region ids dropped when not allowed)."""
+def parse_choice(
+    reply: str | None, cat: RegionCatalog, whole: bool, pages: Any = None
+) -> list[str]:
+    """Valid, de-duplicated ids from the LLM reply (whole-region ids dropped when not allowed;
+    page ids "p57" kept when the prompt showed a page outline with that page)."""
     data = extract_json(reply or "")
     raw = data.get("read") if isinstance(data, dict) else data if isinstance(data, list) else None
     if not isinstance(raw, list):
@@ -180,6 +235,10 @@ def parse_choice(reply: str | None, cat: RegionCatalog, whole: bool) -> list[str
     out: list[str] = []
     for x in raw:
         key = str(x).strip().strip("[]\"'")
+        if pages is not None and _page_id(key) in pages:
+            if f"p{_page_id(key)}" not in out:
+                out.append(f"p{_page_id(key)}")
+            continue
         item = cat.lookup(key)
         if item is None or key in out:
             continue
@@ -187,6 +246,13 @@ def parse_choice(reply: str | None, cat: RegionCatalog, whole: bool) -> list[str
             continue
         out.append(key)
     return out
+
+
+def _page_id(key: str) -> int | None:
+    k = key.strip().lower().replace("page", "p").replace(" ", "")
+    if k.startswith("p") and k[1:].isdigit():
+        return int(k[1:])
+    return None
 
 
 class ReasonedReader:
@@ -199,6 +265,32 @@ class ReasonedReader:
         self, question: str, pool: Sequence[Item], budget: int, *, allow_search: bool = True
     ) -> ReasonPlan:
         s = self.spec
+        accepted: list[tuple[str, int, int, str, str]] = []
+        gate_info: dict[str, Any] = {}
+        skip = False
+        full_budget = budget
+        if s.gate:
+            from .gate import split
+
+            d = split(list(pool), s.accept_tau, s.skip_tau, s.accept_max)
+            accepted = self._accept_units(d.accepted, int(budget * s.accept_share), budget)
+            used = sum(self._tokens(u) for u in accepted)
+            pool = d.rest
+            budget = max(0, budget - used)
+            skip = d.skip_llm or budget < 150
+            gate_info = {
+                "top_conf": round(d.top_conf, 3),
+                "accepted": len(accepted),
+                "accepted_tokens": used,
+                "skip_llm": skip,
+            }
+        outline = None
+        if s.outline and pool:
+            from .search import page_outline
+
+            first = next((a for a in pool if getattr(a, "document_id", None)), None)
+            if first is not None:
+                outline = page_outline(self.builder, first.document_id, max_lines=s.outline_lines)
         cat = build_catalog(
             pool,
             self.builder,
@@ -218,12 +310,20 @@ class ReasonedReader:
             whole_rule=WHOLE_RULE.format(cap=int(budget * s.whole_share)) if s.whole else "",
             search_rule=SEARCH_RULE if s.search and allow_search else "",
             search_key='"search": [], ' if s.search and allow_search else "",
+            outline_block=OUTLINE_BLOCK.format(
+                cap=int(budget * s.whole_share), outline=outline.text
+            )
+            if outline is not None
+            else "",
         )
-        return ReasonPlan(question, budget, s, cat, prompt)
+        plan = ReasonPlan(question, budget, s, cat, prompt)
+        plan.accepted, plan.skip, plan.outline, plan.gate_info = accepted, skip, outline, gate_info
+        plan.gate_info["full_budget"] = full_budget
+        return plan
 
     # ---- 2. the one LLM call
     def decide(self, plan: ReasonPlan, llm: LLMProvider, max_tokens: int = 300) -> str:
-        if not plan.catalog.regions:
+        if plan.skip or (not plan.catalog.regions and plan.outline is None):
             plan.reply = ""
             return ""
         reply = llm.complete(plan.prompt, system=REASON_SYSTEM, max_tokens=max_tokens)
@@ -239,12 +339,25 @@ class ReasonedReader:
     ) -> tuple[list[ContextSpan], dict[str, Any]]:
         b = self.builder
         s, cat, budget = plan.spec, plan.catalog, plan.budget
-        choice = parse_choice(reply if reply is not None else plan.reply, cat, s.whole)
-        pol = resolve_policy(s.base_policy, budget)
+        pages = plan.outline.pages if plan.outline is not None else None
+        choice = parse_choice(reply if reply is not None else plan.reply, cat, s.whole, pages)
+        full = int(plan.gate_info.get("full_budget", budget))
+        pol = resolve_policy(s.base_policy, full)
         cap = int(budget * s.whole_share)
-        units: list[tuple[str, int, int, str, str]] = []  # (doc, lo, hi, anchor id, kind)
-        chosen_blocks: set[str] = set()
+        units: list[tuple[str, int, int, str, str]] = list(plan.accepted)
+        chosen_blocks: set[str] = {u[3] for u in plan.accepted}
         for key in choice:
+            pid = _page_id(key)
+            if pid is not None and plan.outline is not None:
+                idx = plan.outline.pages.get(pid, [])
+                if idx:
+                    doc = plan.outline.document_id
+                    lo, hi = idx[0], idx[-1]
+                    if sum(b.tokens(x) for x in b.blocks(doc)[lo : hi + 1]) > cap:
+                        best = self._best_in(doc, idx, plan.question)
+                        lo, hi = self._grow_within(doc, best, lo, hi, cap)
+                    units.append((doc, lo, hi, f"page:{pid}", "section"))
+                continue
             item = cat.lookup(key)
             if isinstance(item, Region):
                 lo, hi = item.lo, item.hi
@@ -268,8 +381,10 @@ class ReasonedReader:
                 iv = b.interval(a, pol) if a.kind == "block" else b.node_interval(a, pol)
                 if iv:
                     units.append((*iv, str(bid), "window" if pol.kind != "raw" else "block"))
-        spans = self._pack(units, budget, allow_first_overflow)
+        spans = self._pack(units, full, allow_first_overflow)
         info = {
+            **plan.gate_info,
+            "pages": sum(1 for k in choice if _page_id(k) is not None),
             "choice": choice,
             "fallback": not choice,
             "whole": sum(1 for k in choice if isinstance(cat.lookup(k), Region)),
@@ -294,6 +409,45 @@ class ReasonedReader:
         return self.assemble(plan, allow_first_overflow=self.builder.allow_first_overflow)
 
     # ---- helpers
+    def _accept_units(
+        self, accepted: Sequence[Any], cap: int, budget: int
+    ) -> list[tuple[str, int, int, str, str]]:
+        """Windows around accepted candidates (base policy), together at most ``cap`` tokens."""
+        b = self.builder
+        pol = resolve_policy(self.spec.base_policy, budget)
+        out: list[tuple[str, int, int, str, str]] = []
+        used = 0
+        for a in accepted:
+            bid = getattr(a, "block_id", None)
+            if not bid:
+                continue
+            anchor = a if isinstance(a, Anchor) else Anchor("block", a.document_id, block_id=bid)
+            iv = b.interval(anchor, pol)
+            if iv is None:
+                continue
+            doc, lo, hi = iv
+            room = cap - used
+            if room <= 0:
+                break
+            if sum(b.tokens(x) for x in b.blocks(doc)[lo : hi + 1]) > room:
+                i = b._where[str(bid)][1]
+                lo, hi = self._grow_within(doc, i, lo, hi, room)
+            unit = (doc, lo, hi, str(bid), "accepted")
+            used += self._tokens(unit)
+            out.append(unit)
+        return out
+
+    def _tokens(self, unit: tuple[str, int, int, str, str]) -> int:
+        doc, lo, hi = unit[0], unit[1], unit[2]
+        return sum(self.builder.tokens(x) for x in self.builder.blocks(doc)[lo : hi + 1])
+
+    def _best_in(self, doc: str, idx: Sequence[int], question: str) -> int:
+        from ..core.text import lexical_score, query_terms
+
+        blocks = self.builder.blocks(doc)
+        terms = query_terms(question)
+        return max(idx, key=lambda i: (lexical_score(terms, blocks[i].content), -i))
+
     def _grow_within(self, doc: str, i: int, lo_b: int, hi_b: int, size: int) -> tuple[int, int]:
         blocks = self.builder.blocks(doc)
         tok = self.builder.tokens
