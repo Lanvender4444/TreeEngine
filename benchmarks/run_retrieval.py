@@ -72,6 +72,12 @@ def common_args(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--split", default=None, help="dev | heldout")
     ap.add_argument("--per-type", type=int, default=None, help="at most N queries per type")
     ap.add_argument("--limit", type=int, default=None, help="at most N queries")
+    ap.add_argument(
+        "--hash-split",
+        default=None,
+        choices=["dev", "test"],
+        help="V0.13: fixed split by sha1(query id): 1 in 4 questions is dev, the rest test",
+    )
     ap.add_argument("--synthetic-only", action="store_true")
     ap.add_argument("--llm", action="store_true", help="enable LLM strategies (TREEENGINE_LLM_*)")
     ap.add_argument("--vector", action="store_true", help="enable embedding-based strategies")
@@ -146,6 +152,13 @@ def choose_strategies(
     return wanted, skipped
 
 
+def hash_split(query_id: str) -> str:
+    """Stable dev / test assignment, independent of file order and of any result."""
+    import hashlib
+
+    return "dev" if int(hashlib.sha1(query_id.encode()).hexdigest(), 16) % 4 == 0 else "test"
+
+
 def setup(args: argparse.Namespace, default: list[str], extend: bool = True):
     """Suite -> corpus -> validated queries -> workspace -> strategies (indexes built)."""
     suite, docs, complete = prepare_suite(
@@ -162,6 +175,8 @@ def setup(args: argparse.Namespace, default: list[str], extend: bool = True):
         per_type=args.per_type,
         limit=args.limit,
     )
+    if getattr(args, "hash_split", None):
+        queries = [q for q in queries if (hash_split(q.id) == "dev") == (args.hash_split == "dev")]
     spec = embedder_spec(args)
     llm = llm_from_args(args)
     wanted, skipped = choose_strategies(args, spec, llm, default, extend)

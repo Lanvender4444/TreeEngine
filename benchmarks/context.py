@@ -36,6 +36,21 @@ MODES = [
     "clustered",
     "adaptive",
 ]
+# V0.13: reasoned reading (one LLM call chooses what of the pool to read; needs the question)
+REASON = [
+    "reason_blocks",
+    "reason_node",
+    "reason_page",
+    "reason_node_sum",
+    # V0.14 reasoned retrieval (expansion / page-outline routing / selector follow-up search)
+    "reason_x",
+    "reason_toc",
+    "reason_search",
+    "reason_x_search",
+    "reason_all",
+    "reason_plan",
+]
+MODES += REASON
 
 
 class ContextBuilder:

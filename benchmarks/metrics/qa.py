@@ -51,6 +51,8 @@ class QAOutcome:
     retrieval_llm_input_tokens: int = 0
     retrieval_llm_output_tokens: int = 0
     tree_steps: int = 0
+    # V0.13 reasoned reading: the LLM's choice (ids, whole / excerpt counts, fallback)
+    reason: dict[str, Any] | None = None
 
     @property
     def scored(self) -> bool:

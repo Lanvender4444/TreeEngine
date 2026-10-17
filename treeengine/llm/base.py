@@ -177,6 +177,10 @@ def _purpose(system: str | None) -> str:
         prompts.SUMMARY_SYSTEM: "summary",
         prompts.STRUCTURE_SYSTEM: "structure",
         prompts.PLANNER_SYSTEM: "planner",
+        prompts.REASON_SYSTEM: "reasoned_reading",
+        prompts.EXPAND_SYSTEM: "query_expansion",
+        prompts.TOC_ROUTE_SYSTEM: "toc_routing",
+        prompts.PLAN_SYSTEM: "retrieval_planning",
     }.get(system or "", "other")
 
 

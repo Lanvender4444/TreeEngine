@@ -21,7 +21,7 @@ from __future__ import annotations
 import time
 from collections import Counter
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from ..context import BlockContextBuilder
@@ -162,9 +162,33 @@ class RetrievalController:
             # 5) fuse anchors by rank, 6) build the reading context
             anchors = self._fuse(st, policy)
         evidence = [self._evidence(a) for a in anchors]
-        spans = BlockContextBuilder(
-            self.repo, policy=policy.context_policy, token_counter=self.count
-        ).build(anchors, token_budget=policy.context_budget)
+        from ..reason import build_context, reason_spec
+
+        reasoned = reason_spec(policy.context_policy) is not None
+        builder = BlockContextBuilder(
+            self.repo,
+            policy="auto" if reasoned else policy.context_policy,
+            token_counter=self.count,
+        )
+
+        def again(q: str) -> list[Any]:  # V0.14: the same fast paths for a rewritten query
+            sub = replace(policy, context_policy="auto", context_budget=1)
+            return list(self.retrieve(q, document_id=document_id, policy=sub).anchors)
+
+        spans, reason_info = build_context(
+            builder,
+            policy.context_policy,
+            query,
+            anchors,
+            policy.context_budget,
+            self.llm,
+            retrieve=again if reasoned else None,
+            title=self._title(document_id),
+        )
+        if reason_info and not reason_info.get("reason"):  # the reasoned-reading LLM call ran
+            st.llm_calls += 1
+        if reason_info is not None:
+            tr.add("reasoned_reading", **{k: v for k, v in reason_info.items() if k != "usage"})
         ctx_tokens = sum(s.token_count for s in spans)
         tr.add(
             "context",
@@ -474,6 +498,10 @@ class RetrievalController:
         # pool, so cutting first would drop it before it can take over the evidence inside it
         fused = fuse_anchors(active, weights)
         return absorb_contained(fused, self._section_ids)[: policy.candidate_pool]
+
+    def _title(self, document_id: str | None) -> str:
+        doc = self.repo.get_document(document_id) if document_id else None
+        return str(getattr(doc, "title", "") or "")
 
     def _section_ids(self, a: Anchor) -> set[str]:
         """The node ids a NodeAnchor covers: itself (scope "own") or its whole subtree."""

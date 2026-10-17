@@ -31,7 +31,7 @@ from treeengine.core.protocols import LLMProvider
 from treeengine.llm.base import CallableLLM, MeteredLLM
 
 from .answer import Answerer, llm_from_env
-from .context import MODES, ContextBuilder, as_evidence, fragmentation
+from .context import MODES, REASON, ContextBuilder, as_evidence, fragmentation
 from .freeze import candidate_pool
 from .judges import UNCERTAIN, Verdict
 from .judges import exact as exact_judge
@@ -41,6 +41,7 @@ from .loader import doc_stats
 from .metrics.cost import count_tokens
 from .metrics.qa import QAOutcome, aggregate_qa
 from .metrics.retrieval import evaluate, norm
+from .reasoned import Job, run_reasoned
 from .report import TOKEN_BUCKETS, _bucket, _fmt, _table
 from .run_retrieval import base_meta, common_args, setup
 from .strategies import FAMILY, build_strategies
@@ -230,6 +231,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.candidates is None:
         args.candidates = candidate_pool()
     builder = ContextBuilder(ws.repo)
+    from treeengine.reason import REASON_MODES, ReasonedReader
+
+    readers = {m: ReasonedReader(builder.inner, REASON_MODES[m]) for m in REASON}
+    pending: list[Any] = []
     names: list[str] = []  # report rows: strategy, or "retriever:policy @budget"
     family: dict[str, str] = {}
     jobs: list[tuple[str, Any, Any, float | None, dict[str, Any]]] = []
@@ -265,6 +270,25 @@ def main(argv: list[str] | None = None) -> int:
                 if m is None or b is None or name == "full_context":
                     jobs.append((labels[(m, b)], q, run, recall5, dict(base_extra)))
                     continue
+                if m in REASON and not chunked:
+                    # V0.13 / V0.14: the LLM stages run in parallel below (benchmarks/reasoned.py)
+                    pending.append(
+                        Job(
+                            len(jobs),
+                            m,
+                            labels[(m, b)],
+                            q,
+                            run,
+                            recall5,
+                            judged,
+                            base_extra,
+                            strat,
+                            doc_id,
+                            b,
+                        )
+                    )
+                    jobs.append(None)  # type: ignore[arg-type]
+                    continue
                 spans = builder.spans(run.evidence, m, b)
                 ctx = as_evidence(run.evidence, spans)
                 extra: dict[str, Any] = {
@@ -282,6 +306,24 @@ def main(argv: list[str] | None = None) -> int:
                 jobs.append((labels[(m, b)], q, replace(run, evidence=ctx), recall5, extra))
         if not args.quiet:
             print(f"retrieved {name:26s} for {len(queries)} questions", file=sys.stderr)
+
+    # 1b) V0.13 reasoned reading / V0.14 reasoned retrieval: LLM stages in parallel,
+    # repository and retrieval work on this thread
+    if pending:
+        done = run_reasoned(
+            pending,
+            readers,
+            answer_llm,
+            ws.repo,
+            paths,
+            args.workers,
+            quiet=args.quiet,
+            title_of=lambda d: (
+                str(getattr(ws.repo.get_document(d), "title", "") or "") if d else ""
+            ),
+        )
+        for idx, job in done.items():
+            jobs[idx] = job
 
     # 2) answer + judge, in parallel (network bound)
     def work(job: tuple[str, Any, Any, float | None, dict[str, Any]]) -> QAOutcome:

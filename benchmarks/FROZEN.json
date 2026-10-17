@@ -1,7 +1,7 @@
 {
- "frozen_at": "2026-10-16 02:17",
- "note": "V0.12: adaptive context (context/geometry.py + context/adaptive.py): same_section_ratio of the top-10 hits < 0.4 -> broad (raw), else auto; threshold fixed on longdoc dev verdicts; heldout FinanceBench. Default (rrf + auto) outputs identical to V0.8",
- "fingerprint": "62ab7cf246954b2b",
+ "frozen_at": "2026-10-16 23:10",
+ "note": "V0.14 reasoned retrieval (expansion / page-outline routing / follow-up search / planner); default path unchanged",
+ "fingerprint": "75a94570e8a1a508",
  "chunk": {
   "size": 600,
   "overlap": 100,
@@ -49,7 +49,7 @@
   "treeengine/retrieval/__init__.py": "481a061d55619046",
   "treeengine/retrieval/anchor.py": "408d42dc6c9c9b97",
   "treeengine/retrieval/base.py": "1f9176cd2e9fca48",
-  "treeengine/retrieval/controller.py": "b70d6eea99740009",
+  "treeengine/retrieval/controller.py": "e97f0db569478c56",
   "treeengine/retrieval/corpus.py": "65c548c4f14e4d12",
   "treeengine/retrieval/fts.py": "8f3605d2a9dd888c",
   "treeengine/retrieval/fusion.py": "20f53586421c2bc9",
@@ -73,6 +73,10 @@
   "treeengine/rtree/__init__.py": "ebfa5703fa73974c",
   "treeengine/rtree/index.py": "ebab666618827d56",
   "treeengine/rtree/search.py": "62570ea7019103f6",
+  "treeengine/reason/__init__.py": "1f6672d218a2bf26",
+  "treeengine/reason/catalog.py": "a60057254f571f0f",
+  "treeengine/reason/reader.py": "9419eb7ef378a379",
+  "treeengine/reason/search.py": "378289ee7ce045cd",
   "benchmarks/strategies/__init__.py": "2264714a371499e2",
   "benchmarks/strategies/base.py": "f050bd6321f45749",
   "benchmarks/strategies/chunk_rag.py": "38d7ac8625166270",
@@ -130,11 +134,11 @@
   }
  },
  "evaluation": {
-  "fingerprint": "2c5573d2319ab5ec",
+  "fingerprint": "eec74a0edfdac196",
   "files": {
    "benchmarks/metrics/__init__.py": "93dab04a69f3aefa",
    "benchmarks/metrics/cost.py": "a406c1605156aaab",
-   "benchmarks/metrics/qa.py": "e4b69ec2f5a5e66c",
+   "benchmarks/metrics/qa.py": "76aa1a78aa821f4a",
    "benchmarks/metrics/retrieval.py": "6a6478c988eae690",
    "benchmarks/judges/__init__.py": "de2bb271abbbce49",
    "benchmarks/judges/exact.py": "539f493f167c08f5",
@@ -147,7 +151,7 @@
    "treeengine/context/resolution.py": "72bae401376dccbd",
    "treeengine/context/span.py": "7302c774cd9a3d96",
    "benchmarks/answer.py": "491f9eaf73d5c3af",
-   "benchmarks/context.py": "69fd34198e98c423",
+   "benchmarks/context.py": "59fad43f81b4a17b",
    "benchmarks/loader.py": "d420134764efd29b",
    "benchmarks/datasets/__init__.py": "150f68c18476e10d"
   }

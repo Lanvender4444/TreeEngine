@@ -23,6 +23,7 @@ from .core.config import EngineConfig
 from .core.models import AnswerResult, Block, Document, Evidence, Node, NodeView
 from .core.protocols import EmbeddingProvider, LLMProvider, Repository
 from .factory import Components, build_local_components
+from .reason import reason_spec
 from .retrieval.planner import QueryType
 from .retrieval.policy import RetrievalPolicy
 from .retrieval.result import SearchResult
@@ -188,9 +189,7 @@ class TreeEngine:
             if budget is None:
                 budget = self.config.retrieve_context_tokens
             if budget:
-                res.context_spans = BlockContextBuilder(self.repo, policy=context_policy).build(
-                    res.anchors, token_budget=budget
-                )
+                res.context_spans = self._context(context_policy, query, res.anchors, budget)
                 res.stats.context_tokens = sum(s.token_count for s in res.context_spans)
         if self.llm is not None and before is not None:
             used = self.llm.usage.since(before)
@@ -223,6 +222,7 @@ class TreeEngine:
         policy: str = "auto",
         *,
         document_id: str | None = None,
+        question: str | None = None,
     ) -> list[ContextSpan]:
         """Context Reconstruction on its own: rebuild continuous reading spans around any hits -
         TreeEngine anchors / evidence, or results of an external retriever (``ExternalHit``,
@@ -232,7 +232,20 @@ class TreeEngine:
         from .integrations.hits import resolve_hits
 
         items = resolve_hits(self.repo, hits, document_id=document_id)
-        return BlockContextBuilder(self.repo, policy=policy).build(items, token_budget=token_budget)
+        return self._context(policy, question, items, token_budget)
+
+    def _context(
+        self, policy: str, question: str | None, items: Any, budget: int
+    ) -> list[ContextSpan]:
+        """Any context policy; a reasoned one (V0.13 "reason", "reason_page" ...) uses the
+        question and the configured LLM, and falls back to auto without them."""
+        from .reason import build_context, reason_spec
+
+        base = "auto" if reason_spec(policy) else policy
+        spans, _ = build_context(
+            BlockContextBuilder(self.repo, policy=base), policy, question, items, budget, self.llm
+        )
+        return spans
 
     # ------------------------------------------------------------------ convenience
     def ask(
@@ -253,9 +266,12 @@ class TreeEngine:
         res = self.retrieve(question, document_id=document_id, limit=k, mode=mode, policy=policy)
         if not budget:
             return self.components.answerer.answer(question, res.evidence, res.query_type)
-        spans = res.context_spans or BlockContextBuilder(
-            self.repo, policy=self.config.answer_context_policy
-        ).build(res.anchors[:k], token_budget=budget)
+        spans = res.context_spans or self._context(
+            self.config.answer_context_policy,
+            question,
+            res.anchors if reason_spec(self.config.answer_context_policy) else res.anchors[:k],
+            budget,
+        )
         return self.components.answerer.answer(question, self._span_evidence(spans), res.query_type)
 
     def _span_evidence(self, spans: list[ContextSpan]) -> list[Evidence]:

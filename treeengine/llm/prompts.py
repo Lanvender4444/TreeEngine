@@ -77,6 +77,11 @@ Evidence:
 Write the answer with [E<n>] citations.
 """
 
+REASON_SYSTEM = (
+    "You decide which parts of a document must be read to answer a question. You see the "
+    "regions a search found, like a table of contents with matching excerpts. Reply with JSON only."
+)
+
 PLANNER_SYSTEM = "You classify retrieval queries. Reply with one word."
 PLANNER = """Classify the query into one of:
 LOOKUP - a short fact, name, number, code identifier lookup
@@ -85,4 +90,41 @@ HYBRID - asks to find mentions of something inside a specific part/section
 
 Query: {question}
 Answer with LOOKUP, DOCUMENT_REASONING or HYBRID.
+"""
+
+EXPAND_SYSTEM = "You rewrite search queries for a document index. Reply with JSON only."
+EXPAND = """Question: {question}
+{document}
+Write {n} short search queries that use the words the document itself would use in the passages
+that answer this question: names of statements, tables, sections or line items, defined terms,
+abbreviations spelled out. Do not answer the question.
+Reply as JSON: {{"queries": ["...", "..."]}}
+"""
+
+TOC_ROUTE_SYSTEM = (
+    "You find where in a document the answer to a question is, from its page-by-page outline. "
+    "Reply with JSON only."
+)
+TOC_ROUTE = """Question: {question}
+{document}
+Page-by-page outline (page: section titles starting there, or the page's first line):
+{outline}
+
+Pick at most {k} pages most likely to hold the facts needed (for example the statement, table or
+note that reports them), best first.
+Reply as JSON: {{"pages": [57, 58], "reason": "short"}}
+"""
+
+PLAN_SYSTEM = (
+    "You plan how to search one document for the answer to a question. Reply with JSON only."
+)
+PLAN = """Question: {question}
+{document}
+1. Write {n} short search queries that use the words the document itself would use in the
+   passages that answer this question: names of statements, tables, sections or line items,
+   defined terms, abbreviations spelled out. Do not answer the question.
+2. Decide "outline": true if the answer most likely sits in one specific statement, table or note
+   (for example financial-statement line items, or a ratio computed from statements) that is
+   easier to find by its place in the document than by keywords; otherwise false.
+Reply as JSON: {{"queries": ["...", "..."], "outline": false}}
 """

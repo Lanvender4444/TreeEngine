@@ -656,6 +656,30 @@ FTS、向量、Graph 不再各自返回结果列表，而是在同一棵检索�
 | 简单规则（同节比例 < 0.4 → BROAD，否则 AUTO；θ 只在 longdoc 上定） | dev +3.8；留出集 FinanceBench @1000 +3.7（11:5）、@2000 −1.7（7:10），合并 18:15，不优于 auto |
 | 决策 | 触发停止条件：保持 FTS + Vector + auto；adaptive / clustered 作为实验性选项保留 |
 
+## V0.13 — Reasoned Reading：借用 PageIndex 的推理式选读（`results/v0.13-reasoned-reading.md`）
+
+检索部分固定（FTS + Vector，候选池 50）。把候选池按节（或页）组织成一份小目录：标题路径、页码、整区 token 数、最多 3 段摘录，可选节摘要。一次 LLM 调用决定读哪些区域、整区读还是只读摘录，然后装入预算，剩余预算用池中其余命中补满。新增代码：`treeengine/reason/`。上下文策略 `reason`（= `reason_node_sum`）、`reason_node`、`reason_page`、`reason_blocks`，需要配置 LLM，没有 LLM 时退回 auto。新切分：`--hash-split dev|test`。
+
+| 问题 | 结果 |
+|---|---|
+| 损失在哪 | FinanceBench：池中有证据但没读到 29–43%，漏召回 15%，读到答错约 8%；固定读法只是在覆盖率和可读性之间交换，两者乘积几乎不变 |
+| dev 筛选（78 题） | reason_node_sum 19:6、reason_node 16:7、reason_page 15:7、reason_blocks 9:4；纯 PageIndex 式导航（`policy_tree`）FinanceBench 5.7、longdoc 35 |
+| test（251 题 × 2 轮，同预算对 auto） | node_sum 84:23、page 83:22、node 78:23，p ≈ 1e-9 到 4e-8；18 个格子全部提升。FinanceBench @1000：29.6 → 42.6 / 44.3 |
+| 同成本对照 | @2000 优于 auto @4000（node_sum 33:17，p=0.03）；@1000 不如 auto @3000 |
+| 决策 | 默认仍为 `auto`（零 LLM）。配置了 LLM 且预算 ≥2000 时推荐 `context_policy="reason"`；PDF 可选 `reason_page` |
+
+## V0.14 — Reasoned Retrieval：PageIndex 式的推理用于检索（`results/v0.14-reasoned-retrieval.md`）
+
+在 V0.13 推理选读（`reason_node_sum`）的基础上，让 LLM 参与“候选池里有什么”，只增加候选、不删除。候选扩展：查询扩展（`reason_x`）、逐页目录路由（`reason_toc`）、选读器按需补检索（`reason_search` / `reason_x_search`）、LLM 规划器按题决定是否路由（`reason_plan`）。代码在 `treeengine/reason/search.py`。
+
+| 问题 | 结果 |
+|---|---|
+| 漏召回的来源 | FinanceBench 的报表题：问题用缩写或概念（PPNE、quick ratio、DPO），证据在表格页 |
+| dev 筛选 | x_search 20:6、x 19:7、plan 15:10、toc 10:3；全开（all）17:13 |
+| test（251 题 × 2 轮，对 node_sum） | **toc 45:22，p=0.007**（FinanceBench 28:10，@2000 从 48.3 到 56.5，证据进目录从 65% 到 82%）；plan 51:34（p=0.08）；x 56:40（p=0.13）；x_search 49:39，multires2 上 6:16 |
+| 按难度自适应 | LLM 很少要求补检索（5%），也很少判断需要路由（11%）；自适应变体不如所有题都做路由 |
+| 决策 | 长 PDF / 财报场景推荐 `reason_toc`；通用场景用 `reason`（= node_sum）；默认仍为 `auto` |
+
 ## 待完成
 
 | 实验 | 需要 |
