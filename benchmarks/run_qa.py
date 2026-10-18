@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -31,7 +32,7 @@ from treeengine.core.protocols import LLMProvider
 from treeengine.llm.base import CallableLLM, MeteredLLM
 
 from .answer import Answerer, llm_from_env
-from .context import MODES, REASON, ContextBuilder, as_evidence, fragmentation
+from .context import MODES, REASON, SEARCH, ContextBuilder, as_evidence, fragmentation
 from .freeze import candidate_pool
 from .judges import UNCERTAIN, Verdict
 from .judges import exact as exact_judge
@@ -124,6 +125,84 @@ def context_label(strategy: str, mode: str, budget: int | None) -> str:
     chunked = strategy.startswith("rag_")
     policy = "fixed_chunk" if chunked and mode == "raw" else mode
     return f"{RETRIEVER_LABEL.get(strategy, strategy)}:{policy} @{budget}"
+
+
+INSUFFICIENT = re.compile(
+    r"insufficient|not (explicitly )?(provided|stated|mentioned|specified|available|included|"
+    r"given)|does not (contain|include|provide|mention|specify|state)|do not (contain|include|"
+    r"provide|mention)|cannot (be )?(determine|calculate|answer)|no (information|data|mention)|"
+    r"unable to (determine|calculate|find)|not enough",
+    re.I,
+)
+
+
+def insufficient(answer: str | None) -> bool:
+    """V0.16: the answer model says its context was not enough (the retry trigger)."""
+    return bool(INSUFFICIENT.search(answer or ""))
+
+
+def _base(mode: str) -> str:
+    """Context-mode family: "gate@at=0.5+retry" -> "gate"."""
+    return mode.replace("+retry", "").partition("@")[0]
+
+
+def _block_ids(e: Any) -> list[str]:
+    ids = list((e.metadata or {}).get("block_ids") or [])
+    return ids or ([e.block_id] if e.block_id else [])
+
+
+def _search_job(
+    mode: str,
+    label: str,
+    q: Any,
+    run: Any,
+    recall5: Any,
+    judged: bool,
+    base_extra: dict[str, Any],
+    strat: Any,
+    doc_id: str | None,
+    budget: int,
+    builder: Any,
+    llm: Any,
+    paths: Any,
+) -> tuple[str, Any, Any, Any, dict[str, Any]]:
+    """V0.16 Evidence Search for one (question, budget): spans + metrics, as a QA job."""
+    from treeengine.esearch import EvidenceSearch, parse_search_mode
+
+    spec = parse_search_mode(mode.replace("+retry", ""))
+    pool = [e.metadata.get("anchor", e) if e.metadata else e for e in run.evidence]
+
+    def again(query: str) -> list[Any]:
+        return list(strat.retrieve(query, document_id=doc_id, limit=50).evidence)
+
+    t0 = time.perf_counter()
+    es = EvidenceSearch(builder.inner, spec, retrieve=again, llm=llm)
+    spans, info = es.run(q.query, pool, budget)
+    info["search_ms"] = round((time.perf_counter() - t0) * 1000)
+    ctx = as_evidence(run.evidence, spans)
+    extra = {
+        **base_extra,
+        **fragmentation(spans),
+        "reason": info,
+        "retrieval_llm_calls": base_extra["retrieval_llm_calls"] + es.llm_calls,
+        "retrieval_llm_input_tokens": base_extra["retrieval_llm_input_tokens"] + es.llm_in,
+        "retrieval_llm_output_tokens": base_extra["retrieval_llm_output_tokens"] + es.llm_out,
+    }
+    if judged:
+        depth = len(run.evidence) or 1
+        extra["candidate_recall"] = evaluate(q, label, run, paths, [depth]).recall.get(depth)
+        cut = replace(run, evidence=ctx, metadata={})
+        n = len(ctx) or 1
+        extra["context_coverage"] = evaluate(q, label, cut, paths, [n]).recall.get(n)
+    run2 = replace(
+        run,
+        evidence=ctx,
+        llm_calls=run.llm_calls + es.llm_calls,
+        input_tokens=run.input_tokens + es.llm_in,
+        output_tokens=run.output_tokens + es.llm_out,
+        latency_ms=run.latency_ms + info["search_ms"],
+    )
+    return (label, q, run2, recall5, extra)
 
 
 def stub_answer_llm() -> LLMProvider:
@@ -225,7 +304,7 @@ def main(argv: list[str] | None = None) -> int:
     modes = args.context.split(",") if args.context else ["raw"]
     if args.context and not budgets:
         raise SystemExit("--context needs --budget")
-    bad = [m for m in modes if m.partition("@")[0] not in MODES]
+    bad = [m for m in modes if _base(m) not in MODES]
     if bad:
         raise SystemExit(f"unknown context mode(s) {bad}; choose from {MODES}")
     if args.candidates is None:
@@ -233,10 +312,10 @@ def main(argv: list[str] | None = None) -> int:
     builder = ContextBuilder(ws.repo)
     from treeengine.reason import ReasonedReader, reason_spec
 
-    readers = {
-        m: ReasonedReader(builder.inner, reason_spec(m))
+    readers: dict[str, Any] = {
+        m: ReasonedReader(builder.inner, reason_spec(m.replace("+retry", "")))
         for m in modes
-        if m.partition("@")[0] in REASON
+        if _base(m) in REASON
     }
     pending: list[Any] = []
     names: list[str] = []  # report rows: strategy, or "retriever:policy @budget"
@@ -274,7 +353,26 @@ def main(argv: list[str] | None = None) -> int:
                 if m is None or b is None or name == "full_context":
                     jobs.append((labels[(m, b)], q, run, recall5, dict(base_extra)))
                     continue
-                if m.partition("@")[0] in REASON and not chunked:
+                if _base(m) in SEARCH and not chunked:
+                    jobs.append(
+                        _search_job(
+                            m,
+                            labels[(m, b)],
+                            q,
+                            run,
+                            recall5,
+                            judged,
+                            base_extra,
+                            strat,
+                            doc_id,
+                            b,
+                            builder,
+                            answer_llm,
+                            paths,
+                        )
+                    )
+                    continue
+                if _base(m) in REASON and not chunked:
                     # V0.13 / V0.14: the LLM stages run in parallel below (benchmarks/reasoned.py)
                     pending.append(
                         Job(
@@ -389,6 +487,77 @@ def main(argv: list[str] | None = None) -> int:
         outcomes = list(pool.map(work, jobs))
     if not args.quiet:
         print(f"answered + judged {len(jobs)} in {time.perf_counter() - t0:.0f}s", file=sys.stderr)
+
+    # 2b) V0.16 "+retry": the answer says the context was insufficient -> one more reasoned
+    # retrieval (expansion + page outline) over what was NOT read yet, answer again
+    retry = (
+        [
+            (i, j)
+            for i, j in enumerate(pending)
+            if "+retry" in j.mode and insufficient(outcomes[j.idx].answer)
+        ]
+        if pending
+        else []
+    )
+    if retry:
+        readers["retry"] = ReasonedReader(builder.inner, reason_spec("retry"))
+        second = []
+        for _, j in retry:
+            read = {b for e in jobs[j.idx][2].evidence for b in _block_ids(e)}
+            pool_left = [e for e in j.run.evidence if (e.block_id or "") not in read]
+            second.append(
+                Job(
+                    j.idx,
+                    "retry",
+                    j.label,
+                    j.q,
+                    replace(j.run, evidence=pool_left),
+                    j.recall5,
+                    j.judged,
+                    j.base_extra,
+                    j.strat,
+                    j.doc_id,
+                    j.budget,
+                )
+            )
+        redone = run_reasoned(
+            second,
+            readers,
+            answer_llm,
+            ws.repo,
+            paths,
+            args.workers,
+            quiet=args.quiet,
+            title_of=lambda d: (
+                str(getattr(ws.repo.get_document(d), "title", "") or "") if d else ""
+            ),
+        )
+        retry_jobs = {}
+        for idx, (label, q, run2, recall5, extra) in redone.items():
+            first = outcomes[idx]
+            extra["reason"] = {
+                **(extra.get("reason") or {}),
+                "retry": True,
+                "first_answer": first.answer[:300],
+                "first_verdict": first.verdict,
+            }
+            retry_jobs[idx] = (label, q, run2, recall5, extra)
+        with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
+            again = dict(zip(retry_jobs, pool.map(work, retry_jobs.values()), strict=True))
+        for idx, o in again.items():
+            first = outcomes[idx]
+            # system cost = both attempts; the first context also counts as read
+            o.answer_input_tokens += first.answer_input_tokens
+            o.answer_output_tokens += first.answer_output_tokens
+            o.retrieval_llm_input_tokens += first.retrieval_llm_input_tokens
+            o.retrieval_llm_output_tokens += first.retrieval_llm_output_tokens
+            o.retrieval_llm_calls += first.retrieval_llm_calls
+            o.context_tokens += first.context_tokens
+            if o.usd is not None and first.usd is not None:
+                o.usd += first.usd
+            outcomes[idx] = o
+        if not args.quiet:
+            print(f"retried {len(retry)} insufficient answers", file=sys.stderr)
 
     rows = {s: aggregate_qa([o for o in outcomes if o.strategy == s]) for s in names}
     dstats = doc_stats(corpus)

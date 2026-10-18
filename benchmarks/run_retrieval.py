@@ -73,6 +73,11 @@ def common_args(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--per-type", type=int, default=None, help="at most N queries per type")
     ap.add_argument("--limit", type=int, default=None, help="at most N queries")
     ap.add_argument(
+        "--query-docs",
+        action="store_true",
+        help="V0.16: ingest only the documents the selected questions use (own corpus cache)",
+    )
+    ap.add_argument(
         "--hash-split",
         default=None,
         choices=["dev", "test"],
@@ -182,8 +187,11 @@ def setup(args: argparse.Namespace, default: list[str], extend: bool = True):
     wanted, skipped = choose_strategies(args, spec, llm, default, extend)
 
     cfg, geometry_tag = geometry_config(
-        args.evidence_geometry, args.index_title, args.pdf_structure
+        args.evidence_geometry, args.index_title, args.pdf_structure, args.pdf_tables
     )
+    if getattr(args, "query_docs", False):
+        used = {q.document for q in queries if q.document}
+        docs = [d for d in docs if d.name in used]
     corpus = load_corpus(docs, not args.no_cache, args.quiet, config=cfg, variant=geometry_tag)
     paths, problems = check_queries(queries, corpus)
     if problems:

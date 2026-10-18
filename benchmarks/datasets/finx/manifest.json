@@ -1,0 +1,222 @@
+{
+  "description": "finx (V0.16): FinanceBench-style analyst questions over 24 10-Ks that no other suite uses; evidence = the page; verified answerable from the page and not answerable closed-book. Held-out only.",
+  "has_answers": true,
+  "documents": [
+    {
+      "name": "APPLE_2022_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/APPLE_2022_10K.pdf",
+      "sha256": "40f4a5169ac49f1c3011b8287afe28364138cd4f3e4db36c8d75c9da0f6b2a93",
+      "lang": "en",
+      "kind": "10k",
+      "pages": 80,
+      "company": "Apple"
+    },
+    {
+      "name": "BOSTONPROPERTIES_2015_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/BOSTONPROPERTIES_2015_10K.pdf",
+      "sha256": "40d1e8a2bdc9a3c1dd8f256f2eaf4a3cec16b44e2713f47b3c7b3d9bfc964e00",
+      "lang": "en",
+      "kind": "10k",
+      "pages": 215,
+      "company": "Bostonproperties"
+    },
+    {
+      "name": "EBAY_2022_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/EBAY_2022_10K.pdf",
+      "sha256": "ed3a72b091113d2ab019ee4cc81ce4987df5c480372339ef5627a93091b7d396",
+      "lang": "en",
+      "kind": "10k",
+      "pages": 133,
+      "company": "Ebay"
+    },
+    {
+      "name": "FEDEX_2023_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/FEDEX_2023_10K.pdf",
+      "sha256": "a8a9279c0f10214a61ee33df4ed780576ad43c7bbcc79897d337fbdea4c7e0fc",
+      "lang": "en",
+      "kind": "10k",
+      "pages": 223,
+      "company": "Fedex"
+    },
+    {
+      "name": "INTEL_2022_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/INTEL_2022_10K.pdf",
+      "sha256": "b5581e989c35e0e7ede71c406e5309956901a290fdeef0d541f7a3a24558d7f8",
+      "lang": "en",
+      "kind": "10k",
+      "pages": 134,
+      "company": "Intel"
+    },
+    {
+      "name": "MCDONALDS_2022_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/MCDONALDS_2022_10K.pdf",
+      "sha256": "a30967c85beb68a624c0e0b4d801aa06c026d10c5813a23836d65f0097a29743",
+      "lang": "en",
+      "kind": "10k",
+      "pages": 104,
+      "company": "Mcdonalds"
+    },
+    {
+      "name": "ORACLE_2023_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/ORACLE_2023_10K.pdf",
+      "sha256": "0ea02f2abfbca3581cea7a9e5371ecb8394e1673819add6c8c3bfba03f90e020",
+      "lang": "en",
+      "kind": "10k",
+      "pages": 131,
+      "company": "Oracle"
+    },
+    {
+      "name": "PG_E_2022_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/PG_E_2022_10K.pdf",
+      "sha256": "82ec40397bcf57171b8c06cf65652a857b9505387bf79da4ed078b9eb280c6e2",
+      "lang": "en",
+      "kind": "10k",
+      "pages": 352,
+      "company": "Pg E"
+    },
+    {
+      "name": "SALESFORCE_2023_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/SALESFORCE_2023_10K.pdf",
+      "sha256": "929326eff499f867bdfbb45f62976788621849ee390e5851b5d89934f805b131",
+      "lang": "en",
+      "kind": "10k",
+      "pages": 152,
+      "company": "Salesforce"
+    },
+    {
+      "name": "CVSHEALTH_2021_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/CVSHEALTH_2021_10K.pdf",
+      "sha256": "48ddde57f512689174924dfcf2ceb7e5d01ba817cc213568b01c9551bdfce88e",
+      "lang": "en",
+      "kind": "10k",
+      "pages": 257,
+      "company": "Cvshealth"
+    },
+    {
+      "name": "BESTBUY_2022_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/BESTBUY_2022_10K.pdf",
+      "sha256": "4500be5e8b75be0a421ab5d7fac90605ef9cf02c89732d94f591b32a9157570a",
+      "lang": "en",
+      "kind": "10k",
+      "pages": 111,
+      "company": "Bestbuy"
+    },
+    {
+      "name": "MGMRESORTS_2021_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/MGMRESORTS_2021_10K.pdf",
+      "sha256": "a1a0deb06a3e380726793494dceb13141bdc823fc4faa8749224dcd4868a3d92",
+      "lang": "en",
+      "kind": "10k",
+      "pages": 210,
+      "company": "Mgmresorts"
+    },
+    {
+      "name": "BLOCK_2022_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/BLOCK_2022_10K.pdf",
+      "sha256": "049a8bba97041cd60a6d7541602500eaccb0ddeed3b43b64ff52725c1319d462",
+      "lang": "en",
+      "kind": "10k",
+      "pages": 196,
+      "company": "Block"
+    },
+    {
+      "name": "ADOBE_2021_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/ADOBE_2021_10K.pdf",
+      "sha256": "c8b1340273afaceab32d238860651bd1b3c1716639a7abf7fb6eecc47b423b16",
+      "lang": "en",
+      "kind": "10k",
+      "pages": 102,
+      "company": "Adobe"
+    },
+    {
+      "name": "LOCKHEEDMARTIN_2019_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/LOCKHEEDMARTIN_2019_10K.pdf",
+      "sha256": "e1f294d7d130f8508b36a14684aa8f984aa7a26d351eb1d6b82c778763d259cf",
+      "lang": "en",
+      "kind": "10k",
+      "pages": 175,
+      "company": "Lockheedmartin"
+    },
+    {
+      "name": "FOOTLOCKER_2023_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/FOOTLOCKER_2023_10K.pdf",
+      "sha256": "3d5d700c4cdbfe8a7ba5a035a255e57309776958d175977ed01656dca3e7a6b9",
+      "lang": "en",
+      "kind": "10k",
+      "pages": 96,
+      "company": "Footlocker"
+    },
+    {
+      "name": "PFIZER_2022_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/PFIZER_2022_10K.pdf",
+      "sha256": "0cb303feeff5290bff4f6a31c57b13c2e220dc24e57191820a47fa1d23058f8a",
+      "lang": "en",
+      "kind": "10k",
+      "pages": 159,
+      "company": "Pfizer"
+    },
+    {
+      "name": "CORNING_2019_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/CORNING_2019_10K.pdf",
+      "sha256": "44de10fd80d7e7d9d65257fa02466270d249a1b2d2692057b3bf1ca8e73b82c2",
+      "lang": "en",
+      "kind": "10k",
+      "pages": 142,
+      "company": "Corning"
+    },
+    {
+      "name": "COSTCO_2022_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/COSTCO_2022_10K.pdf",
+      "sha256": "80f1845a06e6992885726c8fdce574a521236e49cba7ae924d323bc469772a78",
+      "lang": "en",
+      "kind": "10k",
+      "pages": 86,
+      "company": "Costco"
+    },
+    {
+      "name": "WALMART_2023_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/WALMART_2023_10K.pdf",
+      "sha256": "38784c15a37807c9ea690ab49401fa4f977d896399c93a55a46ef2657e782867",
+      "lang": "en",
+      "kind": "10k",
+      "pages": 215,
+      "company": "Walmart"
+    },
+    {
+      "name": "KRAFTHEINZ_2022_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/KRAFTHEINZ_2022_10K.pdf",
+      "sha256": "862aff613aa82ae057d7c1c3a5cd364e1efc187f79f252351b7b63ad003e19bb",
+      "lang": "en",
+      "kind": "10k",
+      "pages": 294,
+      "company": "Kraftheinz"
+    },
+    {
+      "name": "PEPSICO_2020_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/PEPSICO_2020_10K.pdf",
+      "sha256": "04ee1f204d73fa23586032ac0acb99f3b42804879da5c1e771bd7538870f22f0",
+      "lang": "en",
+      "kind": "10k",
+      "pages": 586,
+      "company": "Pepsico"
+    },
+    {
+      "name": "JPMORGAN_2021_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/JPMORGAN_2021_10K.pdf",
+      "sha256": "4256ecbd1f0c2747232850b15cb4a2fc17286d08788811a1de5a0b00d59f7c19",
+      "lang": "en",
+      "kind": "10k",
+      "pages": 393,
+      "company": "Jpmorgan"
+    },
+    {
+      "name": "JOHNSON_JOHNSON_2021_10K.pdf",
+      "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/JOHNSON_JOHNSON_2021_10K.pdf",
+      "sha256": "64cbca719de42b6308609b7bb8f684c7ab55ccca0ee3174be5ca261ec15f3652",
+      "lang": "en",
+      "kind": "10k",
+      "pages": 135,
+      "company": "Johnson Johnson"
+    }
+  ]
+}

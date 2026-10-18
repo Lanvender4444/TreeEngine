@@ -170,11 +170,22 @@ class RetrievalController:
             if policy.fusion == "gate":
                 from ..reason.gate import annotate
 
-                annotate(anchors, st.lists)
+                rr = self._rerank(st.query, anchors, policy, tr) if policy.rerank else None
+                annotate(anchors, st.lists, rr, policy.rerank or None)
+                if rr and policy.rerank_order:
+                    k = policy.rerank_k
+                    head = sorted(
+                        anchors[:k], key=lambda a: rr.get(str(a.block_id), (10**6, 0.0))[0]
+                    )
+                    anchors = head + anchors[k:]
         evidence = [self._evidence(a) for a in anchors]
+        from ..esearch import parse_search_mode
         from ..reason import build_context, reason_spec
 
-        reasoned = reason_spec(policy.context_policy) is not None
+        reasoned = (
+            reason_spec(policy.context_policy) is not None
+            or parse_search_mode(policy.context_policy) is not None
+        )
         builder = BlockContextBuilder(
             self.repo,
             policy="auto" if reasoned else policy.context_policy,
@@ -195,7 +206,9 @@ class RetrievalController:
             retrieve=again if reasoned else None,
             title=self._title(document_id),
         )
-        if reason_info and not reason_info.get("reason"):  # the reasoned-reading LLM call ran
+        if reason_info and "algo" in reason_info:  # Evidence Search: its own LLM calls
+            st.llm_calls += int(reason_info.get("llm_calls") or 0)
+        elif reason_info and not reason_info.get("reason"):  # the reasoned-reading call ran
             st.llm_calls += 1
         if reason_info is not None:
             tr.add("reasoned_reading", **{k: v for k, v in reason_info.items() if k != "usage"})
@@ -509,6 +522,35 @@ class RetrievalController:
         # pool, so cutting first would drop it before it can take over the evidence inside it
         fused = fuse_anchors(active, weights)
         return absorb_contained(fused, self._section_ids)[: policy.candidate_pool]
+
+    def _rerank(
+        self, query: str, anchors: list[Anchor], policy: RetrievalPolicy, tr: Any
+    ) -> dict[str, tuple[int, float]] | None:
+        """block id -> (rank by the reranker, score) for the top ``rerank_k`` block anchors."""
+        from .rerank import rerank_scores
+
+        head = [a for a in anchors[: policy.rerank_k] if a.kind == "block" and a.block_id]
+        texts = []
+        for a in head:
+            b = self.repo.get_block(str(a.block_id))
+            title = str((b.metadata or {}).get("index_title") or "") if b else ""
+            body = b.content if b else (a.evidence.content if a.evidence else "")
+            texts.append(((title + "\n") if title else "") + body[:1500])
+        t0 = time.perf_counter()
+        try:
+            scores = rerank_scores(policy.rerank, query, texts)
+        except Exception as e:  # noqa: BLE001 - missing model / dependency: no reranker
+            tr.add("rerank", skipped=str(e)[:200])
+            return None
+        order = sorted(range(len(head)), key=lambda i: -scores[i])
+        out = {str(head[i].block_id): (r, scores[i]) for r, i in enumerate(order, 1)}
+        tr.add(
+            "rerank",
+            model=policy.rerank,
+            scored=len(head),
+            ms=round((time.perf_counter() - t0) * 1000, 1),
+        )
+        return out
 
     def _node_source(self, st: RetrievalState, policy: RetrievalPolicy, top: int = 10) -> None:
         """Best block of each of the ``top`` sections the tree ranks highest for the query."""

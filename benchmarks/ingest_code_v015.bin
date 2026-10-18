@@ -1,0 +1,4824 @@
+from .config import EngineConfig
+from .models import AnswerResult, Block, Citation, Document, Evidence, Node, NodeView
+from .protocols import LLMProvider, Repository, Retriever
+
+__all__ = [
+    "AnswerResult",
+    "Block",
+    "Citation",
+    "Document",
+    "EngineConfig",
+    "Evidence",
+    "LLMProvider",
+    "Node",
+    "NodeView",
+    "Repository",
+    "Retriever",
+]
+"""Anchors: where a retriever says the document is worth reading.
+
+Every retriever answers the same question - which positions of which documents deserve to be
+read for this query - so every retriever produces anchors:
+
+    lexical    FTS       -> BlockAnchor
+    semantic   Vector    -> BlockAnchor
+    structural Tree      -> NodeAnchor (a whole section is worth reading)
+    expansion  Graph-lite-> BlockAnchor (source "graph")
+
+Anchors are fused by rank (weighted RRF: raw BM25, cosine and LLM scores are never added) and
+handed to the ContextBuilder, which turns them into ContextSpans. ``Evidence`` stays the
+citable record of a hit (``Anchor.evidence``); a ``ContextSpan`` is what the model reads.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterable
+from dataclasses import dataclass, field
+from typing import Any, Literal
+
+from .models import Evidence
+
+AnchorKind = Literal["block", "node"]
+
+
+@dataclass
+class Anchor:
+    """A ranked document position. ``kind`` is "block" (one block) or "node" (a section).
+
+    ``rank`` is 1-based within the list that produced it (after fusion: the fused rank);
+    ``score`` is that retriever's own score, kept for display only - fusion uses ranks.
+    ``evidence`` is the citable hit behind a block anchor (content, page, title)."""
+
+    kind: AnchorKind
+    document_id: str
+    block_id: str | None = None
+    node_id: str | None = None
+    source: str = ""
+    rank: int = 0
+    score: float | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    evidence: Evidence | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind == "block" and not self.block_id:
+            raise ValueError("a block anchor needs a block_id")
+        if self.kind == "node" and not self.node_id:
+            raise ValueError("a node anchor needs a node_id")
+
+    @property
+    def key(self) -> tuple[str, str]:
+        return (
+            ("block", str(self.block_id)) if self.kind == "block" else ("node", str(self.node_id))
+        )
+
+    @property
+    def sources(self) -> list[str]:
+        """Every retriever that proposed this position (several after fusion)."""
+        return list(
+            self.metadata.get("retrieval_paths") or [s for s in self.source.split("+") if s]
+        )
+
+
+def BlockAnchor(  # noqa: N802 - reads as a type at call sites
+    document_id: str,
+    block_id: str,
+    node_id: str | None = None,
+    source: str = "",
+    rank: int = 0,
+    score: float | None = None,
+    metadata: dict[str, Any] | None = None,
+    evidence: Evidence | None = None,
+) -> Anchor:
+    return Anchor(
+        "block", document_id, block_id, node_id, source, rank, score, metadata or {}, evidence
+    )
+
+
+def NodeAnchor(  # noqa: N802
+    document_id: str,
+    node_id: str,
+    source: str = "tree",
+    rank: int = 0,
+    score: float | None = None,
+    metadata: dict[str, Any] | None = None,
+    evidence: Evidence | None = None,
+) -> Anchor:
+    return Anchor("node", document_id, None, node_id, source, rank, score, metadata or {}, evidence)
+
+
+RetrievalAnchor = Anchor  # V0.6 name
+
+
+def anchor_from_evidence(e: Evidence, source: str | None = None, rank: int = 0) -> Anchor:
+    """Evidence with a block id -> BlockAnchor; a node-level hit -> NodeAnchor."""
+    src = source or e.source
+    if e.block_id:
+        return BlockAnchor(
+            e.document_id, e.block_id, e.node_id, src, rank, e.score, dict(e.metadata), e
+        )
+    if e.node_id:
+        return NodeAnchor(e.document_id, e.node_id, src, rank, e.score, dict(e.metadata), e)
+    raise ValueError("evidence without a block or node id cannot anchor a context")
+
+
+def anchors_from_evidence(evidence: Iterable[Evidence], source: str | None = None) -> list[Anchor]:
+    out: list[Anchor] = []
+    for e in evidence:
+        if e.block_id or e.node_id:
+            out.append(anchor_from_evidence(e, source, rank=len(out) + 1))
+    return out
+
+
+__all__ = [
+    "Anchor",
+    "AnchorKind",
+    "BlockAnchor",
+    "NodeAnchor",
+    "RetrievalAnchor",
+    "anchor_from_evidence",
+    "anchors_from_evidence",
+]
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass
+class EngineConfig:
+    # evidence geometry (V0.7). "stable": blocks are built from the canonical document text
+    # alone (paragraph / list / table / code boundaries, page breaks, a size guard) and mapped to
+    # the tree by offset overlap afterwards, so a different tree never changes the retrieval
+    # corpus; the FTS title column and block embeddings use the document title, not the section
+    # title. "coupled": the pre-V0.7 behaviour, blocks cut by the structure (A/B experiments).
+    evidence_geometry: str = "stable"
+    # title indexed with a stable block (FTS title column, embedding prefix): "document" keeps
+    # the retrieval corpus independent of the tree; "section" uses the mapped node's title
+    # (tree-dependent, the pre-V0.7 signal; experiments)
+    index_title: str = "document"
+    max_block_chars: int = 1200  # long paragraphs are split into several blocks
+
+    # structure
+    summary_chars: int = 240  # heuristic summary length
+    llm_summaries: bool = False  # ask the LLM to summarise nodes at ingest time
+    llm_structure_fallback: bool = True  # allow LLM structure fallback when no structure found
+    # PDF structure source. "auto" = bookmarks -> heuristic headings -> (LLM) -> flat, from the
+    # extracted text. Layout-aware (treeengine.pdf, needs pypdfium2): "hybrid" = graded
+    # bookmarks + headings detected from font size / weight / spacing, validated, falling back
+    # to bookmarks and then to no structure; "layout" = detected headings only. The other modes
+    # force one source (experiments): "native" / "bookmarks" (bookmarks or an outline supplied
+    # in metadata["_outline"]), "heuristic", "llm", "flat".
+    pdf_structure: str = "auto"
+    llm_structure_window: int = 200  # blocks per LLM structure call (long documents: several)
+
+    # Graph-lite (V0.9): link entities to blocks at ingest (cheap, deterministic) so a policy
+    # with graph_weight > 0 can expand one entity hop. Off by default; backfill with
+    # TreeEngine.build_graph_index().
+    graph_index: bool = False
+
+    # tree retrieval
+    tree_beam: int = 2  # nodes kept per level (1-3)
+    tree_use_fts_signal: bool = True  # heuristic scorer also uses subtree FTS hits
+    tree_use_vector_signal: bool = True  # ...and subtree vector hits, if a VectorRetriever is wired
+    tree_max_depth: int = 8
+    tree_max_evidence: int = 6
+    read_node_max_chars: int = 2000
+    narrow_scope_chars: int = 800  # LLM navigation stops when a subtree is this small
+
+    # fts
+    fts_limit: int = 10
+
+    # answer
+    answer_max_evidence: int = 8
+    # V0.9: ask() answers from ContextSpans rebuilt around the retrieved anchors within this
+    # many tokens (None: the pre-V0.9 behaviour, the top evidence items as they are)
+    answer_context_tokens: int | None = 2000
+    answer_context_policy: str = "auto"
+    # retrieve() without a RetrievalPolicy also fills result.context_spans within this many
+    # tokens (None / 0: evidence only, the pre-V0.9 behaviour)
+    retrieve_context_tokens: int | None = None
+from __future__ import annotations
+
+import hashlib
+import uuid
+
+
+def new_id(prefix: str) -> str:
+    """Opaque, sortable-enough id such as ``doc_3f2a...``."""
+    return f"{prefix}_{uuid.uuid4().hex[:16]}"
+
+
+def text_hash(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+"""Core data model: Document -> Node -> Block, plus Evidence (unified retriever output)."""
+
+from __future__ import annotations
+
+import json
+from dataclasses import asdict, dataclass, field, fields
+from typing import Any, TypeVar
+
+T = TypeVar("T")
+
+
+def _from_dict(cls: type[T], data: dict[str, Any]) -> T:
+    names = {f.name for f in fields(cls)}  # type: ignore[arg-type]
+    return cls(**{k: v for k, v in data.items() if k in names})
+
+
+def dumps_meta(meta: dict[str, Any] | None) -> str:
+    return json.dumps(meta or {}, ensure_ascii=False, sort_keys=True)
+
+
+def loads_meta(raw: str | None) -> dict[str, Any]:
+    if not raw:
+        return {}
+    value = json.loads(raw)
+    return value if isinstance(value, dict) else {}
+
+
+class _Serializable:
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)  # type: ignore[call-overload]
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Any:
+        return _from_dict(cls, data)
+
+
+@dataclass
+class Document(_Serializable):
+    id: str
+    source_type: str  # markdown | html | pdf | text
+    uri: str | None
+    title: str
+    text: str
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class Node(_Serializable):
+    id: str
+    document_id: str
+    parent_id: str | None
+    depth: int
+    position: int
+    title: str
+    summary: str | None = None
+    text: str | None = None
+    page_start: int | None = None
+    page_end: int | None = None
+    start_offset: int | None = None
+    end_offset: int | None = None
+    node_type: str = "section"
+
+
+@dataclass
+class Block(_Serializable):
+    id: str
+    document_id: str
+    node_id: str | None
+    position: int
+    block_type: str  # paragraph | code | list | table | quote
+    content: str
+    page: int | None = None
+    start_offset: int | None = None
+    end_offset: int | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class Evidence(_Serializable):
+    document_id: str
+    node_id: str | None
+    block_id: str | None
+    content: str
+    source: str  # tree | fts | vector | web | graph
+    score: float | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class Citation(_Serializable):
+    index: int
+    document_id: str
+    node_id: str | None
+    block_id: str | None
+    title: str | None = None
+    page: int | None = None
+    start_offset: int | None = None
+    end_offset: int | None = None
+
+
+@dataclass
+class AnswerResult(_Serializable):
+    question: str
+    answer: str
+    citations: list[Citation]
+    evidence: list[Evidence]
+    query_type: str
+    generated: bool  # False when no LLM was available (extractive fallback)
+
+
+@dataclass
+class NodeView(_Serializable):
+    """What a navigating agent sees when it opens a node (bounded text + counts)."""
+
+    id: str
+    document_id: str
+    parent_id: str | None
+    title: str
+    depth: int
+    position: int
+    node_type: str
+    summary: str | None
+    text: str
+    truncated: bool
+    child_count: int
+    block_count: int
+    page_start: int | None = None
+    page_end: int | None = None
+"""Stable boundaries of the retrieval kernel.
+
+Core defines the contracts; ``storage`` implements :class:`Repository`; ``retrieval`` depends
+only on these protocols (never on ``treeengine.storage``); the app layer (``factory`` /
+``engine``) wires concrete implementations together.
+
+Kept deliberately as *one* Repository protocol (not Document/Node/Block/FTS stores) until a
+second implementation actually needs a finer split.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import Any, Literal, Protocol, runtime_checkable
+
+from .models import Block, Document, Evidence, Node
+
+MatchMode = Literal["and", "or"]
+
+
+@runtime_checkable
+class Repository(Protocol):
+    """Persistent knowledge space: documents, their trees, evidence blocks and a text index."""
+
+    # -- documents
+    def get_document(self, document_id: str) -> Document | None: ...
+    def list_documents(self) -> list[Document]: ...
+    def find_document_by_uri(self, uri: str) -> Document | None: ...
+    def get_document_hash(self, document_id: str) -> str | None: ...
+    def save_document(
+        self, doc: Document, nodes: Sequence[Node], blocks: Sequence[Block]
+    ) -> None: ...
+    def delete_document(self, document_id: str) -> None: ...
+
+    # -- tree (all reads are bounded: one node, one level, or one ancestor chain)
+    def get_node(self, node_id: str) -> Node | None: ...
+    def get_roots(self, document_id: str) -> list[Node]: ...
+    def get_children(self, node_id: str) -> list[Node]: ...
+    def count_children(self, node_ids: list[str]) -> dict[str, int]: ...
+    def get_ancestors(self, node_id: str) -> list[Node]: ...
+    def get_subtree_ids(self, node_id: str) -> list[str]: ...
+    def get_document_nodes(self, document_id: str) -> list[Node]: ...
+    def count_nodes(self, document_id: str) -> int: ...
+    def subtree_char_count(self, node_id: str) -> int: ...
+
+    # -- blocks
+    def get_block(self, block_id: str) -> Block | None: ...
+    def get_blocks(
+        self, node_id: str, limit: int | None = None, offset: int = 0
+    ) -> list[Block]: ...
+    def count_blocks(self, node_id: str) -> int: ...
+    def get_document_blocks(self, document_id: str) -> list[Block]: ...
+
+    # -- lexical index
+    def fts_query(
+        self,
+        terms: Sequence[str],
+        *,
+        mode: MatchMode = "or",
+        document_id: str | None = None,
+        node_ids: Sequence[str] | None = None,
+        limit: int = 10,
+    ) -> list[tuple[Block, float]]:
+        """Blocks matching the search terms, best first, with a higher-is-better score.
+
+        ``terms`` are plain search terms (see ``core.text.query_terms``); the query syntax of the
+        underlying index is the implementation's business.
+        """
+        ...
+
+    def close(self) -> None: ...
+
+
+@runtime_checkable
+class LLMProvider(Protocol):
+    def complete(
+        self,
+        prompt: str,
+        *,
+        system: str | None = None,
+        max_tokens: int = 1024,
+        temperature: float = 0.0,
+    ) -> str: ...
+
+
+@runtime_checkable
+class Retriever(Protocol):
+    """Evidence contract: every retriever (tree, fts, later vector/web/graph) returns Evidence."""
+
+    name: str
+
+    def search(
+        self,
+        query: str,
+        *,
+        document_id: str | None = None,
+        node_id: str | None = None,
+        limit: int | None = None,
+    ) -> list[Evidence]: ...
+
+
+@runtime_checkable
+class EmbeddingProvider(Protocol):
+    """Text -> vector. Implementations decide query/passage prefixes and normalisation."""
+
+    model_name: str
+
+    def embed_texts(self, texts: Sequence[str]) -> list[list[float]]: ...
+
+    def embed_query(self, query: str) -> list[float]: ...
+
+
+@runtime_checkable
+class VectorIndex(Protocol):
+    """Block-level vector index. Stores only ``block_id`` -> embedding (+ document_id for
+    filtering); block text stays in the Repository, which remains the source of truth."""
+
+    def upsert(self, items: Sequence[tuple[str, str, Sequence[float]]]) -> None:
+        """Insert or replace ``(block_id, document_id, embedding)`` rows."""
+        ...
+
+    def delete(self, block_ids: Sequence[str]) -> None: ...
+
+    def delete_document(self, document_id: str) -> None: ...
+
+    def search(
+        self,
+        vector: Sequence[float],
+        *,
+        k: int = 10,
+        document_id: str | None = None,
+        block_ids: Sequence[str] | None = None,
+    ) -> list[tuple[str, float]]:
+        """Top-k ``(block_id, cosine_similarity)``, best first, optionally restricted to a
+        document or an explicit set of blocks (e.g. a tree scope)."""
+        ...
+
+    def rebuild(self) -> None:
+        """Drop all vectors (the caller re-embeds blocks from the Repository)."""
+        ...
+
+    def count(self) -> int: ...
+
+
+@runtime_checkable
+class GraphStore(Protocol):
+    """Graph-lite storage: entity <-> block links (one hop, no relations)."""
+
+    def save_entity_links(
+        self, document_id: str, links: Sequence[tuple[str, str, str | None, str, int]]
+    ) -> int: ...
+
+    def block_entities(self, block_ids: Sequence[str]) -> dict[str, list[dict[str, Any]]]: ...
+
+    def entity_blocks(
+        self, entity_id: int, *, document_id: str | None = None, limit: int = 10
+    ) -> list[tuple[str, str, int]]: ...
+
+    def graph_stats(self) -> dict[str, int]: ...
+"""Index-agnostic text helpers: query term extraction (latin words + CJK bigrams), lexical
+scoring and splitting. Index-specific syntax (FTS5 phrases, CJK segmentation for the
+``unicode61`` tokenizer) lives in ``treeengine.storage.fts5``.
+"""
+
+from __future__ import annotations
+
+import re
+from functools import lru_cache
+
+CJK_CLASS = "\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af"
+CJK_CHAR_RE = re.compile(f"([{CJK_CLASS}])")
+_TOKEN_RE = re.compile(f"[{CJK_CLASS}]+|[A-Za-z0-9_][A-Za-z0-9_.+\\-]*[A-Za-z0-9_+]|[A-Za-z0-9_]")
+
+_EN_STOP = {
+    "a",
+    "an",
+    "the",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "of",
+    "in",
+    "on",
+    "at",
+    "to",
+    "for",
+    "and",
+    "or",
+    "by",
+    "with",
+    "from",
+    "as",
+    "it",
+    "its",
+    "this",
+    "that",
+    "these",
+    "those",
+    "what",
+    "which",
+    "who",
+    "whom",
+    "why",
+    "how",
+    "when",
+    "where",
+    "does",
+    "do",
+    "did",
+    "can",
+    "could",
+    "should",
+    "would",
+    "will",
+    "about",
+    "there",
+    "their",
+    "into",
+    "than",
+    "then",
+    "me",
+    "my",
+    "we",
+    "our",
+    "you",
+    "your",
+    "i",
+    "tell",
+    "explain",
+    "please",
+    "much",
+    "many",
+}
+_ZH_STOP_CHARS = set("的了是在吗呢吧啊和与及或里中哪么个这那就也都把被给对从向让请你我他她它")
+_ZH_STOP_BIGRAMS = {
+    "什么",
+    "为什",
+    "怎么",
+    "如何",
+    "哪些",
+    "哪里",
+    "哪个",
+    "是多",
+    "多少",
+    "是否",
+    "有没",
+    "没有",
+    "提到",
+    "地方",
+    "我们",
+    "他们",
+    "一下",
+    "可以",
+    "关于",
+    "以及",
+    "章节",
+    "解释",
+    "原因",
+    "说明",
+    "介绍",
+    "一些",
+    "有哪",
+    "哪儿",
+    "有关",
+    "所有",
+    "相关",
+}
+
+
+def is_cjk(ch: str) -> bool:
+    return bool(CJK_CHAR_RE.fullmatch(ch))
+
+
+def query_terms(query: str) -> list[str]:
+    """Extract de-duplicated search terms: latin words/numbers + CJK bigrams."""
+    terms: list[str] = []
+    for tok in _TOKEN_RE.findall(query):
+        if is_cjk(tok[0]):
+            chars = [c for c in tok]
+            if len(chars) == 1:
+                if chars[0] not in _ZH_STOP_CHARS:
+                    terms.append(chars[0])
+                continue
+            for i in range(len(chars) - 1):
+                bg = chars[i] + chars[i + 1]
+                if (
+                    bg in _ZH_STOP_BIGRAMS
+                    or chars[i] in _ZH_STOP_CHARS
+                    or chars[i + 1] in _ZH_STOP_CHARS
+                ):
+                    continue
+                terms.append(bg)
+        else:
+            low = tok.lower()
+            if low in _EN_STOP:
+                continue
+            terms.append(low)
+    seen: set[str] = set()
+    out = []
+    for t in terms:
+        if t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out
+
+
+_SUFFIXES = ("ings", "ing", "edly", "ed", "es", "s")
+
+
+def stem(term: str) -> str:
+    """Tiny English suffix stripper for substring matching ("shuffle" ~ "shuffling",
+    "partitions" ~ "partition"). CJK terms and short tokens are returned unchanged."""
+    if len(term) <= 4 or not term.isascii() or not term.isalpha():
+        return term
+    for suf in _SUFFIXES:
+        if term.endswith(suf) and len(term) - len(suf) >= 4:
+            term = term[: -len(suf)]
+            break
+    if term.endswith("e") and len(term) > 4:
+        term = term[:-1]
+    return term
+
+
+@lru_cache(maxsize=4096)
+def _term_pattern(term: str) -> re.Pattern[str] | None:
+    """Latin terms must start at a word boundary ("groupkfold" must not match
+    "stratifiedgroupkfold"); CJK terms use plain substring matching (no word boundaries)."""
+    if is_cjk(term[0]):
+        return None
+    return re.compile(r"(?<![a-z0-9_])" + re.escape(stem(term)))
+
+
+def lexical_score(terms: list[str], text: str | None) -> float:
+    """Number of distinct query terms that occur in ``text`` (case-insensitive, lightly
+    stemmed, word-start anchored for latin terms)."""
+    if not text or not terms:
+        return 0.0
+    low = text.lower()
+    n = 0
+    for t in terms:
+        pat = _term_pattern(t)
+        if (t in low) if pat is None else bool(pat.search(low)):
+            n += 1
+    return float(n)
+
+
+def truncate(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)].rstrip() + "…"
+
+
+_SENT_SPLIT_RE = re.compile(r"(?<=[。！？!?；;])|(?<=[.])\s+")
+
+
+def split_long_text(text: str, max_chars: int) -> list[tuple[int, str]]:
+    """Split text into (relative_offset, piece) chunks of at most ``max_chars``,
+    preferring sentence boundaries. Offsets are relative to ``text``."""
+    if len(text) <= max_chars:
+        return [(0, text)]
+    pieces: list[tuple[int, str]] = []
+    start = 0
+    n = len(text)
+    while start < n:
+        end = min(start + max_chars, n)
+        if end < n:
+            window = text[start:end]
+            cut = -1
+            for m in _SENT_SPLIT_RE.finditer(window):
+                if m.end() > max_chars // 3:
+                    cut = m.end()
+            if cut <= 0:
+                sp = window.rfind(" ")
+                cut = sp + 1 if sp > max_chars // 3 else len(window)
+            end = start + cut
+        piece = text[start:end]
+        if piece.strip():
+            lead = len(piece) - len(piece.lstrip())
+            pieces.append((start + lead, piece.strip()))
+        start = end
+    return pieces
+from .base import Element, SourceAdapter, detect_source_type, get_adapter
+from .html import HTMLAdapter
+from .markdown import MarkdownAdapter
+from .pdf import PDFAdapter
+
+__all__ = [
+    "Element",
+    "HTMLAdapter",
+    "MarkdownAdapter",
+    "PDFAdapter",
+    "SourceAdapter",
+    "detect_source_type",
+    "get_adapter",
+]
+"""Source adapters turn an external source into a normalised :class:`Document`.
+
+Adapters never build trees and never retrieve. They only produce text, source info,
+metadata and *native structure hints* (stored under ``Document.metadata`` keys starting
+with ``_``; those keys are transient and are not persisted).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Protocol, runtime_checkable
+
+from ..core.models import Document
+
+
+@dataclass
+class Element:
+    """A structural hint in reading order.
+
+    kind == "heading": ``level`` (1 = top) and ``text`` is the heading title.
+    kind == "block":   ``block_type`` (paragraph|code|list|table|quote) and ``text`` is content.
+    ``start``/``end`` are character offsets into ``Document.text``.
+    """
+
+    kind: str
+    text: str
+    start: int
+    end: int
+    level: int = 0
+    block_type: str = "paragraph"
+    page: int | None = None
+
+
+@runtime_checkable
+class SourceAdapter(Protocol):
+    source_type: str
+
+    def load(self, source: str) -> Document: ...
+
+
+def read_text_file(path: str | Path) -> str:
+    raw = Path(path).read_bytes()
+    for enc in ("utf-8-sig", "utf-8", "gb18030"):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", errors="replace")
+
+
+_EXT_MAP = {
+    ".md": "markdown",
+    ".markdown": "markdown",
+    ".mdx": "markdown",
+    ".txt": "markdown",
+    ".html": "html",
+    ".htm": "html",
+    ".xhtml": "html",
+    ".pdf": "pdf",
+}
+
+
+def detect_source_type(source: str) -> str:
+    ext = Path(source).suffix.lower()
+    if ext in _EXT_MAP:
+        return _EXT_MAP[ext]
+    raise ValueError(f"Cannot detect source type for {source!r}; pass source_type explicitly")
+
+
+def get_adapter(source_type: str) -> SourceAdapter:
+    from .html import HTMLAdapter
+    from .markdown import MarkdownAdapter
+    from .pdf import PDFAdapter
+
+    adapters: dict[str, SourceAdapter] = {
+        "markdown": MarkdownAdapter(),
+        "html": HTMLAdapter(),
+        "pdf": PDFAdapter(),
+    }
+    try:
+        return adapters[source_type]
+    except KeyError:
+        raise ValueError(f"Unsupported source type: {source_type!r}") from None
+"""HTML adapter built on the standard-library parser (no extra dependency).
+
+* Drops noise: script/style/noscript/nav/footer/aside/form/svg/template/iframe, elements with
+  ``hidden`` / ``aria-hidden=true`` and landmark roles navigation/banner/contentinfo/complementary.
+* If the page has ``<main>`` or ``<article>``, only content inside them is kept.
+* Emits heading (h1-h6) and block elements as native structure hints (``_elements``).
+"""
+
+from __future__ import annotations
+
+import re
+from html.parser import HTMLParser
+from pathlib import Path
+
+from ..core.ids import new_id
+from ..core.models import Document
+from .base import Element, read_text_file
+
+_SKIP_TAGS = {
+    "script",
+    "style",
+    "noscript",
+    "nav",
+    "footer",
+    "aside",
+    "form",
+    "svg",
+    "template",
+    "iframe",
+    "button",
+    "select",
+    "textarea",
+    "canvas",
+    "object",
+    "head",
+}
+_SKIP_ROLES = {"navigation", "banner", "contentinfo", "complementary", "search"}
+# permalink anchors rendered inside headings by Sphinx / MkDocs / Docusaurus ("#", "¶")
+_SKIP_CLASSES = {"headerlink", "anchorjs-link", "hash-link", "anchor-link"}
+_VOID_TAGS = {
+    "area",
+    "base",
+    "br",
+    "col",
+    "embed",
+    "hr",
+    "img",
+    "input",
+    "link",
+    "meta",
+    "param",
+    "source",
+    "track",
+    "wbr",
+}
+_HEADINGS = {"h1": 1, "h2": 2, "h3": 3, "h4": 4, "h5": 5, "h6": 6}
+_BLOCK_TAGS = {
+    "p": "paragraph",
+    "li": "list",
+    "dt": "list",
+    "dd": "list",
+    "pre": "code",
+    "blockquote": "quote",
+    "figcaption": "paragraph",
+    "table": "table",
+    "caption": "paragraph",
+}
+_CONTAINER_TAGS = {
+    "div",
+    "section",
+    "article",
+    "main",
+    "ul",
+    "ol",
+    "dl",
+    "body",
+    "header",
+    "figure",
+    "details",
+    "summary",
+    "tr",
+    "tbody",
+    "thead",
+    "tfoot",
+    "html",
+}
+_WS = re.compile(r"\s+")
+
+
+class _Collector(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.stack: list[str] = []
+        self.skip_depth = 0  # >0 while inside a skipped subtree
+        self.content_depth = 0  # >0 while inside main/article
+        self.raw: list[tuple[str, int, str, bool]] = []  # (kind/btype, level, text, in_content)
+        self.buf: list[str] = []
+        self.mode: tuple[str, int] | None = None  # current heading/block capture
+        self.pre_depth = 0
+        self.table_rows: list[list[str]] | None = None
+        self.cell: list[str] | None = None
+        self.title = ""
+        self._in_title = False
+
+    # -- helpers
+    def _flush(self, btype: str = "paragraph", level: int = 0) -> None:
+        text = "".join(self.buf)
+        self.buf = []
+        text = text.strip("\n") if btype == "code" else _WS.sub(" ", text).strip()
+        if text:
+            self.raw.append((btype, level, text, self.content_depth > 0))
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        a = dict(attrs)
+        if tag == "title" and not self.stack_contains("body"):
+            self._in_title = True
+        if tag in _VOID_TAGS:
+            if tag == "br" and not self.skip_depth:
+                self.buf.append("\n")
+            return
+        self.stack.append(tag)
+        skip = (
+            tag in _SKIP_TAGS
+            or "hidden" in a
+            or (a.get("aria-hidden") or "").lower() == "true"
+            or (a.get("role") or "").lower() in _SKIP_ROLES
+            or bool(_SKIP_CLASSES & set((a.get("class") or "").split()))
+        )
+        if self.skip_depth or skip:
+            self.skip_depth += 1
+            return
+        if tag in ("main", "article"):
+            self._flush()
+            self.content_depth += 1
+        if tag in _HEADINGS:
+            self._flush()
+            self.mode = ("heading", _HEADINGS[tag])
+        elif tag == "table":
+            self._flush()
+            self.table_rows = []
+        elif tag == "tr" and self.table_rows is not None:
+            self.table_rows.append([])
+        elif tag in ("td", "th") and self.table_rows is not None:
+            self.cell = []
+        elif tag in _BLOCK_TAGS:
+            self._flush()
+            if tag == "pre":
+                self.pre_depth += 1
+        elif tag in _CONTAINER_TAGS:
+            self._flush()
+
+    def stack_contains(self, tag: str) -> bool:
+        return tag in self.stack
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "title":
+            self._in_title = False
+        if tag in _VOID_TAGS or tag not in self.stack:
+            return
+        # pop up to and including the matching tag (tolerates unclosed children)
+        while self.stack:
+            top = self.stack.pop()
+            self._close(top)
+            if top == tag:
+                break
+
+    def _close(self, tag: str) -> None:
+        if self.skip_depth:
+            self.skip_depth -= 1
+            return
+        if tag in _HEADINGS and self.mode and self.mode[0] == "heading":
+            self._flush("heading", self.mode[1])
+            self.mode = None
+        elif tag in ("td", "th") and self.cell is not None and self.table_rows is not None:
+            if not self.table_rows:
+                self.table_rows.append([])
+            self.table_rows[-1].append(_WS.sub(" ", "".join(self.cell)).strip())
+            self.cell = None
+        elif tag == "table" and self.table_rows is not None:
+            rows = [" | ".join(c for c in r) for r in self.table_rows if any(r)]
+            self.table_rows = None
+            if rows:
+                self.raw.append(("table", 0, "\n".join(rows), self.content_depth > 0))
+        elif tag in _BLOCK_TAGS:
+            self._flush(_BLOCK_TAGS[tag])
+            if tag == "pre":
+                self.pre_depth -= 1
+        elif tag in _CONTAINER_TAGS:
+            self._flush()
+        if tag in ("main", "article"):
+            self.content_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if self._in_title:
+            self.title += data
+            return
+        if self.skip_depth:
+            return
+        if self.cell is not None:
+            self.cell.append(data)
+        elif self.table_rows is None:
+            self.buf.append(data)
+
+    def close(self) -> None:
+        super().close()
+        while self.stack:
+            self._close(self.stack.pop())
+        self._flush()
+
+
+class HTMLAdapter:
+    source_type = "html"
+
+    def load(self, source: str) -> Document:
+        html = read_text_file(source)
+        return self.from_html(
+            html, uri=str(Path(source).resolve()), fallback_title=Path(source).stem
+        )
+
+    def from_html(
+        self, html: str, uri: str | None = None, fallback_title: str = "Untitled"
+    ) -> Document:
+        p = _Collector()
+        p.feed(html)
+        p.close()
+        raw = p.raw
+        if any(in_content for *_, in_content in raw):
+            raw = [r for r in raw if r[3]]
+
+        parts: list[str] = []
+        elements: list[Element] = []
+        pos = 0
+        for btype, level, text, _ in raw:
+            if parts:
+                pos += 2
+            start = pos
+            parts.append(text)
+            pos += len(text)
+            if btype == "heading":
+                elements.append(Element("heading", text, start, pos, level=level))
+            else:
+                elements.append(Element("block", text, start, pos, block_type=btype))
+        text = "\n\n".join(parts)
+
+        title = _WS.sub(" ", p.title).strip()
+        first_h1 = next((e.text for e in elements if e.kind == "heading" and e.level == 1), None)
+        title = first_h1 or title or fallback_title
+        return Document(
+            id=new_id("doc"),
+            source_type=self.source_type,
+            uri=uri,
+            title=title,
+            text=text,
+            metadata={
+                "chars": len(text),
+                "html_title": _WS.sub(" ", p.title).strip(),
+                "_elements": elements,
+            },
+        )
+from __future__ import annotations
+
+from pathlib import Path
+
+from ..core.ids import new_id
+from ..core.models import Document
+from .base import read_text_file
+
+
+class MarkdownAdapter:
+    """Loads a Markdown file. Heading parsing happens in ``structure.markdown``."""
+
+    source_type = "markdown"
+
+    def load(self, source: str) -> Document:
+        text = read_text_file(source)
+        return self.from_text(
+            text, uri=str(Path(source).resolve()), fallback_title=Path(source).stem
+        )
+
+    def from_text(
+        self, text: str, uri: str | None = None, fallback_title: str = "Untitled"
+    ) -> Document:
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        from ..structure.markdown import guess_title
+
+        return Document(
+            id=new_id("doc"),
+            source_type=self.source_type,
+            uri=uri,
+            title=guess_title(text) or fallback_title,
+            text=text,
+            metadata={"chars": len(text)},
+        )
+"""Text-based PDF adapter (requires ``pypdf``; install with ``pip install treeengine[pdf]``).
+
+Native structure hints: PDF bookmarks (outline) as ``_outline`` = [(level, title, page)], and
+per-page offsets as ``_pages`` = [(page_no, start, end)] (1-based page numbers).
+Scanned PDFs / OCR are out of scope for V0.1.
+"""
+
+from __future__ import annotations
+
+import unicodedata
+from pathlib import Path
+from typing import Any
+
+from ..core.ids import new_id
+from ..core.models import Document
+
+
+class PDFAdapter:
+    source_type = "pdf"
+
+    def load(self, source: str) -> Document:
+        try:
+            from pypdf import PdfReader
+        except ImportError as e:  # pragma: no cover - depends on env
+            raise ImportError("PDF support requires pypdf: pip install 'treeengine[pdf]'") from e
+
+        reader = PdfReader(source)
+        parts: list[str] = []
+        pages: list[tuple[int, int, int]] = []
+        pos = 0
+        for i, page in enumerate(reader.pages, start=1):
+            t = (page.extract_text() or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+            # NFKC folds typographic ligatures ("ﬁ" -> "fi") and full-width forms so the
+            # text is searchable; PDF extraction emits them verbatim
+            t = unicodedata.normalize("NFKC", t)
+            if parts:
+                pos += 2
+            start = pos
+            parts.append(t)
+            pos += len(t)
+            pages.append((i, start, pos))
+        text = "\n\n".join(parts)
+
+        outline: list[tuple[int, str, int | None]] = []
+        try:
+            _walk_outline(reader, reader.outline, 1, outline)
+        except Exception:  # malformed outlines are common; fall back to heuristics
+            outline = []
+
+        meta = reader.metadata
+        title = ""
+        if meta is not None and meta.title:
+            title = str(meta.title).strip()
+        return Document(
+            id=new_id("doc"),
+            source_type=self.source_type,
+            uri=str(Path(source).resolve()),
+            title=title or Path(source).stem,
+            text=text,
+            metadata={
+                "chars": len(text),
+                "page_count": len(pages),
+                "has_bookmarks": bool(outline),
+                "_pages": pages,
+                "_outline": outline,
+            },
+        )
+
+
+def _walk_outline(
+    reader: Any, items: Any, level: int, out: list[tuple[int, str, int | None]]
+) -> None:
+    for item in items:
+        if isinstance(item, list):
+            _walk_outline(reader, item, level + 1, out)
+            continue
+        title = unicodedata.normalize("NFKC", str(getattr(item, "title", "") or "")).strip()
+        if not title:
+            continue
+        try:
+            page = reader.get_destination_page_number(item) + 1
+        except Exception:
+            page = None
+        out.append((level, title, page))
+"""Canonical PDF text helpers shared by the Evidence Builder and the Structure Builder.
+
+Both work on the same coordinate system: ``Document.text`` (pages joined by a blank line) with
+``Document.metadata["_pages"]`` = [(page_no, start, end)] character offsets. Nothing here knows
+about trees: page lookup, line splitting, running headers / footers and a text-only "title-like
+line" test.
+"""
+
+from __future__ import annotations
+
+import bisect
+import re
+
+_ZH_NUM = "一二三四五六七八九十百零〇两"
+_HEURISTICS: list[tuple[re.Pattern[str], int | None]] = [
+    (re.compile(rf"^第[{_ZH_NUM}\d]+[章篇部]\s*\S.*$"), 1),
+    (re.compile(rf"^第[{_ZH_NUM}\d]+节\s*\S.*$"), 2),
+    (re.compile(r"^(?:Chapter|CHAPTER|Part|PART)\s+[\dIVXLC]+\b.*$"), 1),
+    (re.compile(r"^(?:Section|SECTION)\s+\d+(?:\.\d+)*\b.*$"), 2),
+    (re.compile(r"^(\d{1,2}(?:\.\d{1,2}){0,3})\.?\s+\S.*$"), None),  # level = number of parts
+    (re.compile(rf"^[{_ZH_NUM}]+、\s*\S.*$"), 1),
+    (re.compile(r"^[A-Z][A-Z0-9 &/\-]{5,}$"), 1),
+]
+_END_PUNCT = tuple("。．.，,；;：:!！?？")
+
+
+class PageLookup:
+    """offset -> 1-based page number in O(log pages)."""
+
+    def __init__(self, pages: list[tuple[int, int, int]]) -> None:
+        self.pages = pages
+        self.starts = [p[1] for p in pages]
+
+    def __call__(self, offset: int) -> int | None:
+        i = bisect.bisect_right(self.starts, offset) - 1
+        if 0 <= i < len(self.pages) and self.pages[i][1] <= offset <= self.pages[i][2]:
+            return self.pages[i][0]
+        return None
+
+
+def page_of(pages: list[tuple[int, int, int]], offset: int) -> int | None:
+    return PageLookup(pages)(offset)
+
+
+def text_lines(text: str) -> list[tuple[int, str]]:
+    out = []
+    pos = 0
+    for ln in text.split("\n"):
+        out.append((pos, ln))
+        pos += len(ln) + 1
+    return out
+
+
+_DIGITS = re.compile(r"\d+")
+
+
+def running_lines(
+    lines: list[tuple[int, str]], pages: list[tuple[int, int, int]], edge: int = 3
+) -> set[int]:
+    """Indexes of running headers/footers: lines near the top/bottom of a page that recur on
+    at least half of the pages ("Java 开发手册（黄山版）" verbatim, "3/51" up to digits)."""
+    if len(pages) < 4:
+        return set()
+    by_page: dict[int, list[int]] = {}
+    page_of = PageLookup(pages)
+    for idx, (off, ln) in enumerate(lines):
+        if ln.strip():
+            no = page_of(off)
+            if no is not None:
+                by_page.setdefault(no, []).append(idx)
+    seen: dict[str, set[int]] = {}
+    candidates: dict[str, list[int]] = {}
+    for no, idxs in by_page.items():
+        for idx in idxs[:edge] + idxs[-edge:]:
+            text = re.sub(r"\s+", "", lines[idx][1])
+            if len(text) > 80:
+                continue
+            # page numbers ("3/51", "- 12 -") differ per page; anything longer must repeat verbatim
+            key = _DIGITS.sub("#", text) if len(text) <= 12 else text
+            seen.setdefault(key, set()).add(no)
+            candidates.setdefault(key, []).append(idx)
+    threshold = max(3, len(pages) // 2)
+    return {i for k, pgs in seen.items() if len(pgs) >= threshold for i in candidates[k]}
+
+
+def heuristic_heading(line: str) -> int | None:
+    s = line.strip()
+    if not s or len(s) > 60 or s.endswith(_END_PUNCT) or len(s) < 2:
+        return None
+    letters = sum(1 for ch in s if ch.isalpha())
+    if letters < 2 or letters < 0.5 * len(s.replace(" ", "")):
+        return None  # figure axes, table rows, formulas ("0 500 1000", "4 sp4 = ...")
+    for pat, level in _HEURISTICS:
+        m = pat.match(s)
+        if m:
+            if level is None:
+                return min(4, m.group(1).count(".") + 1)
+            return level
+    return None
+
+
+__all__ = ["PageLookup", "heuristic_heading", "page_of", "running_lines", "text_lines"]
+from .builder import StructureBuilder, assemble
+
+__all__ = ["StructureBuilder", "assemble"]
+"""Structure Engine: Document -> Tree<Node> (structure geometry).
+
+V0.7: the tree no longer cuts the retrieval blocks. ``build_tree`` returns nodes with offsets;
+blocks come from :class:`treeengine.blocks.EvidenceBuilder` and are mapped onto the nodes by
+offset overlap (:func:`treeengine.pipeline.build_document`); ``finalise`` then fills node text,
+pages and summaries from the mapped blocks. ``assemble`` keeps the pre-V0.7 coupled path
+(``EngineConfig.evidence_geometry="coupled"``).
+
+Priority is fixed: Native structure -> Heuristic structure -> LLM fallback.
+All source types end up as a flat list of :class:`Element` in reading order, which is then
+assembled into nodes/blocks by :func:`assemble`.
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+from collections import defaultdict
+
+from ..core.config import EngineConfig
+from ..core.ids import new_id
+from ..core.models import Block, Document, Node
+from ..core.text import split_long_text, truncate
+from ..ingest.base import Element
+from ..llm import prompts
+from ..llm.base import LLMProvider, extract_json
+
+log = logging.getLogger(__name__)
+
+_TOC_TITLE = re.compile(r"^(目\s*录|目\s*次|contents|table of contents|toc)$", re.I)
+
+
+class StructureBuilder:
+    def __init__(self, config: EngineConfig | None = None, llm: LLMProvider | None = None):
+        self.config = config or EngineConfig()
+        self.llm = llm
+
+    def build(self, doc: Document) -> tuple[list[Node], list[Block]]:
+        """Nodes + blocks. With ``evidence_geometry="stable"`` (default) this is a facade over the
+        decoupled pipeline: tree from the structure elements, blocks from the Evidence Builder,
+        then an offset mapping (see :func:`treeengine.pipeline.build_document`). "coupled" keeps
+        the pre-V0.7 behaviour where the tree cuts the blocks."""
+        if self.config.evidence_geometry == "coupled":
+            nodes, blocks = assemble(doc, self.structure_elements(doc), self.config)
+            self._summaries(nodes)
+            return nodes, blocks
+        from ..pipeline import build_document
+
+        return build_document(doc, self)
+
+    def build_tree(self, doc: Document) -> list[Node]:
+        """Structure geometry only: nodes with start offsets and heading pages (no text yet;
+        :meth:`finalise` fills text, pages and summaries once blocks are mapped)."""
+        nodes, _, _ = _assemble(doc, self.structure_elements(doc), self.config)
+        return nodes
+
+    def finalise(self, doc: Document, nodes: list[Node], blocks: list[Block]) -> None:
+        """Node end offsets, own text, pages and summaries from the blocks mapped to each node."""
+        own: dict[str, list[Block]] = defaultdict(list)
+        for b in blocks:
+            if b.node_id:
+                own[b.node_id].append(b)
+        _finalise(doc, nodes, own, self.config)
+        self._summaries(nodes)
+
+    def _summaries(self, nodes: list[Node]) -> None:
+        if self.llm is not None and self.config.llm_summaries:
+            self._llm_summaries(nodes)
+
+    def structure_elements(self, doc: Document) -> list[Element]:
+        elements, method = self.elements_for(doc)
+        forced_llm = doc.source_type == "pdf" and self.config.pdf_structure == "llm"
+        if forced_llm or not any(e.kind == "heading" for e in elements):
+            allowed = forced_llm or (
+                self.config.llm_structure_fallback and self.config.pdf_structure == "auto"
+            )
+            fb = self._llm_structure(elements) if allowed else None
+            if fb is not None:
+                elements, method = fb, "llm" if forced_llm else "llm_fallback"
+            else:
+                method = "flat"
+        doc.metadata["structure_method"] = method
+        return elements
+
+    # ------------------------------------------------------------------ dispatch
+    def elements_for(self, doc: Document) -> tuple[list[Element], str]:
+        if doc.source_type == "markdown":
+            from .markdown import parse_markdown
+
+            return parse_markdown(doc.text), "native"
+        if doc.source_type == "html":
+            from .html import html_elements
+
+            return html_elements(doc), "native"
+        if doc.source_type == "pdf":
+            from .pdf import pdf_elements
+
+            return pdf_elements(doc, self.config.pdf_structure)
+        from .markdown import plain_paragraphs
+
+        return plain_paragraphs(doc.text), "flat"
+
+    # ------------------------------------------------------------------ llm
+    def _llm_structure(self, elements: list[Element]) -> list[Element] | None:
+        """Recover headings with the LLM, one window of blocks per call (long documents need
+        several calls; every block of the document is seen once)."""
+        if self.llm is None:
+            return None
+        blocks = [e for e in elements if e.kind == "block"]
+        if len(blocks) < 4:
+            return None
+        window = max(1, self.config.llm_structure_window)
+        heads: dict[int, tuple[int, str]] = {}
+        for start in range(0, len(blocks), window):
+            part = blocks[start : start + window]
+            listing = "\n".join(
+                f"[{start + i}] {truncate(b.text.replace(chr(10), ' '), 80)}"
+                for i, b in enumerate(part)
+            )
+            try:
+                reply = self.llm.complete(
+                    prompts.STRUCTURE.format(blocks=listing), system=prompts.STRUCTURE_SYSTEM
+                )
+                data = extract_json(reply)
+            except Exception as e:  # LLM failures must never break ingestion
+                log.warning("LLM structure failed for blocks %d+: %s", start, e)
+                continue
+            if not isinstance(data, list):
+                continue
+            for item in data:
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    idx, level = int(item["block"]), max(1, int(item.get("level", 1)))
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if start <= idx < start + len(part):
+                    title = str(item.get("title") or blocks[idx].text).strip()
+                    heads[idx] = (level, truncate(title, 120))
+        if not heads:
+            return None
+        out: list[Element] = []
+        for i, b in enumerate(blocks):
+            if i in heads:
+                level, title = heads[i]
+                out.append(Element("heading", title, b.start, b.start, level=level, page=b.page))
+                # a short block that *is* the heading is consumed; longer ones stay as content
+                if len(b.text) <= len(title) + 5:
+                    continue
+            out.append(b)
+        return out
+
+    def _llm_summaries(self, nodes: list[Node]) -> None:
+        assert self.llm is not None
+        children: dict[str | None, list[Node]] = defaultdict(list)
+        for n in nodes:
+            children[n.parent_id].append(n)
+        for n in sorted(nodes, key=lambda x: -x.depth):  # bottom-up
+            kids = children.get(n.id, [])
+            child_info = "; ".join(f"{k.title}: {k.summary or ''}" for k in kids)[:1500]
+            try:
+                s = self.llm.complete(
+                    prompts.SUMMARY.format(
+                        max_chars=self.config.summary_chars,
+                        title=n.title,
+                        children=child_info or "(none)",
+                        text=truncate(n.text or "", 3000),
+                    ),
+                    system=prompts.SUMMARY_SYSTEM,
+                    max_tokens=300,
+                )
+                if s.strip():
+                    n.summary = truncate(s.strip(), self.config.summary_chars * 2)
+            except Exception as e:
+                log.warning("LLM summary failed for %s: %s", n.id, e)
+
+
+# ---------------------------------------------------------------------- assembly
+def assemble(
+    doc: Document, elements: list[Element], config: EngineConfig
+) -> tuple[list[Node], list[Block]]:
+    """Coupled assembly (pre-V0.7): the elements' blocks become the retrieval blocks."""
+    nodes, blocks, own_blocks = _assemble(doc, elements, config)
+    _finalise(doc, nodes, own_blocks, config)
+    return nodes, blocks
+
+
+def _assemble(
+    doc: Document, elements: list[Element], config: EngineConfig
+) -> tuple[list[Node], list[Block], dict[str, list[Block]]]:
+    nodes: list[Node] = []
+    blocks: list[Block] = []
+    stack: list[tuple[int, Node]] = []  # (heading level, node)
+    child_pos: dict[str | None, int] = defaultdict(int)
+    own_blocks: dict[str, list[Block]] = defaultdict(list)
+    heading_levels: dict[str, int] = {}
+    fallback_node: Node | None = None
+    has_headings = any(e.kind == "heading" for e in elements)
+
+    def new_node(title: str, parent: Node | None, start: int, node_type: str, page: int | None):
+        pid = parent.id if parent else None
+        n = Node(
+            id=new_id("node"),
+            document_id=doc.id,
+            parent_id=pid,
+            depth=(parent.depth + 1) if parent else 0,
+            position=child_pos[pid],
+            title=title,
+            start_offset=start,
+            node_type=node_type,
+            page_start=page,
+            page_end=page,
+        )
+        child_pos[pid] += 1
+        nodes.append(n)
+        return n
+
+    for el in elements:
+        if el.kind == "heading":
+            while stack and stack[-1][0] >= el.level:
+                stack.pop()
+            parent = stack[-1][1] if stack else None
+            n = new_node(el.text.strip() or "(untitled)", parent, el.start, "section", el.page)
+            heading_levels[n.id] = el.level
+            stack.append((el.level, n))
+            continue
+        if stack:
+            owner = stack[-1][1]
+        else:
+            if fallback_node is None:
+                fallback_node = new_node(
+                    doc.title, None, el.start, "preamble" if has_headings else "document", el.page
+                )
+            owner = fallback_node
+        for rel, piece in split_long_text(el.text, config.max_block_chars):
+            start = el.start + rel if el.start is not None else None
+            b = Block(
+                id=new_id("blk"),
+                document_id=doc.id,
+                node_id=owner.id,
+                position=len(blocks),
+                block_type=el.block_type,
+                content=piece,
+                page=el.page,
+                start_offset=start,
+                end_offset=(start + len(piece)) if start is not None else None,
+            )
+            blocks.append(b)
+            own_blocks[owner.id].append(b)
+
+    if not nodes:  # empty document: still give it one node so the tree API is uniform
+        new_node(doc.title, None, 0, "document", None)
+    return nodes, blocks, own_blocks
+
+
+def _finalise(
+    doc: Document, nodes: list[Node], own_blocks: dict[str, list[Block]], config: EngineConfig
+) -> None:
+    by_id = {n.id: n for n in nodes}
+    children: dict[str | None, list[Node]] = defaultdict(list)
+    for n in nodes:
+        children[n.parent_id].append(n)
+
+    # end offsets: a node ends where the next node that is not its descendant starts
+    order = nodes  # creation order == reading order
+    doc_end = len(doc.text)
+    for i, n in enumerate(order):
+        end = doc_end
+        for m in order[i + 1 :]:
+            if m.depth <= n.depth:
+                end = m.start_offset if m.start_offset is not None else end
+                break
+        n.end_offset = end
+
+    # own text + pages + summaries, bottom-up
+    for n in sorted(nodes, key=lambda x: -x.depth):
+        own = own_blocks.get(n.id, [])
+        n.text = "\n\n".join(b.content for b in own) or None
+        pages = [b.page for b in own if b.page is not None]
+        for c in children.get(n.id, []):
+            pages += [p for p in (c.page_start, c.page_end) if p is not None]
+        if n.page_start is not None:
+            pages.append(n.page_start)
+        if pages:
+            n.page_start, n.page_end = min(pages), max(pages)
+        n.summary = heuristic_summary(n, children.get(n.id, []), config.summary_chars)
+        if n.node_type == "section" and _TOC_TITLE.match(n.title.strip()):
+            n.node_type = "toc"  # a table of contents mentions every topic: not a navigation target
+    assert all(n.parent_id is None or n.parent_id in by_id for n in nodes)
+
+
+def heuristic_summary(node: Node, kids: list[Node], limit: int) -> str | None:
+    parts = []
+    if node.text:
+        parts.append(truncate(" ".join(node.text.split()), limit))
+    if kids:
+        parts.append("Subsections: " + "; ".join(k.title for k in kids))
+    return truncate(" | ".join(parts), limit * 2) if parts else None
+"""HTML -> Elements. The DOM outline (h1-h6 inside main/article) is produced by the adapter."""
+
+from __future__ import annotations
+
+from ..core.models import Document
+from ..ingest.base import Element
+from .markdown import plain_paragraphs
+
+
+def html_elements(doc: Document) -> list[Element]:
+    elements = doc.metadata.get("_elements")
+    if elements is None:  # document reloaded from DB / built from plain text
+        return plain_paragraphs(doc.text)
+    return list(elements)
+"""Markdown -> Elements. Native structure: ATX (#..######) and setext (===/---) headings.
+
+Headings inside fenced code blocks are ignored. YAML front matter is skipped.
+"""
+
+from __future__ import annotations
+
+import re
+
+from ..ingest.base import Element
+
+_ATX = re.compile(r"^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$")
+_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+_SETEXT = re.compile(r"^ {0,3}(=+|-+)[ \t]*$")
+_HR = re.compile(r"^ {0,3}([-*_])([ \t]*\1){2,}[ \t]*$")
+_LIST = re.compile(r"^ {0,3}([-*+]|\d{1,9}[.)])[ \t]+")
+_TABLE = re.compile(r"^ {0,3}\|")
+_QUOTE = re.compile(r"^ {0,3}>")
+_FRONT_TITLE = re.compile(r"^title:\s*[\"']?(.*?)[\"']?\s*$", re.M)
+_LINK = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
+_EMPH = re.compile(r"(\*\*|__|\*|_|`)(.+?)\1")
+
+
+_HEADING_ATTRS = re.compile(r"\s*\{[#:.][^{}]*\}\s*$")  # {#anchor} / {: .class} suffixes
+
+
+def clean_inline(text: str) -> str:
+    text = _HEADING_ATTRS.sub("", text)
+    text = _LINK.sub(r"\1", text)
+    text = _EMPH.sub(r"\2", text)
+    return text.strip()
+
+
+def _front_matter_end(text: str) -> int:
+    if text.startswith("---\n"):
+        end = text.find("\n---", 4)
+        if end != -1:
+            nl = text.find("\n", end + 4)
+            return len(text) if nl == -1 else nl + 1
+    return 0
+
+
+def guess_title(text: str) -> str | None:
+    fm = _front_matter_end(text)
+    if fm:
+        m = _FRONT_TITLE.search(text[:fm])
+        if m and m.group(1).strip():
+            return m.group(1).strip()
+    for el in parse_markdown(text):
+        if el.kind == "heading" and el.level == 1:
+            return el.text
+    return None  # a "## Sponsors" is not a document title; caller falls back to file name
+
+
+def _classify(line: str) -> str:
+    if _LIST.match(line):
+        return "list"
+    if _TABLE.match(line):
+        return "table"
+    if _QUOTE.match(line):
+        return "quote"
+    return "paragraph"
+
+
+_COMMENT = re.compile(r"<!--.*?-->", re.S)
+
+
+def mask_comments(text: str) -> str:
+    """Blank out HTML comments, keeping every offset and newline intact.
+
+    Translated docs (e.g. Kubernetes zh-cn) keep the original text - headings included - in
+    comments; without this they would produce a duplicate tree."""
+    return _COMMENT.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), text)
+
+
+def parse_markdown(text: str) -> list[Element]:
+    text = mask_comments(text)
+    lines = text.split("\n")
+    offsets = []
+    pos = 0
+    for ln in lines:
+        offsets.append(pos)
+        pos += len(ln) + 1
+
+    elements: list[Element] = []
+    para: list[int] = []  # indexes of lines in the current block
+    para_type = "paragraph"
+
+    def flush() -> None:
+        nonlocal para, para_type
+        if para:
+            start = offsets[para[0]]
+            end = offsets[para[-1]] + len(lines[para[-1]])
+            content = text[start:end].strip()
+            if content:
+                lead = len(text[start:end]) - len(text[start:end].lstrip())
+                elements.append(
+                    Element(
+                        "block",
+                        content,
+                        start + lead,
+                        start + lead + len(content),
+                        block_type=para_type,
+                    )
+                )
+        para = []
+        para_type = "paragraph"
+
+    i = 0
+    fm_end = _front_matter_end(text)
+    while i < len(lines) and offsets[i] < fm_end:
+        i += 1
+
+    while i < len(lines):
+        line = lines[i]
+        fence = _FENCE.match(line)
+        if fence:
+            flush()
+            marker = fence.group(1)
+            j = i + 1
+            while j < len(lines) and not lines[j].lstrip().startswith(marker):
+                j += 1
+            end_line = min(j, len(lines) - 1)
+            start = offsets[i]
+            end = offsets[end_line] + len(lines[end_line])
+            elements.append(
+                Element("block", text[start:end].strip(), start, end, block_type="code")
+            )
+            i = j + 1
+            continue
+
+        atx = _ATX.match(line)
+        if atx:
+            flush()
+            title = clean_inline(atx.group(2) or "")
+            if title:
+                elements.append(
+                    Element(
+                        "heading",
+                        title,
+                        offsets[i],
+                        offsets[i] + len(line),
+                        level=len(atx.group(1)),
+                    )
+                )
+            i += 1
+            continue
+
+        # setext heading: a single paragraph line followed by === or ---
+        if len(para) == 1 and para_type == "paragraph" and _SETEXT.match(line):
+            level = 1 if line.strip().startswith("=") else 2
+            h = para[0]
+            title = clean_inline(lines[h])
+            para = []
+            elements.append(
+                Element("heading", title, offsets[h], offsets[i] + len(line), level=level)
+            )
+            i += 1
+            continue
+
+        if not line.strip():
+            flush()
+            i += 1
+            continue
+        if _HR.match(line):
+            flush()
+            i += 1
+            continue
+
+        kind = _classify(line)
+        if (
+            para
+            and kind != para_type
+            and not (para_type == "list" and line.startswith((" ", "\t")))
+        ):
+            # a new kind of block starts (e.g. paragraph followed directly by a list)
+            if kind != "paragraph" or para_type in ("table", "quote"):
+                flush()
+        if not para:
+            para_type = kind
+        para.append(i)
+        i += 1
+    flush()
+    return elements
+
+
+def plain_paragraphs(text: str) -> list[Element]:
+    """Blank-line separated paragraphs, no headings (used for plain text sources)."""
+    out = []
+    for m in re.finditer(r"\S(?:.*?\S)?(?=\n\s*\n|\s*\Z)", text, re.S):
+        out.append(Element("block", m.group(0), m.start(), m.end()))
+    return out
+"""PDF text -> Elements.
+
+Text-based modes (``auto`` = native, else heuristic):
+
+1. Native: PDF bookmarks. Each bookmark is located on its page (title text search) and becomes
+   a heading; unmatched bookmarks are anchored at the start of their page.
+2. Heuristic: numbered / chapter-like short lines become headings.
+3. Otherwise: no headings (builder may use the LLM fallback or a flat tree).
+
+Layout-aware modes (``treeengine.pdf``, needs pypdfium2): ``layout`` (headings detected from
+font size / weight / spacing / numbering), ``hybrid`` (graded bookmarks as the frame, detected
+headings as children, a quality gate with fallback to bookmarks, then to no structure). Both
+also drop running headers / footers / page numbers found from the page geometry. The source
+text is the same in every mode; only where sections start differs.
+"""
+
+from __future__ import annotations
+
+import re
+
+from ..core.models import Document
+from ..ingest.base import Element
+from ..ingest.pdf_text import PageLookup, heuristic_heading, page_of, running_lines, text_lines
+
+# canonical PDF text helpers (shared with the Evidence Builder; re-exported for callers)
+_PageLookup = PageLookup
+_page_of = page_of
+_lines = text_lines
+
+
+def _norm(s: str) -> str:
+    return re.sub(r"\s+", "", s).lower()
+
+
+def _find_in(text: str, target: str, start: int, end: int) -> int | None:
+    """Offset of ``target`` (already normalised: no whitespace, lower case) in text[start:end],
+    ignoring whitespace - finds headings glued into the middle of an extracted line."""
+    if not target:
+        return None
+    pos: list[int] = []
+    chars: list[str] = []
+    for i in range(start, min(end, len(text))):
+        ch = text[i]
+        if not ch.isspace():
+            chars.append(ch.lower())
+            pos.append(i)
+    k = "".join(chars).find(target)
+    return pos[k] if k >= 0 else None
+
+
+PDF_STRUCTURE_MODES = (
+    "auto",
+    "native",
+    "bookmarks",  # = native
+    "heuristic",
+    "layout",
+    "hybrid",
+    "flat",
+    "llm",
+)
+
+
+def _layout_outline(
+    doc: Document, mode: str
+) -> tuple[list[tuple[int, str, int | None, str, bool]], str, dict[int, set[str]]]:
+    """(outline entries with a 'detected' flag, method, furniture lines per page)."""
+    from ..pdf import OCRRequired, analyze_structure
+
+    if not doc.uri:
+        return [], "unavailable", {}
+    try:
+        res = analyze_structure(doc.uri, mode)
+    except OCRRequired:
+        if len(doc.text.strip()) < 20 * max(1, int(doc.metadata.get("page_count") or 1)):
+            doc.metadata["ocr_required"] = True  # scanned: no structure from garbage
+            return [], "flat", {}
+        doc.metadata["structure_warning"] = "layout parser found no text; text-based structure"
+        return [], "unavailable", {}
+    except (ImportError, OSError) as e:  # no pypdfium2 / file moved: text-based structure
+        doc.metadata["structure_warning"] = f"layout analysis unavailable: {e}"
+        return [], "unavailable", {}
+    q, bq = res.quality, res.bookmark_quality
+    doc.metadata["structure_quality"] = {
+        "score": round(q.score, 3),
+        "headings": q.heading_count,
+        "max_depth": q.max_depth,
+        "coverage": round(q.coverage, 3),
+        "reasons": q.reasons,
+        "fallback": res.reasons,
+        "bookmarks": bq.grade,
+        "bookmark_count": bq.node_count,
+    }
+    entries = [(lv, t, pg, anchor, top is not None) for lv, t, pg, anchor, top in res.outline]
+    return entries, res.method, res.furniture
+
+
+def pdf_elements(doc: Document, mode: str = "auto") -> tuple[list[Element], str]:
+    """Elements of a PDF. ``mode`` forces the structure source (see EngineConfig.pdf_structure);
+    "llm" returns the flat block stream for the builder to structure."""
+    if mode not in PDF_STRUCTURE_MODES:
+        raise ValueError(f"pdf_structure must be one of {PDF_STRUCTURE_MODES}, got {mode!r}")
+    pages: list[tuple[int, int, int]] = [
+        (int(no), int(s), int(e)) for no, s, e in doc.metadata.get("_pages", [])
+    ]
+    # (level, title, page, anchor): anchor = the heading line as printed, when it differs from
+    # the title (supplied outlines may give "Item 7. Management's Discussion..." for a line
+    # that only reads "Item 7."); PDF bookmarks have no anchor and match on the title.
+    outline: list[tuple[int, str, int | None, str]] = []
+    detected: set[int] = set()  # outline indexes found by layout analysis (not bookmarks)
+    furniture: dict[int, set[str]] = {}
+    layout_method = None
+    if mode in ("layout", "hybrid"):
+        entries, layout_method, furniture = _layout_outline(doc, mode)
+        if layout_method == "unavailable":
+            mode, layout_method = "auto", None
+        for i, (lv, t, pg, anchor, is_detected) in enumerate(entries):
+            outline.append((int(lv), str(t), pg, str(anchor)))
+            if is_detected:
+                detected.add(i)
+    if mode in ("auto", "native", "bookmarks"):
+        for item in doc.metadata.get("_outline", []):
+            lv, t, pg = item[0], item[1], item[2]
+            anchor = str(item[3]) if len(item) > 3 and item[3] else str(t)
+            outline.append((int(lv), str(t), None if pg is None else int(pg), anchor))
+    lines = _lines(doc.text)
+    page_of = _PageLookup(pages)
+    noise = running_lines(lines, pages)
+    if furniture:
+        for idx, (off, ln) in enumerate(lines):
+            pg = page_of(off)
+            if pg in furniture and _norm(ln) in furniture[pg]:
+                noise.add(idx)
+
+    headings: dict[int, tuple[int, str]] = {}  # line index -> (level, title)
+    method = "flat"
+    if layout_method is not None and not outline:
+        method = layout_method  # "flat": the quality gate rejected every structure
+    if outline:
+        method = layout_method or str(doc.metadata.get("_outline_source") or "native")
+        anchors: list[tuple[int, int, str]] = []  # (offset, level, title)
+        used: set[int] = set()
+        # index lines by page once: matching each bookmark is then O(lines on its page)
+        normed = [_norm(ln) for _, ln in lines]
+        line_page = [page_of(off) for off, _ in lines]
+        by_page: dict[int | None, list[int]] = {}
+        for idx, pg in enumerate(line_page):
+            by_page.setdefault(pg, []).append(idx)
+        for oi, (level, title, page, anchor) in enumerate(outline):
+            target = _norm(anchor)
+            found = None
+            pool = (
+                by_page.get(page, []) + by_page.get(None, [])
+                if page is not None
+                else range(len(lines))
+            )
+            for idx in pool:
+                if idx in used or not target or not normed[idx]:
+                    continue
+                if normed[idx] == target or normed[idx].startswith(target):
+                    found = idx
+                    break
+            # a detected heading only starts its section: the printed line stays content (it may
+            # be a numbered rule or a run-in paragraph; layout modes never drop body text)
+            whole_line = found is not None and len(normed[found]) <= len(target) + 10
+            if oi in detected:
+                whole_line = False
+            if found is not None and whole_line:
+                used.add(found)
+                headings[found] = (level, title)
+            elif found is not None:
+                # the heading is glued to body text on one extracted line: start the section at
+                # that line and keep the whole line as content (no text is lost)
+                used.add(found)
+                anchors.append((lines[found][0], level, title))
+            else:
+                span = next(((s, e) for no, s, e in pages if no == page), None)
+                at = _find_in(doc.text, target, *span) if span else None
+                if at is None and oi in detected:
+                    continue  # a detected heading that is not in the source text: drop it
+                if at is None:
+                    at = span[0] if span else 0
+                anchors.append((at, level, title))
+        extra = anchors
+    elif mode in ("auto", "heuristic"):
+        extra = []
+        for idx, (_, ln) in enumerate(lines):
+            lvl = heuristic_heading(ln)
+            if lvl is not None:
+                headings[idx] = (lvl, ln.strip())
+        if len(headings) >= 2:
+            method = "heuristic"
+        else:
+            headings = {}
+    else:
+        extra = []
+
+    elements: list[Element] = []
+    para: list[int] = []
+
+    def flush() -> None:
+        nonlocal para
+        if para:
+            start = lines[para[0]][0]
+            end = lines[para[-1]][0] + len(lines[para[-1]][1])
+            content = " ".join(lines[i][1].strip() for i in para if lines[i][1].strip())
+            content = re.sub(r"(?<=[一-鿿]) (?=[一-鿿])", "", content)
+            if content:
+                elements.append(Element("block", content, start, end, page=page_of(start)))
+        para = []
+
+    extra_sorted = sorted(extra)
+    ei = 0
+    for idx, (off, ln) in enumerate(lines):
+        if idx in noise:
+            continue  # running header/footer: skip without breaking the paragraph
+        while ei < len(extra_sorted) and extra_sorted[ei][0] <= off:
+            flush()
+            a_off, a_lvl, a_title = extra_sorted[ei]
+            elements.append(
+                Element("heading", a_title, a_off, a_off, level=a_lvl, page=page_of(a_off))
+            )
+            ei += 1
+        if idx in headings:
+            flush()
+            lvl, title = headings[idx]
+            elements.append(
+                Element("heading", title, off, off + len(ln), level=lvl, page=page_of(off))
+            )
+            continue
+        if not ln.strip():
+            flush()
+            continue
+        para.append(idx)
+        if ln.rstrip().endswith(("。", "！", "？", ".", "!", "?", ":", "：")) and len(ln) < 60:
+            flush()  # short line ending a sentence: likely paragraph end
+        elif sum(len(lines[i][1]) for i in para) > 900:
+            flush()
+    flush()
+    while ei < len(extra_sorted):
+        a_off, a_lvl, a_title = extra_sorted[ei]
+        elements.append(Element("heading", a_title, a_off, a_off, level=a_lvl))
+        ei += 1
+    return elements, method
+"""Layout-aware PDF structure (V0.6): PDF geometry -> lines -> reading order -> roles ->
+heading candidates -> bookmark / layout / hybrid outline -> quality gate.
+
+``Document.text`` (pypdf) stays the source text; this package only decides where sections
+start (an outline with anchors that ``structure/pdf.py`` places in that text) and which lines
+are page furniture (running headers / footers, page numbers, watermarks).
+
+    result = analyze_structure("10k.pdf", mode="hybrid")
+    result.outline, result.method, result.bookmark_quality, result.quality
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from functools import lru_cache
+from pathlib import Path
+
+from .classify import classify
+from .headings import body_style, detect_headings
+from .layout import order_page
+from .model import (
+    HeadingCandidate,
+    OutlineQuality,
+    PDFBookmark,
+    PDFLayout,
+    PDFLine,
+    PDFPage,
+    PDFSpan,
+    StructureQuality,
+)
+from .outline import Entry, bookmark_outline, bookmark_quality, hybrid_outline, layout_outline
+from .parser import OCRRequired, parse_pdf
+from .validate import structure_quality
+
+LAYOUT_MODES = ("layout", "hybrid", "bookmarks")
+FURNITURE = ("header", "footer", "page_number", "watermark")
+
+
+def analyze(path: str) -> PDFLayout:
+    p = Path(path)
+    return _analyze(str(p.resolve()), p.stat().st_mtime if p.exists() else 0.0)
+
+
+@lru_cache(maxsize=4)
+def _analyze(path: str, _mtime: float) -> PDFLayout:
+    pages, bookmarks = parse_pdf(path)
+    for page in pages:
+        order_page(page)
+    classify(pages)
+    size, bold = body_style(pages)
+    return PDFLayout(path=path, pages=pages, bookmarks=bookmarks, body_size=size, body_bold=bold)
+
+
+@dataclass
+class StructureResult:
+    outline: list[Entry]
+    method: str  # bookmarks / layout / hybrid / flat
+    bookmark_quality: OutlineQuality
+    quality: StructureQuality
+    candidates: list[HeadingCandidate]
+    furniture: dict[int, set[str]] = field(default_factory=dict)  # page -> normalised lines
+    reasons: list[str] = field(default_factory=list)  # why the ladder fell back
+
+
+def analyze_structure(path: str, mode: str = "hybrid") -> StructureResult:
+    """``hybrid``: the fallback ladder - bookmarks graded high / coarse / poor, merged with the
+    detected headings, validated; a suspicious result falls back to the bookmarks alone, then
+    to no structure. ``layout`` / ``bookmarks`` force one source (experiments)."""
+    import re
+
+    layout = analyze(path)
+    n = layout.page_count
+    cands = detect_headings(layout.pages, layout.body_size, layout.body_bold)
+    bq = bookmark_quality(layout.bookmarks, layout.pages)
+    furniture: dict[int, set[str]] = {}
+    for p in layout.pages:
+        for ln in p.lines:
+            if ln.role in FURNITURE:
+                furniture.setdefault(p.number, set()).add(re.sub(r"\s+", "", ln.text).lower())
+    reasons: list[str] = []
+    if mode == "bookmarks":
+        outline, method = bookmark_outline(layout.bookmarks), "bookmarks"
+    elif mode == "layout":
+        outline, method = layout_outline(cands), "layout"
+    else:
+        outline, method = hybrid_outline(layout.bookmarks, bq, cands, n)
+    q = structure_quality(outline, n)
+    if mode == "hybrid" and q.suspicious:
+        reasons.append(f"{method}: " + "; ".join(q.reasons))
+        if method != "bookmarks" and bq.grade in ("high", "coarse"):
+            outline, method = bookmark_outline(layout.bookmarks), "bookmarks"
+            q = structure_quality(outline, n)
+            if q.suspicious:
+                reasons.append("bookmarks: " + "; ".join(q.reasons))
+        if q.suspicious:
+            outline, method = [], "flat"
+            q = structure_quality(outline, n)
+    if not outline:
+        method = "flat"
+    return StructureResult(outline, method, bq, q, cands, furniture, reasons)
+
+
+__all__ = [
+    "FURNITURE",
+    "LAYOUT_MODES",
+    "HeadingCandidate",
+    "OCRRequired",
+    "OutlineQuality",
+    "PDFBookmark",
+    "PDFLayout",
+    "PDFLine",
+    "PDFPage",
+    "PDFSpan",
+    "StructureQuality",
+    "StructureResult",
+    "analyze",
+    "analyze_structure",
+]
+"""Line roles: header / footer / page number / watermark / TOC / caption / body.
+
+* header / footer: in the top / bottom band of the page and recurring (digits ignored) on many
+  pages, or a bare page number there;
+* watermark: very large text recurring across pages;
+* toc: every line of a table-of-contents page (titled "Contents", or dominated by entries that
+  end in a page number); TOC lines never become headings but are kept as content;
+* caption: "Figure 3", "Table 2.1", "Exhibit 10" ...;
+* body: everything else (heading detection runs on body lines only).
+
+Header / footer / page number / watermark lines are not structure; ``pdf_elements`` also drops
+them from the block stream in the layout modes.
+"""
+
+from __future__ import annotations
+
+import re
+from collections import Counter
+
+from .model import PDFPage
+
+EDGE = 0.08  # top / bottom share of the page height that may hold running lines
+_PAGE_NO = re.compile(
+    r"^(page\s*)?[-–—(]?\s*(\d{1,4}|[ivxlc]{1,7})\s*[-–—)]?(\s*(of|/)\s*\d{1,4})?$", re.I
+)
+# "Risk Factors ........ 12", "Risk Factors 12", "Preface ..... iv" (roman only after leaders)
+_TOC_ENTRY = re.compile(
+    r"[A-Za-z一-鿿].*?(?:(?:\.{2,}|…+|·{2,})\s*(\d{1,4}|[ivxlc]{1,6})|\s(\d{1,4}))$", re.I
+)
+_TOC_TITLE = re.compile(r"^(table of contents|contents|index|目\s*录)$", re.I)
+_CAPTION = re.compile(r"^(fig(ure)?\.?|table|exhibit|chart|图|表)\s*[\dIVX]+(\.\d+)*\b", re.I)
+
+
+def _key(text: str) -> str:
+    return re.sub(r"\d+", "#", re.sub(r"\s+", "", text.lower()))
+
+
+def classify(pages: list[PDFPage]) -> None:
+    n = len(pages)
+    edge_keys: Counter[str] = Counter()
+    for p in pages:
+        seen = set()
+        for ln in p.lines:
+            if ln.top < EDGE * p.height or ln.bottom > (1 - EDGE) * p.height:
+                k = _key(ln.text)
+                if k and k not in seen:
+                    seen.add(k)
+                    edge_keys[k] += 1
+    # chapter-specific running heads repeat only within their chapter: 3 pages are enough
+    running = {k for k, c in edge_keys.items() if n >= 4 and c >= 3}
+    sizes = sorted(ln.size for p in pages for ln in p.lines if ln.text.strip())
+    median = sizes[len(sizes) // 2] if sizes else 10.0
+    big: Counter[str] = Counter()
+    for p in pages:
+        for k in {_key(ln.text) for ln in p.lines if ln.size >= 2.5 * median}:
+            big[k] += 1
+    watermarks = {k for k, c in big.items() if n >= 3 and c >= max(3, int(0.3 * n))}
+
+    for p in pages:
+        entries = 0
+        numbers: list[int] = []
+        titled = False
+        body_lines = 0
+        for ln in p.lines:
+            t = ln.text.strip()
+            if not t:
+                continue
+            edge = ln.top < EDGE * p.height or ln.bottom > (1 - EDGE) * p.height
+            k = _key(t)
+            if k in watermarks:
+                ln.role = "watermark"
+            elif edge and _PAGE_NO.match(t):
+                ln.role = "page_number"
+            elif edge and k in running:
+                ln.role = "header" if ln.top < 0.5 * p.height else "footer"
+            elif _CAPTION.match(t):
+                ln.role = "caption"
+            else:
+                ln.role = "body"
+            if ln.role in ("body", "caption"):
+                body_lines += 1
+                if _TOC_TITLE.match(t) and ln.top < 0.4 * p.height:
+                    titled = True
+                else:
+                    m = _TOC_ENTRY.search(t)
+                    if m and len(t) < 160:
+                        num = m.group(1) or m.group(2)
+                        if num.isdigit() and int(num) <= n + 10:
+                            entries += 1
+                            numbers.append(int(num))
+                        elif not num.isdigit():
+                            entries += 1
+        # a TOC lists page numbers that go up; a table of figures ("2018 2017 2016") does not
+        rising = sum(1 for a, b in zip(numbers, numbers[1:], strict=False) if b >= a)
+        monotonic = rising >= 0.8 * (len(numbers) - 1) if len(numbers) > 1 else True
+        # TOCs laid out as a table: titles on the left, a column of bare page numbers right
+        bare = [
+            int(ln.text)
+            for ln in p.lines
+            if ln.role == "body" and ln.text.strip().isdigit() and ln.bbox[0] > 0.55 * p.width
+        ]
+        bare_ok = [x for x in bare if x <= n + 10]
+        bare_rising = sum(1 for a, b in zip(bare_ok, bare_ok[1:], strict=False) if b >= a)
+        if len(bare_ok) >= 6 and bare_rising >= 0.8 * (len(bare_ok) - 1):
+            entries = max(entries, len(bare_ok))
+            titled = True
+        p.is_toc = body_lines > 0 and (
+            (titled and entries >= 3)
+            or (entries >= 6 and entries >= 0.5 * body_lines and monotonic)
+        )
+        if p.is_toc:
+            for ln in p.lines:
+                if ln.role == "body":
+                    ln.role = "toc"
+
+
+__all__ = ["EDGE", "classify"]
+"""Layout-aware heading detection: a score per line instead of a regex verdict.
+
+    score = numbering + font size above body + bold where body is not + space before
+          + short line + all caps / centred
+          - body sentence - smaller than body - shares its baseline with other text
+          - numeric / amounts / table column header (period, units)       (V0.8)
+          - in a numeric (table) region without prose after it           (V0.8)
+          - a short line pushed to the right of a single-column page     (V0.8)
+          - the first line of a wrapped paragraph (fills the column and continues in
+            the same style right below: bold risk-factor sentences, lettered clauses) (V0.8)
+
+After scoring, a run of 3+ unnumbered candidates in one style with no running text between
+them is a list (subsidiaries by country, officers, exhibit lists), not a series of sections
+(V0.8).
+
+Regex numbering ("1.2", "Chapter 3", "Item 7", "第三章") is one signal among several. Lines
+above the threshold become candidates; consecutive candidate lines in the same style are one
+multi-line title. Levels come from dotted numbering when present, otherwise from the rank of
+the candidate's style (larger / bolder = higher).
+"""
+
+from __future__ import annotations
+
+import re
+from collections import Counter
+
+from .model import HeadingCandidate, PDFLine, PDFPage
+
+THRESHOLD = 3.0
+_NUMBERED: list[tuple[re.Pattern[str], int | None]] = [
+    (re.compile(r"^(?:chapter|part)\s+[\dIVXLC]+\b", re.I), 1),
+    (re.compile(r"^item\s+\d{1,2}[A-C]?\b", re.I), 1),
+    (re.compile(r"^(?:appendix|annex|schedule)\s+[A-Z\d]+\b", re.I), 1),
+    (re.compile(r"^(?:section)\s+\d+(?:\.\d+)*\b", re.I), 2),
+    (re.compile(r"^note\s+\d{1,2}\b", re.I), 2),
+    (re.compile(r"^第[一二三四五六七八九十百零〇两\d]+[章篇部]"), 1),
+    (re.compile(r"^第[一二三四五六七八九十百零〇两\d]+节"), 2),
+    (re.compile(r"^[一二三四五六七八九十]+、"), 1),
+    # depth = number of parts; the title must start like a title ("3 Method", not "21 percent")
+    (re.compile(r"^(\d{1,2}(?:\.\d{1,2}){0,3})\.?\s+[A-Z一-鿿]"), None),
+    (re.compile(r"^[A-H]\.\s+[A-Z]"), 2),
+]
+_SENTENCE_END = (".", ",", ";", "。", "，", "；")
+# table column headers: periods and units ("Year Ended May 31,", "(In millions)", "2023 2022")
+_COLUMN_HEAD = re.compile(
+    r"^(\(?(dollars |amounts )?in (millions|thousands|billions)|((fiscal )?years?|three|six|nine|"
+    r"twelve|quarters?|weeks?|months?)( months)? ended\b|(as of |at )?(january|february|march|"
+    r"april|may|june|july|august|september|october|november|december)\s*\d{1,2},?(\s*\d{4})?$|"
+    r"(fiscal\s+)?(19|20)\d\d(\s+(fiscal\s+)?(19|20)\d\d)+$|%\s*change)",
+    re.I,
+)
+# the same without spaces: extraction often glues words ("YearEndedDecember31,")
+_COLUMN_HEAD_GLUED = re.compile(
+    r"^(\(?in(millions|thousands|billions)|(fiscal)?years?ended|(three|six|nine|twelve)monthsended|"
+    r"(asof|at)?(january|february|march|april|may|june|july|august|september|october|november|"
+    r"december)\d{1,2},?(\d{4})?$)",
+    re.I,
+)
+_AMOUNT = re.compile(r"\$\s?\(?\d|\b\d{1,3}(,\d{3})+\b|\d\s?%")
+
+
+def numeric_share(text: str) -> float:
+    """Share of digits / currency / percent / separators among the non-space characters."""
+    s = text.replace(" ", "")
+    return sum(ch.isdigit() or ch in "$%(),.-—" for ch in s) / max(1, len(s))
+
+
+def _prose(ln: PDFLine) -> bool:
+    t = ln.text.strip()
+    return len(t) >= 40 and numeric_share(t) < 0.2
+
+
+def numbering(text: str) -> tuple[str | None, int | None]:
+    for pat, level in _NUMBERED:
+        m = pat.match(text)
+        if m:
+            if level is None:
+                return m.group(1), min(4, m.group(1).count(".") + 1)
+            return m.group(0).strip(), level
+    return None, None
+
+
+def body_style(pages: list[PDFPage]) -> tuple[float, bool]:
+    """Dominant (size, bold) of body text, weighted by characters."""
+    c: Counter[tuple[float, bool]] = Counter()
+    for p in pages:
+        for ln in p.lines:
+            if ln.role == "body":
+                c[(round(ln.size * 2) / 2, ln.bold)] += len(ln.text)
+    if not c:
+        return 10.0, False
+    (size, bold), _ = c.most_common(1)[0]
+    return size, bold
+
+
+def _score(
+    ln: PDFLine,
+    prev: PDFLine | None,
+    page: PDFPage,
+    body_size: float,
+    body_bold: bool,
+    gap_median: float,
+    crowded: bool,
+    table_region: bool = False,
+    wrapped: bool = False,
+) -> tuple[float, str | None, int | None]:
+    t = ln.text.strip()
+    letters = sum(ch.isalpha() for ch in t)
+    if len(t) < 2 or letters < 2 or letters < 0.5 * len(t.replace(" ", "")):
+        return -9, None, None
+    if t[0].islower():
+        return -9, None, None
+    num, num_level = numbering(t)
+    ratio = ln.size / body_size if body_size else 1.0
+    words = len(t.split())
+    s = 0.0
+    if num:
+        s += 2.5
+    if ratio >= 1.3:
+        s += 3
+    elif ratio >= 1.12:
+        s += 2
+    elif ratio < 0.95:
+        s -= 2
+    if ln.bold and not body_bold:
+        s += 2
+    if prev is None or ln.top - prev.bottom > max(1.5 * gap_median, 0.6 * (ln.bottom - ln.top)):
+        s += 1
+    if len(t) <= 90 and words <= 14:
+        s += 0.5
+    if letters >= 4 and t.upper() == t and any(ch.isalpha() for ch in t):
+        s += 0.5
+    mid = (ln.bbox[0] + ln.bbox[2]) / 2
+    if abs(mid - page.width / 2) < 0.05 * page.width and ln.width < 0.6 * page.width:
+        s += 0.5
+    if words > 8 and t.endswith(_SENTENCE_END):
+        s -= 3
+    if len(t) > 120:
+        s -= 2
+    if crowded:
+        s -= 2
+    # V0.8 precision signals: tables, right-pushed labels, wrapped paragraphs
+    rest = (t[len(num) :] if num else t).strip(" .:-—–")
+    if (
+        (len(rest) >= 3 and numeric_share(rest) >= 0.3)
+        or _AMOUNT.search(rest)
+        or _COLUMN_HEAD.match(t)
+        or _COLUMN_HEAD_GLUED.match(t.replace(" ", ""))
+    ):
+        s -= 4
+    elif table_region and not num:
+        s -= 2  # a numbered title ("Note 15. Quarterly Financial Data") may open a table
+    if (
+        ln.column == 0
+        and ln.bbox[0] > 0.45 * page.width
+        and abs(mid - page.width / 2) >= 0.05 * page.width
+    ):
+        s -= 2.5  # column headers, signature blocks: not where section titles start
+    if wrapped:
+        s -= 3
+    if not num and words >= 5 and t.endswith((".", "。")):
+        s -= 2  # a sentence ("Our success depends on our distribution facilities.")
+    return s, num, num_level
+
+
+def _leads_to_body(lines: list[PDFLine], idx: int, body_size: float, body_bold: bool) -> bool:
+    """A heading introduces running text: within the next few lines there is a body-style line
+    of real length (or another heading-like line, for "Chapter 3" / "3.1 Scope" stacks)."""
+    head = lines[idx]
+    height = max(1.0, head.bottom - head.top)
+    for ln in lines[idx + 1 : idx + 7]:
+        if ln.role not in ("body",):
+            continue
+        if ln.page == head.page and ln.column == head.column and ln.top - head.bottom > 6 * height:
+            return False  # the next running text is far away: a label in a figure
+        t = ln.text.strip()
+        body_like = abs(ln.size - body_size) <= 0.15 * body_size and (ln.bold == body_bold)
+        if body_like and len(t) >= 40:
+            return True
+    return False
+
+
+def detect_headings(
+    pages: list[PDFPage], body_size: float, body_bold: bool, threshold: float = THRESHOLD
+) -> list[HeadingCandidate]:
+    raw: list[tuple[PDFLine, float, str | None, int | None]] = []
+    for pi, p in enumerate(pages):
+        if p.is_toc:
+            continue
+        lines = [ln for ln in p.lines if ln.text.strip()]
+        gaps = sorted(
+            b.top - a.bottom
+            for a, b in zip(lines, lines[1:], strict=False)
+            if a.column == b.column and 0 < b.top - a.bottom < 40
+        )
+        gap_median = gaps[len(gaps) // 2] if gaps else 3.0
+        # lines sharing a baseline in the same column (table rows): bucket by rounded centre
+        rows: dict[tuple[int, int], int] = {}
+        for ln in lines:
+            if ln.role == "body":
+                key = (ln.column, round((ln.top + ln.bottom) / 2 / 3))
+                rows[key] = rows.get(key, 0) + 1
+        following = (
+            lines + [ln for q in pages[pi + 1 : pi + 2] for ln in q.lines if ln.role == "body"][:5]
+        )
+        numeric = [numeric_share(ln.text) >= 0.4 for ln in lines]
+        # full text width per column: the 90th percentile of body line widths (falls back to
+        # a share of the page for sparse pages)
+        col_w: dict[int, float] = {}
+        for col in {ln.column for ln in lines}:
+            ws = sorted(ln.width for ln in lines if ln.column == col and ln.role == "body")
+            default = (0.8 if col == 0 else 0.38) * p.width
+            col_w[col] = ws[int(0.9 * (len(ws) - 1))] if len(ws) >= 8 else default
+        prev: PDFLine | None = None
+        for idx, ln in enumerate(lines):
+            if ln.role != "body":
+                prev = ln if ln.role in ("toc", "caption") else prev
+                continue
+            crowded = rows.get((ln.column, round((ln.top + ln.bottom) / 2 / 3)), 0) > 1
+            around = [
+                j
+                for j in range(max(0, idx - 3), min(len(lines), idx + 4))
+                if j != idx and lines[j].column == ln.column
+            ]
+            nxt = next(
+                (lines[j] for j in range(idx + 1, len(lines)) if lines[j].text.strip()), None
+            )
+            table_region = sum(numeric[j] for j in around) >= 3 and not (
+                nxt is not None and _prose(nxt)
+            )
+            # a line filling its column that continues right below in the same style is the
+            # first line of a paragraph when the continuation is wide too, or the two lines end
+            # a sentence; a long title wraps onto a short, unpunctuated second line
+            wrapped = False
+            if (
+                nxt is not None
+                and ln.width >= 0.9 * col_w.get(ln.column, 0.8 * p.width)
+                and nxt.column == ln.column
+                and (round(nxt.size * 2), nxt.bold) == (round(ln.size * 2), ln.bold)
+                and 0 <= nxt.top - ln.bottom < 0.6 * (ln.bottom - ln.top)
+            ):
+                both = f"{ln.text.strip()} {nxt.text.strip()}"
+                wrapped = nxt.width >= 0.6 * col_w.get(ln.column, 0.8 * p.width) or (
+                    both.endswith(_SENTENCE_END) and len(both.split()) >= 10
+                )
+            sc, num, num_level = _score(
+                ln, prev, p, body_size, body_bold, gap_median, crowded, table_region, wrapped
+            )
+            if sc >= threshold and not _leads_to_body(following, idx, body_size, body_bold):
+                sc -= 2  # figure labels, title pages: no running text follows
+            if sc >= threshold:
+                raw.append((ln, sc, num, num_level))
+            prev = ln
+    merged = _drop_lists(_merge_multiline(raw), pages)
+    # a style that marks a large part of all lines is body text in disguise (bold paragraphs)
+    total = sum(1 for p in pages for ln in p.lines if ln.role == "body") or 1
+    style_count = Counter(c.style for c in merged)
+    noisy = {st for st, k in style_count.items() if k > 0.25 * total and k > 20}
+    merged = [c for c in merged if c.style not in noisy or c.numbering]
+    if pages and len(merged) > 8 * len(pages) and threshold < THRESHOLD + 2:
+        return detect_headings(pages, body_size, body_bold, threshold + 1)
+    _assign_levels(merged)
+    return merged
+
+
+def _drop_lists(cands: list[HeadingCandidate], pages: list[PDFPage]) -> list[HeadingCandidate]:
+    """3+ consecutive unnumbered candidates in one style with no running text between them
+    (on the same page) are list entries - countries, officers, exhibit titles - not sections."""
+    if len(cands) < 3:
+        return cands
+    by_page = {p.number: p for p in pages}
+
+    def prose_between(a: HeadingCandidate, b: HeadingCandidate) -> bool:
+        if a.page != b.page:
+            return True
+        page = by_page.get(a.page)
+        if page is None:
+            return True
+        return any(
+            ln.role == "body" and a.bbox[3] < ln.top < b.bbox[1] and _prose(ln) for ln in page.lines
+        )
+
+    drop: set[int] = set()
+    i = 0
+    while i < len(cands):
+        j = i
+        while (
+            j + 1 < len(cands)
+            and not cands[j].numbering
+            and not cands[j + 1].numbering
+            and cands[j + 1].style == cands[i].style
+            and not prose_between(cands[j], cands[j + 1])
+        ):
+            j += 1
+        if j - i + 1 >= 3:
+            drop.update(range(i, j + 1))
+        i = j + 1
+    return [c for k, c in enumerate(cands) if k not in drop]
+
+
+def _title_text(ln: PDFLine) -> str:
+    """A run-in heading ("**Setting of Conscious Incompetence** We extend the ...") is the bold
+    lead of its line; the rest is body text and stays in the block."""
+    spans = [s for s in ln.spans if s.text.strip()]
+    lead = []
+    for s in spans:
+        if not s.bold:
+            break
+        lead.append(s)
+    if lead and len(lead) < len(spans):
+        text = " ".join(" ".join(s.text.split()) for s in lead).strip()
+        if len(text) >= 3:
+            return text
+    return ln.text.strip()
+
+
+def _merge_multiline(
+    raw: list[tuple[PDFLine, float, str | None, int | None]],
+) -> list[HeadingCandidate]:
+    out: list[HeadingCandidate] = []
+    last: PDFLine | None = None
+    lines_in = 0  # lines merged into out[-1]: a title wraps onto 3 lines at most
+    for ln, sc, num, num_level in raw:
+        style = (round(ln.size * 2) / 2, ln.bold)
+        if (
+            out
+            and lines_in < 3
+            and last is not None
+            and last.page == ln.page
+            and last.column == ln.column
+            and last.order + 1 == ln.order
+            and out[-1].style == style
+            and not num
+            and 0 <= ln.top - last.bottom < 0.8 * (ln.bottom - ln.top)
+        ):
+            c = out[-1]
+            lines_in += 1
+            c.text = f"{c.text} {ln.text.strip()}"
+            c.bbox = (
+                min(c.bbox[0], ln.bbox[0]),
+                c.bbox[1],
+                max(c.bbox[2], ln.bbox[2]),
+                ln.bbox[3],
+            )
+            last = ln
+            continue
+        lines_in = 1
+        out.append(
+            HeadingCandidate(
+                text=_title_text(ln),
+                page=ln.page,
+                bbox=ln.bbox,
+                score=sc,
+                suggested_level=num_level or 0,
+                size=ln.size,
+                bold=ln.bold,
+                numbering=num,
+                style=style,
+            )
+        )
+        last = ln
+    return out
+
+
+def _assign_levels(cands: list[HeadingCandidate]) -> None:
+    """Numbered headings keep their numbering depth ("1.2" -> 2, "Item 7" -> 1). Unnumbered
+    headings get the rank of their style (larger, then bold = higher); when numbered headings
+    share that style ("Item 1. Business" and "General" both bold body size, as in 10-Ks) the
+    unnumbered ones sit one level below them."""
+    order = lambda st: (-st[0], not st[1])  # noqa: E731
+    count = Counter(c.style for c in cands)
+    # rank only styles used at least twice; a one-off style (a document title, a stray
+    # label) takes the rank of the first regular style that is not larger than it
+    regular = sorted((st for st, k in count.items() if k >= 2), key=order) or sorted(
+        count, key=order
+    )
+    rank = {st: min(4, i + 1) for i, st in enumerate(regular)}
+    for st in count:
+        if st not in rank:
+            below = [r for r in regular if order(r) >= order(st)]
+            rank[st] = rank[below[0]] if below else min(4, len(regular) + 1)
+    numbered_depth: dict[tuple[float, bool], int] = {}
+    for c in cands:
+        if c.numbering and c.suggested_level:
+            d = numbered_depth.get(c.style)
+            numbered_depth[c.style] = c.suggested_level if d is None else min(d, c.suggested_level)
+    for c in cands:
+        if c.numbering and c.suggested_level:
+            continue
+        if c.style in numbered_depth:
+            c.suggested_level = min(4, numbered_depth[c.style] + 1)
+        else:
+            c.suggested_level = rank[c.style]
+    if cands:
+        top = min(c.suggested_level for c in cands)
+        for c in cands:
+            c.suggested_level = max(1, min(4, c.suggested_level - top + 1))
+    _nest_collections(cands)
+
+
+_PLURAL = {
+    "note": "notes",
+    "appendix": "appendices",
+    "article": "articles",
+    "chapter": "chapters",
+    "part": "parts",
+    "section": "sections",
+    "schedule": "schedules",
+    "exhibit": "exhibits",
+    "annex": "annexes",
+    "item": "items",
+}
+
+
+def _keyword(c: HeadingCandidate) -> str | None:
+    if not c.numbering:
+        return None
+    w = c.numbering.split()[0].lower()
+    return w if w in _PLURAL else None
+
+
+def _nest_collections(cands: list[HeadingCandidate]) -> None:
+    """A collective title followed by the numbered series it names ("Notes to Consolidated
+    Financial Statements" -> "Note 1", "Note 2" ...; "Appendices" -> "Appendix A" ...) is
+    their parent, not a sibling: the series (and whatever sits below it) moves one level
+    under the title."""
+    for i, c in enumerate(cands[:-1]):
+        if c.numbering:
+            continue
+        first = re.sub(r"[^a-z]", "", (c.text.split() or [""])[0].lower())
+        nxt = cands[i + 1]
+        kw = _keyword(nxt)
+        if not kw or _PLURAL[kw] != first or nxt.suggested_level > c.suggested_level:
+            continue
+        delta = c.suggested_level + 1 - nxt.suggested_level
+        for d in cands[i + 1 :]:
+            if d.suggested_level <= c.suggested_level and _keyword(d) != kw:
+                break
+            d.suggested_level = min(6, d.suggested_level + delta)
+
+
+__all__ = ["THRESHOLD", "body_style", "detect_headings", "numbering", "numeric_share"]
+"""Columns and reading order.
+
+A page has two columns when a vertical gutter in the middle of the page separates enough
+narrow lines on both sides. Lines that cross the gutter (titles, full-width figures captions)
+span both columns and split the page into bands; inside a band the left column is read before
+the right one. Everything else is read top to bottom.
+"""
+
+from __future__ import annotations
+
+from .model import PDFLine, PDFPage
+
+
+def find_gutter(page: PDFPage) -> tuple[float, float] | None:
+    w = page.width
+    narrow = [ln for ln in page.lines if ln.width < 0.55 * w and ln.text.strip()]
+    if len(narrow) < 10:
+        return None
+    step = 2.0
+    bins = int(w / step) + 1
+    cover = [0] * bins
+    for ln in narrow:
+        for b in range(max(0, int(ln.bbox[0] / step)), min(bins, int(ln.bbox[2] / step) + 1)):
+            cover[b] += 1
+    lo, hi = int(0.3 * w / step), int(0.7 * w / step)
+    # a stray figure label or footnote may cross the gutter: tolerate a few crossings
+    allowed = max(1, int(0.03 * len(narrow)))
+    best: tuple[int, int] | None = None
+    run_start = None
+    for b in range(lo, hi + 1):
+        if cover[b] <= allowed:
+            if run_start is None:
+                run_start = b
+        else:
+            if run_start is not None and (best is None or b - run_start > best[1] - best[0]):
+                best = (run_start, b)
+            run_start = None
+    if run_start is not None and (best is None or hi + 1 - run_start > best[1] - best[0]):
+        best = (run_start, hi + 1)
+    if best is None or (best[1] - best[0]) * step < 6:
+        return None
+    g0, g1 = best[0] * step, best[1] * step
+    left = [ln for ln in narrow if ln.bbox[2] <= g0 + 1]
+    right = [ln for ln in narrow if ln.bbox[0] >= g1 - 1]
+    if len(left) < 5 or len(right) < 5:
+        return None
+
+    def extent(ls: list[PDFLine]) -> float:
+        return max(ln.bottom for ln in ls) - min(ln.top for ln in ls)
+
+    # both columns must run down a real part of the page (not a two-cell table row)
+    if min(extent(left), extent(right)) < 0.25 * page.height:
+        return None
+    return g0, g1
+
+
+def order_page(page: PDFPage) -> PDFPage:
+    lines = sorted(page.lines, key=lambda ln: (ln.top, ln.bbox[0]))
+    gutter = find_gutter(page)
+    if gutter is None:
+        page.columns = 1
+        for i, ln in enumerate(lines):
+            ln.column, ln.order = 0, i
+        page.lines = lines
+        return page
+    g0, g1 = gutter
+    page.columns = 2
+    out: list[PDFLine] = []
+    band_l: list[PDFLine] = []
+    band_r: list[PDFLine] = []
+
+    def flush() -> None:
+        out.extend(band_l)
+        out.extend(band_r)
+        band_l.clear()
+        band_r.clear()
+
+    for ln in lines:
+        if ln.bbox[2] <= g0 + 1:
+            ln.column = 1
+            band_l.append(ln)
+        elif ln.bbox[0] >= g1 - 1:
+            ln.column = 2
+            band_r.append(ln)
+        else:
+            ln.column = 0
+            flush()
+            out.append(ln)
+    flush()
+    for i, ln in enumerate(out):
+        ln.order = i
+    page.lines = out
+    return page
+
+
+__all__ = ["find_gutter", "order_page"]
+"""Spans -> lines.
+
+Spans that share a baseline (vertical overlap) are joined left to right into one line, so a
+heading printed in several style runs ("Item 7." bold + title regular) stays one line. A
+large horizontal gap splits a baseline into separate line segments: on a two-column page the
+left and right column share baselines but are different lines.
+"""
+
+from __future__ import annotations
+
+from .model import PDFLine, PDFSpan
+
+
+def _overlap(a: PDFSpan, b: PDFSpan) -> float:
+    top = max(a.bbox[1], b.bbox[1])
+    bottom = min(a.bbox[3], b.bbox[3])
+    h = min(a.bbox[3] - a.bbox[1], b.bbox[3] - b.bbox[1]) or 1.0
+    return max(0.0, bottom - top) / h
+
+
+def build_lines(spans: list[PDFSpan], page: int) -> list[PDFLine]:
+    if not spans:
+        return []
+    # group into baselines: sort by vertical centre, join spans that overlap vertically
+    ordered = sorted(spans, key=lambda s: ((s.bbox[1] + s.bbox[3]) / 2, s.bbox[0]))
+    rows: list[list[PDFSpan]] = []
+    for s in ordered:
+        placed = False
+        for row in reversed(rows[-3:]):  # only recent rows can share a baseline
+            if any(_overlap(s, r) >= 0.5 for r in row):
+                row.append(s)
+                placed = True
+                break
+        if not placed:
+            rows.append([s])
+    lines: list[PDFLine] = []
+    for row in rows:
+        row.sort(key=lambda s: s.bbox[0])
+        size = max((s.font_size or 0) for s in row) or 10.0
+        seg: list[PDFSpan] = [row[0]]
+        for s in row[1:]:
+            gap = s.bbox[0] - max(x.bbox[2] for x in seg)
+            if gap > max(1.2 * size, 10.0):  # column gutters are often only ~15pt wide
+                lines.append(_line(seg, page))
+                seg = [s]
+            else:
+                seg.append(s)
+        lines.append(_line(seg, page))
+    lines.sort(key=lambda ln: (round(ln.top, 1), ln.bbox[0]))
+    return lines
+
+
+def _line(spans: list[PDFSpan], page: int) -> PDFLine:
+    x0 = min(s.bbox[0] for s in spans)
+    top = min(s.bbox[1] for s in spans)
+    x1 = max(s.bbox[2] for s in spans)
+    bottom = max(s.bbox[3] for s in spans)
+    return PDFLine(spans=spans, page=page, bbox=(x0, top, x1, bottom))
+
+
+__all__ = ["build_lines"]
+"""Intermediate PDF layout model (never persisted: only the resulting Node / Block tree is).
+
+Coordinates are in PDF points with a top-left origin after rotation (``y`` grows downwards),
+so "above" means a smaller ``top``.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+BBox = tuple[float, float, float, float]  # x0, top, x1, bottom
+
+
+@dataclass
+class PDFSpan:
+    """A run of characters with one style on one baseline."""
+
+    text: str
+    page: int  # 1-based
+    bbox: BBox
+    font_name: str | None
+    font_size: float | None
+    bold: bool | None
+    italic: bool | None
+
+
+@dataclass
+class PDFLine:
+    spans: list[PDFSpan]
+    page: int
+    bbox: BBox
+    role: str = "body"  # body heading header footer page_number toc caption watermark
+    column: int = 0  # 0 = full width / single column, 1 = left, 2 = right
+    order: int = 0  # reading order on the page
+
+    @property
+    def text(self) -> str:
+        out = ""
+        prev_x1: float | None = None
+        for s in self.spans:
+            if out and prev_x1 is not None and not out.endswith(" ") and not s.text.startswith(" "):
+                if s.bbox[0] - prev_x1 > 0.15 * (s.font_size or 10):
+                    out += " "
+            out += s.text
+            prev_x1 = s.bbox[2]
+        return " ".join(out.split())
+
+    @property
+    def size(self) -> float:
+        """Character-weighted font size."""
+        tot = sum(len(s.text.strip()) for s in self.spans) or 1
+        return sum((s.font_size or 0) * len(s.text.strip()) for s in self.spans) / tot
+
+    @property
+    def bold(self) -> bool:
+        tot = sum(len(s.text.strip()) for s in self.spans) or 1
+        return sum(len(s.text.strip()) for s in self.spans if s.bold) / tot >= 0.6
+
+    @property
+    def italic(self) -> bool:
+        tot = sum(len(s.text.strip()) for s in self.spans) or 1
+        return sum(len(s.text.strip()) for s in self.spans if s.italic) / tot >= 0.6
+
+    @property
+    def top(self) -> float:
+        return self.bbox[1]
+
+    @property
+    def bottom(self) -> float:
+        return self.bbox[3]
+
+    @property
+    def width(self) -> float:
+        return self.bbox[2] - self.bbox[0]
+
+
+@dataclass
+class PDFPage:
+    number: int  # 1-based
+    width: float
+    height: float
+    rotation: int = 0
+    lines: list[PDFLine] = field(default_factory=list)  # in reading order once laid out
+    columns: int = 1
+    is_toc: bool = False
+
+    @property
+    def text(self) -> str:
+        return "\n".join(ln.text for ln in self.lines)
+
+
+@dataclass
+class PDFBookmark:
+    level: int
+    title: str
+    page: int | None
+
+
+@dataclass
+class HeadingCandidate:
+    text: str
+    page: int
+    bbox: BBox
+    score: float
+    suggested_level: int
+    size: float
+    bold: bool
+    numbering: str | None = None  # "1.2", "Item 7", "Chapter 3" ...
+    style: tuple[float, bool] = (0.0, False)
+
+
+@dataclass
+class OutlineQuality:
+    node_count: int
+    max_depth: int
+    title_match_ratio: float  # bookmark titles found on their target page
+    monotonic_page_ratio: float
+    duplicate_ratio: float
+    generic_title_ratio: float  # "Page 3", "Scan001", "Untitled" ...
+    pages_per_node: float
+    grade: str  # high / coarse / poor / none
+
+
+@dataclass
+class StructureQuality:
+    score: float  # 0..1
+    heading_count: int
+    coverage: float  # share of pages from the first heading to the end
+    max_depth: int
+    monotonic_ratio: float
+    orphan_ratio: float  # headings more than one level below their predecessor
+    tiny_node_ratio: float  # sections with (almost) no body text before the next heading
+    heading_density: float  # headings per page
+    duplicate_ratio: float
+    suspicious: bool
+    reasons: list[str] = field(default_factory=list)
+
+
+@dataclass
+class PDFLayout:
+    path: str
+    pages: list[PDFPage]
+    bookmarks: list[PDFBookmark]
+    body_size: float
+    body_bold: bool
+
+    @property
+    def page_count(self) -> int:
+        return len(self.pages)
+"""Bookmark quality and the hybrid outline (bookmark frame + detected children).
+
+Outline entries are ``(level, title, page, anchor, top)``: ``anchor`` is the text as printed
+(used to place the heading in ``Document.text``), ``top`` its vertical position when known
+(detected headings) or ``None`` (bookmarks).
+"""
+
+from __future__ import annotations
+
+import re
+from collections import Counter
+
+from .model import HeadingCandidate, OutlineQuality, PDFBookmark, PDFPage
+
+Entry = tuple[int, str, int | None, str, float | None]
+
+_GENERIC = re.compile(
+    r"^(page|p\.?|scan|image|img|untitled|bookmark|slide|document|section)?\s*[\divx]*$", re.I
+)
+
+
+def _norm(s: str) -> str:
+    return re.sub(r"[\W_]+", "", s).lower()
+
+
+def bookmark_quality(bookmarks: list[PDFBookmark], pages: list[PDFPage]) -> OutlineQuality:
+    n = len(bookmarks)
+    if n == 0:
+        return OutlineQuality(0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, "none")
+    page_text = {p.number: _norm(p.text) for p in pages}
+    matched = 0
+    for b in bookmarks:
+        key = _norm(b.title)[:40]
+        if not key or b.page is None:
+            continue
+        near = "".join(page_text.get(b.page + d, "") for d in (-1, 0, 1))
+        if key in near:
+            matched += 1
+    with_page = [b.page for b in bookmarks if b.page is not None]
+    rising = sum(1 for a, b in zip(with_page, with_page[1:], strict=False) if b >= a)
+    monotonic = rising / (len(with_page) - 1) if len(with_page) > 1 else 1.0
+    titles = [_norm(b.title) for b in bookmarks]
+    duplicate = 1 - len(set(titles)) / n
+    generic = sum(1 for b in bookmarks if _GENERIC.match(b.title.strip())) / n
+    depth = max(b.level for b in bookmarks)
+    per_node = len(pages) / n if pages else 0.0
+    match_ratio = matched / n
+    if n < 2 or generic > 0.3 or match_ratio < 0.3 or monotonic < 0.7 or duplicate > 0.5:
+        grade = "poor"
+    elif (depth == 1 and per_node > 8) or per_node > 15:
+        grade = "coarse"
+    else:
+        grade = "high"
+    return OutlineQuality(
+        node_count=n,
+        max_depth=depth,
+        title_match_ratio=match_ratio,
+        monotonic_page_ratio=monotonic,
+        duplicate_ratio=duplicate,
+        generic_title_ratio=generic,
+        pages_per_node=per_node,
+        grade=grade,
+    )
+
+
+def layout_outline(cands: list[HeadingCandidate]) -> list[Entry]:
+    return [(c.suggested_level, c.text, c.page, c.text, c.bbox[1]) for c in cands]
+
+
+def bookmark_outline(bookmarks: list[PDFBookmark]) -> list[Entry]:
+    return [(b.level, b.title, b.page, b.title, None) for b in bookmarks]
+
+
+_LEAD_NUMBER = re.compile(
+    r"^(?:(?:item|chapter|part|section|appendix|note)\s+)?[\dA-Z](?:\.\d{1,2})*\.?\s+", re.I
+)
+
+
+def _bare(title: str) -> str:
+    """Normalised title without its numbering ("7 Conclusion", "A.1 Person Selection",
+    "Item 7. Management's ..." -> the words only)."""
+    t = title.strip()
+    m = _LEAD_NUMBER.match(t)
+    if m and len(t) > m.end():
+        t = t[m.end() :]
+    return _norm(t)
+
+
+def hybrid_outline(
+    bookmarks: list[PDFBookmark],
+    quality: OutlineQuality,
+    cands: list[HeadingCandidate],
+    page_count: int,
+) -> tuple[list[Entry], str]:
+    """-> (outline, source). Poor / missing bookmarks: the detected tree. Otherwise bookmarks
+    are the frame and detected headings fill in what they lack:
+
+    * detected headings that are bookmarks printed on the page calibrate the styles: a style
+      seen on level-1 bookmarks is level 1 wherever else it occurs (an unbookmarked
+      "References" becomes a sibling of the chapters, not a child of the last one);
+    * other detected headings become children of the bookmark section they fall in;
+    * with good bookmarks only calibrated styles (or dotted numbering deeper than the
+      bookmarks) are added - an unknown style next to a trusted outline is more likely a figure
+      label than a missing section; coarse bookmarks take every detected heading.
+    """
+    if quality.grade in ("none", "poor"):
+        return layout_outline(cands), "layout"
+    frame = [b for b in bookmarks if b.page is not None]
+    if not cands:
+        return bookmark_outline(bookmarks), "bookmarks"
+    keys = [(_bare(b.title), b.page or 0) for b in frame]
+    # a bookmark matches its printed heading with or without numbering on either side
+    matched: dict[int, HeadingCandidate] = {}  # bookmark index -> its printed heading
+    style_level: dict[tuple[float, bool], Counter[int]] = {}
+    rest: list[HeadingCandidate] = []
+    for c in cands:
+        key = _bare(c.text)
+        hit = None
+        for i, (t, p) in enumerate(keys):
+            if i in matched or not key or not t or abs(c.page - p) > 1:
+                continue
+            full = _norm(c.text)
+            if key == t or key.startswith(t[:30]) or t.startswith(key[:30]) or full == t:
+                hit = i
+                break
+        if hit is None:
+            rest.append(c)
+            continue
+        matched[hit] = c
+        style_level.setdefault(c.style, Counter())[frame[hit].level] += 1
+    level_of = {st: cnt.most_common(1)[0][0] for st, cnt in style_level.items()}
+    deepest = max((b.level for b in frame), default=1)
+    entries: list[tuple[int, float, Entry]] = []  # (page, top, entry)
+    for i, b in enumerate(frame):
+        top = matched[i].bbox[1] if i in matched else -1.0
+        entries.append((b.page or 0, top, (b.level, b.title, b.page, b.title, None)))
+    starts = [(b.page or 0, b.level) for b in frame]
+    added = 0
+    rel_base = min((c.suggested_level for c in rest), default=1)
+    for c in rest:
+        owner = None
+        for i, (pg, _lv) in enumerate(starts):
+            if pg <= c.page:
+                owner = i
+        if owner is None:
+            continue  # before the first bookmark (preface): left to the bookmark frame
+        if c.style in level_of:
+            lvl = level_of[c.style]
+        elif quality.grade == "high" and not (
+            c.numbering and c.suggested_level and c.suggested_level > deepest
+        ):
+            continue
+        else:
+            lvl = min(6, frame[owner].level + 1 + c.suggested_level - rel_base)
+        entries.append((c.page, c.bbox[1], (lvl, c.text, c.page, c.text, c.bbox[1])))
+        added += 1
+    entries.sort(key=lambda x: (x[0], x[1]))
+    return [e for _, _, e in entries], ("hybrid" if added else "bookmarks")
+
+
+__all__ = [
+    "Entry",
+    "bookmark_outline",
+    "bookmark_quality",
+    "hybrid_outline",
+    "layout_outline",
+]
+"""PDF -> character-level spans with geometry and style (pypdfium2).
+
+Requires ``pypdfium2`` (``pip install 'treeengine[pdf]'``). Bookmarks come from the same
+document. Text is NFKC-normalised like the pypdf source text, so headings found here can be
+located in ``Document.text``.
+"""
+
+from __future__ import annotations
+
+import ctypes
+import re
+import unicodedata
+from typing import Any
+
+from .model import BBox, PDFBookmark, PDFPage, PDFSpan
+
+_BOLD = re.compile(r"bold|black|heavy|semibold|demi|medi(um)?\b|-medi|extrabold", re.I)
+_ITALIC = re.compile(r"italic|oblique", re.I)
+_FORCE_BOLD = 1 << 18
+_ITALIC_FLAG = 1 << 6
+
+
+class OCRRequired(RuntimeError):
+    """The PDF has no text layer; TreeEngine does not OCR (yet)."""
+
+
+def _require() -> tuple[Any, Any]:
+    try:
+        import pypdfium2 as pdfium
+        import pypdfium2.raw as raw
+    except ImportError as e:  # pragma: no cover - depends on env
+        raise ImportError(
+            "layout-aware PDF structure needs pypdfium2: pip install 'treeengine[pdf]'"
+        ) from e
+    return pdfium, raw
+
+
+def _transform(box: tuple[float, float, float, float], rot: int, w0: float, h0: float) -> BBox:
+    """pdfium char box (left, bottom, right, top; origin bottom-left, unrotated page) ->
+    (x0, top, x1, bottom) with origin top-left on the page as displayed (/Rotate applied)."""
+    left, bottom, right, top = box
+    pts = [(left, bottom), (right, top)]
+    out = []
+    for x, y in pts:
+        if rot == 90:
+            out.append((y, x))
+        elif rot == 180:
+            out.append((w0 - x, y))
+        elif rot == 270:
+            out.append((h0 - y, w0 - x))
+        else:
+            out.append((x, h0 - y))
+    xs = [p[0] for p in out]
+    ys = [p[1] for p in out]
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def _clean(text: str) -> str:
+    text = text.replace("\x02", "-").replace("\xad", "")
+    return unicodedata.normalize("NFKC", text)
+
+
+def parse_pdf(path: str, max_pages: int | None = None) -> tuple[list[PDFPage], list[PDFBookmark]]:
+    pdfium, raw = _require()
+    doc = pdfium.PdfDocument(path)
+    try:
+        pages: list[PDFPage] = []
+        n_pages = len(doc) if max_pages is None else min(len(doc), max_pages)
+        text_chars = 0
+        for i in range(n_pages):
+            page = doc[i]
+            pages.append(_parse_page(page, i + 1, raw))
+            text_chars += sum(len(s.text.strip()) for ln in pages[-1].lines for s in ln.spans)
+            page.close()
+        if n_pages and text_chars < 20 * n_pages * 0.1:
+            raise OCRRequired(f"{path}: no usable text layer ({text_chars} chars)")
+        bookmarks = _bookmarks(doc)
+    finally:
+        doc.close()
+    return pages, bookmarks
+
+
+def _parse_page(page: Any, number: int, raw: Any) -> PDFPage:
+    rot = int(page.get_rotation() or 0) % 360
+    x0, y0, x1, y1 = page.get_mediabox()
+    w0, h0 = x1 - x0, y1 - y0
+    width, height = (h0, w0) if rot in (90, 270) else (w0, h0)
+    tp = page.get_textpage()
+    n = tp.count_chars()
+    spans: list[PDFSpan] = []
+    cur: dict[str, Any] | None = None
+
+    def flush() -> None:
+        nonlocal cur
+        if cur and cur["text"].strip():
+            spans.append(
+                PDFSpan(
+                    text=_clean(cur["text"]),
+                    page=number,
+                    bbox=(cur["x0"], cur["top"], cur["x1"], cur["bottom"]),
+                    font_name=cur["font"],
+                    font_size=cur["size"],
+                    bold=cur["bold"],
+                    italic=cur["italic"],
+                )
+            )
+        cur = None
+
+    flags = ctypes.c_int()
+    name_buf = ctypes.create_string_buffer(256)
+    style_cache: dict[tuple[bytes, int, int], tuple[str, bool, bool]] = {}
+    get_unicode = raw.FPDFText_GetUnicode
+    is_generated = raw.FPDFText_IsGenerated
+    get_size = raw.FPDFText_GetFontSize
+    get_weight = raw.FPDFText_GetFontWeight
+    get_info = raw.FPDFText_GetFontInfo
+    tpr = tp.raw
+    for i in range(n):
+        code = get_unicode(tpr, i)
+        ch = chr(code) if code else ""
+        if is_generated(tpr, i):
+            if ch in ("\r", "\n"):
+                flush()
+            elif ch == " " and cur is not None:
+                cur["text"] += " "
+            continue
+        if not ch or ch in ("\r", "\n"):
+            flush()
+            continue
+        box = _transform(tp.get_charbox(i, loose=True), rot, w0, h0)
+        if box[2] - box[0] <= 0 and box[3] - box[1] <= 0 and not ch.isspace():
+            continue
+        get_info(tpr, i, name_buf, 256, ctypes.byref(flags))
+        weight = int(get_weight(tpr, i))
+        skey = (name_buf.value, int(flags.value), weight)
+        if skey not in style_cache:
+            font = skey[0].decode("utf-8", "replace")
+            fl = skey[1]
+            style_cache[skey] = (
+                font,
+                bool(_BOLD.search(font)) or weight >= 600 or bool(fl & _FORCE_BOLD),
+                bool(_ITALIC.search(font)) or bool(fl & _ITALIC_FLAG),
+            )
+        font, bold, italic = style_cache[skey]
+        size_pt = round(float(get_size(tpr, i)), 1)
+        if size_pt <= 1.0:  # fonts scaled by the text matrix report 1pt: use the glyph box
+            size_pt = round(box[3] - box[1], 1)
+        style = (font, size_pt, bold, italic)
+        if cur is not None:
+            same_line = abs(box[3] - cur["bottom"]) <= 0.35 * max(size_pt, cur["size"] or 1)
+            near = box[0] - cur["x1"] <= 1.2 * max(size_pt, 1)
+            if not (style == cur["style"] and same_line and near and box[0] >= cur["x0"] - 1):
+                flush()
+        if cur is None:
+            if ch.isspace():
+                continue
+            cur = {
+                "text": "",
+                "x0": box[0],
+                "top": box[1],
+                "x1": box[2],
+                "bottom": box[3],
+                "font": font,
+                "size": size_pt,
+                "bold": bold,
+                "italic": italic,
+                "style": style,
+            }
+        else:
+            gap = box[0] - cur["x1"]
+            if gap > 0.25 * size_pt and not cur["text"].endswith(" ") and not ch.isspace():
+                cur["text"] += " "
+        cur["text"] += ch
+        cur["x1"] = max(cur["x1"], box[2])
+        cur["top"] = min(cur["top"], box[1])
+        cur["bottom"] = max(cur["bottom"], box[3])
+    flush()
+    tp.close()
+    from .lines import build_lines
+
+    return PDFPage(
+        number=number,
+        width=float(width),
+        height=float(height),
+        rotation=rot,
+        lines=build_lines(spans, number),
+    )
+
+
+def _bookmarks(doc: Any) -> list[PDFBookmark]:
+    """Bookmarks via pypdfium2 (API differs between major versions: 4.x has attributes,
+    5.x getter methods)."""
+    out: list[PDFBookmark] = []
+    try:
+        for item in doc.get_toc():
+            if hasattr(item, "get_title"):
+                title = item.get_title()
+                dest = item.get_dest()
+                page = dest.get_index() if dest is not None else None
+            else:
+                title, page = item.title, item.page_index
+            title = _clean(str(title or "")).strip()
+            if not title:
+                continue
+            out.append(
+                PDFBookmark(
+                    level=int(item.level) + 1,
+                    title=title,
+                    page=None if page is None else int(page) + 1,
+                )
+            )
+    except Exception:  # malformed outlines are common
+        return []
+    return out
+
+
+__all__ = ["OCRRequired", "parse_pdf"]
+"""Structure quality gate: is a detected outline believable enough to build the tree from?"""
+
+from __future__ import annotations
+
+import re
+
+from .model import StructureQuality
+from .outline import Entry
+
+
+def structure_quality(outline: list[Entry], page_count: int) -> StructureQuality:
+    n = len(outline)
+    pages = max(1, page_count)
+    if n == 0:
+        return StructureQuality(0.0, 0, 0.0, 0, 1.0, 0.0, 0.0, 0.0, 0.0, True, ["no headings"])
+    with_page = [e[2] for e in outline if e[2] is not None]
+    first = min(with_page) if with_page else 1
+    coverage = (pages - first + 1) / pages
+    depth = max(e[0] for e in outline)
+    rising = sum(1 for a, b in zip(with_page, with_page[1:], strict=False) if b >= a)
+    monotonic = rising / (len(with_page) - 1) if len(with_page) > 1 else 1.0
+    orphans = sum(1 for a, b in zip(outline, outline[1:], strict=False) if b[0] - a[0] > 1)
+    orphan_ratio = orphans / n
+    tiny = 0
+    for a, b in zip(outline, outline[1:], strict=False):
+        if a[2] == b[2] and a[4] is not None and b[4] is not None and 0 <= b[4] - a[4] < 30:
+            tiny += 1  # two headings with no room for body text between them
+    tiny_ratio = tiny / n
+    density = n / pages
+    norm = [re.sub(r"\W+", "", e[1]).lower() for e in outline]
+    duplicate = 1 - len(set(norm)) / n
+    reasons = []
+    if n < 2:
+        reasons.append("fewer than 2 headings")
+    if density > 4:
+        reasons.append(f"{density:.1f} headings per page")
+    if orphan_ratio > 0.3:
+        reasons.append(f"{orphan_ratio:.0%} level jumps")
+    if tiny_ratio > 0.4:
+        reasons.append(f"{tiny_ratio:.0%} empty sections")
+    if monotonic < 0.8:
+        reasons.append(f"pages out of order ({monotonic:.0%} rising)")
+    if duplicate > 0.3:
+        reasons.append(f"{duplicate:.0%} duplicate titles")
+    if coverage < 0.5:
+        reasons.append(f"first heading on page {first} of {pages}")
+    score = max(0.0, 1.0 - 0.2 * len(reasons))
+    return StructureQuality(
+        score=score,
+        heading_count=n,
+        coverage=coverage,
+        max_depth=depth,
+        monotonic_ratio=monotonic,
+        orphan_ratio=orphan_ratio,
+        tiny_node_ratio=tiny_ratio,
+        heading_density=density,
+        duplicate_ratio=duplicate,
+        suspicious=bool(reasons),
+        reasons=reasons,
+    )
+
+
+__all__ = ["structure_quality"]
+from .sqlite import SCHEMA_VERSION, SQLiteRepository
+
+__all__ = ["SCHEMA_VERSION", "SQLiteRepository"]
+"""SQLite FTS5 specifics.
+
+FTS5's default ``unicode61`` tokenizer treats a run of CJK characters as one token, which makes
+Chinese/Japanese text unsearchable. We index CJK text with every CJK character separated by
+spaces and turn each query term into a phrase segmented the same way (``"供 应"``).
+Latin words, numbers and identifiers are left as they are.
+"""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Sequence
+
+from ..core.text import CJK_CHAR_RE
+
+
+def segment_for_index(text: str) -> str:
+    """Make CJK characters individual tokens for FTS5's unicode61 tokenizer."""
+    return re.sub(r"[ \t]+", " ", CJK_CHAR_RE.sub(r" \1 ", text)).strip()
+
+
+def fts_phrase(term: str) -> str:
+    """Quote a term as an FTS5 phrase, splitting CJK chars the same way as the index."""
+    seg = segment_for_index(term).replace('"', '""')
+    return f'"{seg}"'
+
+
+def fts_match_expr(terms: Sequence[str], mode: str = "or") -> str:
+    joiner = " AND " if mode == "and" else " OR "
+    return joiner.join(fts_phrase(t) for t in terms if t.strip())
+-- TreeEngine schema (latest = v2). Older databases are upgraded by SQLiteRepository.migrate().
+-- Deviation from the V0.1 baseline doc: documents.text is stored so that a Document can be
+-- fully reloaded from the database (the database is the source of truth).
+
+CREATE TABLE IF NOT EXISTS documents (
+    id TEXT PRIMARY KEY,
+    source_type TEXT NOT NULL,
+    uri TEXT,
+    title TEXT NOT NULL,
+    description TEXT,
+    text TEXT,
+    text_hash TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    metadata_json TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_documents_uri ON documents(uri);
+
+CREATE TABLE IF NOT EXISTS nodes (
+    id TEXT PRIMARY KEY,
+    document_id TEXT NOT NULL,
+    parent_id TEXT,
+    depth INTEGER NOT NULL,
+    position INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    summary TEXT,
+    text TEXT,
+    node_type TEXT NOT NULL,
+    page_start INTEGER,
+    page_end INTEGER,
+    start_offset INTEGER,
+    end_offset INTEGER,
+    FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE,
+    FOREIGN KEY(parent_id) REFERENCES nodes(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_nodes_doc_parent ON nodes(document_id, parent_id, position);
+CREATE INDEX IF NOT EXISTS idx_nodes_parent ON nodes(parent_id, position);
+
+CREATE TABLE IF NOT EXISTS blocks (
+    id TEXT PRIMARY KEY,
+    document_id TEXT NOT NULL,
+    node_id TEXT,
+    position INTEGER NOT NULL,
+    block_type TEXT NOT NULL,
+    content TEXT NOT NULL,
+    page INTEGER,
+    start_offset INTEGER,
+    end_offset INTEGER,
+    metadata_json TEXT,
+    FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE,
+    FOREIGN KEY(node_id) REFERENCES nodes(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_blocks_node ON blocks(node_id, position);
+CREATE INDEX IF NOT EXISTS idx_blocks_doc ON blocks(document_id, position);
+
+-- rowid of blocks_fts == rowid of blocks (kept in sync by SQLiteRepository).
+-- title/content are stored CJK-segmented (see treeengine.core.text.segment_for_index).
+-- v2: porter stemming on top of unicode61 ("shuffle" matches "shuffling"); CJK is unaffected.
+CREATE VIRTUAL TABLE IF NOT EXISTS blocks_fts USING fts5(
+    block_id UNINDEXED,
+    document_id UNINDEXED,
+    title,
+    content,
+    tokenize = 'porter unicode61'
+);
+
+-- v3: Graph-lite (one-hop entity expansion). Entities are corpus-wide (normalised name);
+-- entity_blocks links an entity to every block it occurs in.
+CREATE TABLE IF NOT EXISTS entities (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    normalized TEXT NOT NULL UNIQUE,
+    type TEXT
+);
+CREATE TABLE IF NOT EXISTS entity_blocks (
+    entity_id INTEGER NOT NULL,
+    block_id TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    frequency INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (entity_id, block_id)
+);
+CREATE INDEX IF NOT EXISTS idx_entity_blocks_block ON entity_blocks(block_id);
+CREATE INDEX IF NOT EXISTS idx_entity_blocks_doc ON entity_blocks(document_id, entity_id);
+"""SQLite repository: the single persistence layer of TreeEngine V0.1.
+
+All writes go through this class so that the FTS5 index (``blocks_fts``) always mirrors the
+``blocks`` table. ``blocks_fts.rowid`` equals ``blocks.rowid``.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
+from datetime import UTC, datetime
+from importlib import resources
+from pathlib import Path
+from typing import Any
+
+from ..core.ids import text_hash
+from ..core.models import Block, Document, Node, dumps_meta, loads_meta
+from ..core.protocols import MatchMode
+from .fts5 import fts_match_expr, segment_for_index
+
+SCHEMA_VERSION = 3
+
+_NODE_COLS = (
+    "id, document_id, parent_id, depth, position, title, summary, text, node_type, "
+    "page_start, page_end, start_offset, end_offset"
+)
+_BLOCK_COLS = (
+    "id, document_id, node_id, position, block_type, content, page, start_offset, "
+    "end_offset, metadata_json"
+)
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def _row_to_node(r: sqlite3.Row) -> Node:
+    return Node(
+        id=r["id"],
+        document_id=r["document_id"],
+        parent_id=r["parent_id"],
+        depth=r["depth"],
+        position=r["position"],
+        title=r["title"],
+        summary=r["summary"],
+        text=r["text"],
+        node_type=r["node_type"],
+        page_start=r["page_start"],
+        page_end=r["page_end"],
+        start_offset=r["start_offset"],
+        end_offset=r["end_offset"],
+    )
+
+
+def _row_to_block(r: sqlite3.Row) -> Block:
+    return Block(
+        id=r["id"],
+        document_id=r["document_id"],
+        node_id=r["node_id"],
+        position=r["position"],
+        block_type=r["block_type"],
+        content=r["content"],
+        page=r["page"],
+        start_offset=r["start_offset"],
+        end_offset=r["end_offset"],
+        metadata=loads_meta(r["metadata_json"]),
+    )
+
+
+class SQLiteRepository:
+    def __init__(self, db_path: str | Path = ":memory:") -> None:
+        self.db_path = str(db_path)
+        # check_same_thread=False: servers (MCP, HTTP) call in from worker threads; callers that
+        # share one repository across threads serialise access (``EngineService`` holds a lock)
+        self.conn = sqlite3.connect(self.db_path, isolation_level=None, check_same_thread=False)
+        self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA foreign_keys = ON")
+        if self.db_path != ":memory:":
+            self.conn.execute("PRAGMA journal_mode = WAL")
+        self._tx_depth = 0
+        self.migrate()
+
+    # ------------------------------------------------------------------ lifecycle
+    def close(self) -> None:
+        self.conn.close()
+
+    def migrate(self) -> None:
+        version = self.conn.execute("PRAGMA user_version").fetchone()[0]
+        if version >= SCHEMA_VERSION:
+            return
+        with self.transaction():
+            if version == 0:
+                sql = resources.files("treeengine.storage").joinpath("schema.sql")
+                for stmt in _split_sql(sql.read_text("utf-8")):
+                    self.conn.execute(stmt)
+            else:
+                for v in range(version + 1, SCHEMA_VERSION + 1):
+                    _MIGRATIONS[v](self)
+            self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
+    def rebuild_fts(self) -> None:
+        """Recreate and refill the FTS index from the blocks table (source of truth)."""
+        with self.transaction():
+            self.conn.execute("DROP TABLE IF EXISTS blocks_fts")
+            self.conn.execute(
+                "CREATE VIRTUAL TABLE blocks_fts USING fts5(block_id UNINDEXED, "
+                "document_id UNINDEXED, title, content, tokenize = 'porter unicode61')"
+            )
+            rows = self.conn.execute(
+                "SELECT b.rowid AS rid, b.id, b.document_id, b.content, "
+                "COALESCE(json_extract(b.metadata_json, '$.index_title'), n.title, d.title) "
+                "AS title "
+                "FROM blocks b "
+                "LEFT JOIN nodes n ON n.id = b.node_id JOIN documents d ON d.id = b.document_id"
+            ).fetchall()
+            self.conn.executemany(
+                "INSERT INTO blocks_fts (rowid, block_id, document_id, title, content) "
+                "VALUES (?, ?, ?, ?, ?)",
+                [
+                    (
+                        r["rid"],
+                        r["id"],
+                        r["document_id"],
+                        segment_for_index(r["title"] or ""),
+                        segment_for_index(r["content"]),
+                    )
+                    for r in rows
+                ],
+            )
+
+    @property
+    def schema_version(self) -> int:
+        return int(self.conn.execute("PRAGMA user_version").fetchone()[0])
+
+    @contextmanager
+    def transaction(self) -> Iterator[sqlite3.Connection]:
+        """Atomic unit of work. Nested calls use savepoints."""
+        if self._tx_depth == 0:
+            self.conn.execute("BEGIN IMMEDIATE")
+        else:
+            self.conn.execute(f"SAVEPOINT sp{self._tx_depth}")
+        self._tx_depth += 1
+        try:
+            yield self.conn
+        except BaseException:
+            self._tx_depth -= 1
+            if self._tx_depth == 0:
+                self.conn.execute("ROLLBACK")
+            else:
+                self.conn.execute(f"ROLLBACK TO sp{self._tx_depth}")
+                self.conn.execute(f"RELEASE sp{self._tx_depth}")
+            raise
+        else:
+            self._tx_depth -= 1
+            if self._tx_depth == 0:
+                self.conn.execute("COMMIT")
+            else:
+                self.conn.execute(f"RELEASE sp{self._tx_depth}")
+
+    # ------------------------------------------------------------------ documents
+    def save_document(self, doc: Document, nodes: Sequence[Node], blocks: Sequence[Block]) -> None:
+        """Persist a document with its full tree atomically (replacing any previous copy)."""
+        ordered = sorted(nodes, key=lambda n: (n.depth, n.position))
+        with self.transaction():
+            existing = self.get_document(doc.id)
+            created = _now()
+            if existing is not None:
+                row = self.conn.execute(
+                    "SELECT created_at FROM documents WHERE id = ?", (doc.id,)
+                ).fetchone()
+                created = row["created_at"]
+                self.delete_document(doc.id)
+            meta = {k: v for k, v in doc.metadata.items() if not k.startswith("_")}
+            self.conn.execute(
+                "INSERT INTO documents (id, source_type, uri, title, description, text, "
+                "text_hash, created_at, updated_at, metadata_json) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    doc.id,
+                    doc.source_type,
+                    doc.uri,
+                    doc.title,
+                    meta.get("description"),
+                    doc.text,
+                    text_hash(doc.text),
+                    created,
+                    _now(),
+                    dumps_meta(meta),
+                ),
+            )
+            for n in ordered:
+                self.insert_node(n)
+            for b in blocks:
+                self.insert_block(b)
+
+    def get_document(self, document_id: str) -> Document | None:
+        r = self.conn.execute("SELECT * FROM documents WHERE id = ?", (document_id,)).fetchone()
+        return self._row_to_document(r) if r else None
+
+    def find_document_by_uri(self, uri: str) -> Document | None:
+        r = self.conn.execute(
+            "SELECT * FROM documents WHERE uri = ? ORDER BY updated_at DESC LIMIT 1", (uri,)
+        ).fetchone()
+        return self._row_to_document(r) if r else None
+
+    def get_document_hash(self, document_id: str) -> str | None:
+        r = self.conn.execute(
+            "SELECT text_hash FROM documents WHERE id = ?", (document_id,)
+        ).fetchone()
+        return r["text_hash"] if r else None
+
+    def list_documents(self) -> list[Document]:
+        rows = self.conn.execute("SELECT * FROM documents ORDER BY created_at, id").fetchall()
+        return [self._row_to_document(r) for r in rows]
+
+    def delete_document(self, document_id: str) -> None:
+        with self.transaction():
+            self.conn.execute(
+                "DELETE FROM blocks_fts WHERE rowid IN "
+                "(SELECT rowid FROM blocks WHERE document_id = ?)",
+                (document_id,),
+            )
+            self.conn.execute("DELETE FROM entity_blocks WHERE document_id = ?", (document_id,))
+            self.conn.execute("DELETE FROM blocks WHERE document_id = ?", (document_id,))
+            self.conn.execute("DELETE FROM nodes WHERE document_id = ?", (document_id,))
+            self.conn.execute("DELETE FROM documents WHERE id = ?", (document_id,))
+
+    @staticmethod
+    def _row_to_document(r: sqlite3.Row) -> Document:
+        return Document(
+            id=r["id"],
+            source_type=r["source_type"],
+            uri=r["uri"],
+            title=r["title"],
+            text=r["text"] or "",
+            metadata=loads_meta(r["metadata_json"]),
+        )
+
+    # ------------------------------------------------------------------ nodes
+    def insert_node(self, n: Node) -> None:
+        self.conn.execute(
+            f"INSERT INTO nodes ({_NODE_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                n.id,
+                n.document_id,
+                n.parent_id,
+                n.depth,
+                n.position,
+                n.title,
+                n.summary,
+                n.text,
+                n.node_type,
+                n.page_start,
+                n.page_end,
+                n.start_offset,
+                n.end_offset,
+            ),
+        )
+
+    def update_node(self, n: Node) -> None:
+        with self.transaction():
+            old = self.get_node(n.id)
+            self.conn.execute(
+                "UPDATE nodes SET parent_id=?, depth=?, position=?, title=?, summary=?, text=?, "
+                "node_type=?, page_start=?, page_end=?, start_offset=?, end_offset=? WHERE id=?",
+                (
+                    n.parent_id,
+                    n.depth,
+                    n.position,
+                    n.title,
+                    n.summary,
+                    n.text,
+                    n.node_type,
+                    n.page_start,
+                    n.page_end,
+                    n.start_offset,
+                    n.end_offset,
+                    n.id,
+                ),
+            )
+            if old is not None and old.title != n.title:
+                self.conn.execute(
+                    "UPDATE blocks_fts SET title = ? WHERE rowid IN "
+                    "(SELECT rowid FROM blocks WHERE node_id = ? "
+                    "AND json_extract(metadata_json, '$.index_title') IS NULL)",
+                    (segment_for_index(n.title), n.id),
+                )
+
+    def update_node_summary(self, node_id: str, summary: str | None) -> None:
+        self.conn.execute("UPDATE nodes SET summary = ? WHERE id = ?", (summary, node_id))
+
+    def get_node(self, node_id: str) -> Node | None:
+        r = self.conn.execute(f"SELECT {_NODE_COLS} FROM nodes WHERE id = ?", (node_id,)).fetchone()
+        return _row_to_node(r) if r else None
+
+    def get_roots(self, document_id: str) -> list[Node]:
+        rows = self.conn.execute(
+            f"SELECT {_NODE_COLS} FROM nodes WHERE document_id = ? AND parent_id IS NULL "
+            "ORDER BY position",
+            (document_id,),
+        ).fetchall()
+        return [_row_to_node(r) for r in rows]
+
+    def get_children(self, node_id: str) -> list[Node]:
+        """One level only - never recursive."""
+        rows = self.conn.execute(
+            f"SELECT {_NODE_COLS} FROM nodes WHERE parent_id = ? ORDER BY position", (node_id,)
+        ).fetchall()
+        return [_row_to_node(r) for r in rows]
+
+    def count_children(self, node_ids: list[str]) -> dict[str, int]:
+        if not node_ids:
+            return {}
+        q = ",".join("?" * len(node_ids))
+        rows = self.conn.execute(
+            f"SELECT parent_id, COUNT(*) AS c FROM nodes WHERE parent_id IN ({q}) "
+            "GROUP BY parent_id",
+            node_ids,
+        ).fetchall()
+        counts = {nid: 0 for nid in node_ids}
+        counts.update({r["parent_id"]: r["c"] for r in rows})
+        return counts
+
+    def get_ancestors(self, node_id: str) -> list[Node]:
+        """Ancestors from root to the direct parent (excluding the node itself)."""
+        rows = self.conn.execute(
+            f"""
+            WITH RECURSIVE anc(id, parent_id, lvl) AS (
+                SELECT id, parent_id, 0 FROM nodes WHERE id = ?
+                UNION ALL
+                SELECT n.id, n.parent_id, anc.lvl + 1 FROM nodes n JOIN anc ON n.id = anc.parent_id
+            )
+            SELECT {", ".join("n." + c.strip() for c in _NODE_COLS.split(","))}
+            FROM anc JOIN nodes n ON n.id = anc.id WHERE anc.lvl > 0 ORDER BY anc.lvl DESC
+            """,
+            (node_id,),
+        ).fetchall()
+        return [_row_to_node(r) for r in rows]
+
+    def get_subtree_ids(self, node_id: str) -> list[str]:
+        rows = self.conn.execute(
+            """
+            WITH RECURSIVE sub(id) AS (
+                SELECT id FROM nodes WHERE id = ?
+                UNION ALL
+                SELECT n.id FROM nodes n JOIN sub ON n.parent_id = sub.id
+            ) SELECT id FROM sub
+            """,
+            (node_id,),
+        ).fetchall()
+        return [r["id"] for r in rows]
+
+    def get_subtree(self, node_id: str) -> list[Node]:
+        ids = self.get_subtree_ids(node_id)
+        if not ids:
+            return []
+        q = ",".join("?" * len(ids))
+        rows = self.conn.execute(
+            f"SELECT {_NODE_COLS} FROM nodes WHERE id IN ({q}) ORDER BY depth, position", ids
+        ).fetchall()
+        return [_row_to_node(r) for r in rows]
+
+    def get_document_nodes(self, document_id: str) -> list[Node]:
+        rows = self.conn.execute(
+            f"SELECT {_NODE_COLS} FROM nodes WHERE document_id = ? ORDER BY depth, position",
+            (document_id,),
+        ).fetchall()
+        return [_row_to_node(r) for r in rows]
+
+    def count_nodes(self, document_id: str) -> int:
+        return int(
+            self.conn.execute(
+                "SELECT COUNT(*) FROM nodes WHERE document_id = ?", (document_id,)
+            ).fetchone()[0]
+        )
+
+    def subtree_char_count(self, node_id: str) -> int:
+        ids = self.get_subtree_ids(node_id)
+        if not ids:
+            return 0
+        q = ",".join("?" * len(ids))
+        r = self.conn.execute(
+            f"SELECT COALESCE(SUM(LENGTH(content)), 0) FROM blocks WHERE node_id IN ({q})", ids
+        ).fetchone()
+        return int(r[0])
+
+    # ------------------------------------------------------------------ blocks
+    def _fts_title_for(self, b: Block) -> str:
+        # stable evidence geometry: the index title is fixed by the Evidence Builder (document
+        # title), so a different tree never changes the FTS corpus
+        if b.metadata.get("index_title") is not None:
+            return str(b.metadata["index_title"])
+        if b.node_id:
+            r = self.conn.execute("SELECT title FROM nodes WHERE id = ?", (b.node_id,)).fetchone()
+            if r:
+                return str(r["title"])
+        r = self.conn.execute(
+            "SELECT title FROM documents WHERE id = ?", (b.document_id,)
+        ).fetchone()
+        return str(r["title"]) if r else ""
+
+    def insert_block(self, b: Block) -> None:
+        with self.transaction():
+            cur = self.conn.execute(
+                f"INSERT INTO blocks ({_BLOCK_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    b.id,
+                    b.document_id,
+                    b.node_id,
+                    b.position,
+                    b.block_type,
+                    b.content,
+                    b.page,
+                    b.start_offset,
+                    b.end_offset,
+                    dumps_meta(b.metadata),
+                ),
+            )
+            self.conn.execute(
+                "INSERT INTO blocks_fts (rowid, block_id, document_id, title, content) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (
+                    cur.lastrowid,
+                    b.id,
+                    b.document_id,
+                    segment_for_index(self._fts_title_for(b)),
+                    segment_for_index(b.content),
+                ),
+            )
+
+    def update_block(self, b: Block) -> None:
+        with self.transaction():
+            r = self.conn.execute("SELECT rowid FROM blocks WHERE id = ?", (b.id,)).fetchone()
+            if r is None:
+                raise KeyError(b.id)
+            self.conn.execute(
+                "UPDATE blocks SET document_id=?, node_id=?, position=?, block_type=?, content=?, "
+                "page=?, start_offset=?, end_offset=?, metadata_json=? WHERE id=?",
+                (
+                    b.document_id,
+                    b.node_id,
+                    b.position,
+                    b.block_type,
+                    b.content,
+                    b.page,
+                    b.start_offset,
+                    b.end_offset,
+                    dumps_meta(b.metadata),
+                    b.id,
+                ),
+            )
+            self.conn.execute(
+                "UPDATE blocks_fts SET document_id=?, title=?, content=? WHERE rowid=?",
+                (
+                    b.document_id,
+                    segment_for_index(self._fts_title_for(b)),
+                    segment_for_index(b.content),
+                    r["rowid"],
+                ),
+            )
+
+    def delete_block(self, block_id: str) -> None:
+        with self.transaction():
+            r = self.conn.execute("SELECT rowid FROM blocks WHERE id = ?", (block_id,)).fetchone()
+            if r is None:
+                return
+            self.conn.execute("DELETE FROM blocks_fts WHERE rowid = ?", (r["rowid"],))
+            self.conn.execute("DELETE FROM blocks WHERE id = ?", (block_id,))
+
+    def get_block(self, block_id: str) -> Block | None:
+        r = self.conn.execute(
+            f"SELECT {_BLOCK_COLS} FROM blocks WHERE id = ?", (block_id,)
+        ).fetchone()
+        return _row_to_block(r) if r else None
+
+    def get_blocks(self, node_id: str, limit: int | None = None, offset: int = 0) -> list[Block]:
+        rows = self.conn.execute(
+            f"SELECT {_BLOCK_COLS} FROM blocks WHERE node_id = ? ORDER BY position "
+            "LIMIT ? OFFSET ?",
+            (node_id, -1 if limit is None else limit, offset),
+        ).fetchall()
+        return [_row_to_block(r) for r in rows]
+
+    def count_blocks(self, node_id: str) -> int:
+        return int(
+            self.conn.execute(
+                "SELECT COUNT(*) FROM blocks WHERE node_id = ?", (node_id,)
+            ).fetchone()[0]
+        )
+
+    def get_document_blocks(self, document_id: str) -> list[Block]:
+        rows = self.conn.execute(
+            f"SELECT {_BLOCK_COLS} FROM blocks WHERE document_id = ? ORDER BY position",
+            (document_id,),
+        ).fetchall()
+        return [_row_to_block(r) for r in rows]
+
+    # ------------------------------------------------------------------ graph-lite
+    def save_entity_links(
+        self, document_id: str, links: Sequence[tuple[str, str, str | None, str, int]]
+    ) -> int:
+        """Replace a document's entity links. ``links``: (name, normalized, type, block_id,
+        frequency). Entities are shared across documents (by normalised name)."""
+        with self.transaction():
+            self.conn.execute("DELETE FROM entity_blocks WHERE document_id = ?", (document_id,))
+            ids: dict[str, int] = {}
+            for name, norm, typ, _, _ in links:
+                if norm in ids:
+                    continue
+                self.conn.execute(
+                    "INSERT INTO entities (name, normalized, type) VALUES (?, ?, ?) "
+                    "ON CONFLICT(normalized) DO NOTHING",
+                    (name, norm, typ),
+                )
+                row = self.conn.execute(
+                    "SELECT id FROM entities WHERE normalized = ?", (norm,)
+                ).fetchone()
+                ids[norm] = int(row[0])
+            self.conn.executemany(
+                "INSERT OR REPLACE INTO entity_blocks (entity_id, block_id, document_id, frequency)"
+                " VALUES (?, ?, ?, ?)",
+                [(ids[norm], bid, document_id, freq) for _, norm, _, bid, freq in links],
+            )
+        return len(links)
+
+    def block_entities(self, block_ids: Sequence[str]) -> dict[str, list[dict[str, Any]]]:
+        """block id -> its entities with corpus document frequency (``df``: blocks containing
+        the entity) and frequency in that block."""
+        out: dict[str, list[dict[str, Any]]] = {}
+        if not block_ids:
+            return out
+        q = ",".join("?" * len(block_ids))
+        rows = self.conn.execute(
+            "SELECT eb.block_id, e.id, e.name, e.type, eb.frequency, "
+            "(SELECT COUNT(*) FROM entity_blocks x WHERE x.entity_id = e.id) AS df "
+            "FROM entity_blocks eb JOIN entities e ON e.id = eb.entity_id "
+            f"WHERE eb.block_id IN ({q})",
+            list(block_ids),
+        ).fetchall()
+        for r in rows:
+            out.setdefault(r[0], []).append(
+                {"id": r[1], "name": r[2], "type": r[3], "frequency": r[4], "df": r[5]}
+            )
+        return out
+
+    def entity_blocks(
+        self, entity_id: int, *, document_id: str | None = None, limit: int = 10
+    ) -> list[tuple[str, str, int]]:
+        """(block id, document id, frequency) of the blocks an entity occurs in; with
+        ``document_id``: that document's blocks first."""
+        rows = self.conn.execute(
+            "SELECT block_id, document_id, frequency FROM entity_blocks WHERE entity_id = ? "
+            "ORDER BY (document_id = ?) DESC, frequency DESC, block_id LIMIT ?",
+            (entity_id, document_id or "", limit),
+        ).fetchall()
+        return [(r[0], r[1], int(r[2])) for r in rows]
+
+    def graph_stats(self) -> dict[str, int]:
+        e = self.conn.execute("SELECT COUNT(*) FROM entities").fetchone()[0]
+        links = self.conn.execute("SELECT COUNT(*) FROM entity_blocks").fetchone()[0]
+        blocks = self.conn.execute("SELECT COUNT(DISTINCT block_id) FROM entity_blocks").fetchone()[
+            0
+        ]
+        return {"entities": int(e), "links": int(links), "blocks": int(blocks)}
+
+    # ------------------------------------------------------------------ fts
+    def fts_query(
+        self,
+        terms: Sequence[str],
+        *,
+        mode: MatchMode = "or",
+        document_id: str | None = None,
+        node_ids: Sequence[str] | None = None,
+        limit: int = 10,
+    ) -> list[tuple[Block, float]]:
+        """BM25-ranked blocks for ``terms``. Returns (block, score), higher score = better."""
+        match = fts_match_expr(terms, mode)
+        if not match:
+            return []
+        sql = [
+            f"SELECT {', '.join('b.' + c.strip() for c in _BLOCK_COLS.split(','))}, "
+            "bm25(blocks_fts, 0, 0, 0.5, 1.0) AS rank "
+            "FROM blocks_fts JOIN blocks b ON b.rowid = blocks_fts.rowid "
+            "WHERE blocks_fts MATCH ?"
+        ]
+        params: list[Any] = [match]
+        if document_id is not None:
+            sql.append("AND b.document_id = ?")
+            params.append(document_id)
+        if node_ids is not None:
+            if not node_ids:
+                return []
+            sql.append(f"AND b.node_id IN ({','.join('?' * len(node_ids))})")
+            params.extend(node_ids)
+        sql.append("ORDER BY rank LIMIT ?")
+        params.append(limit)
+        try:
+            rows = self.conn.execute(" ".join(sql), params).fetchall()
+        except sqlite3.OperationalError:
+            return []
+        return [(_row_to_block(r), -float(r["rank"])) for r in rows]
+
+    def fts_integrity(self) -> tuple[int, int]:
+        """(#blocks, #fts rows) - should always be equal."""
+        a = self.conn.execute("SELECT COUNT(*) FROM blocks").fetchone()[0]
+        b = self.conn.execute("SELECT COUNT(*) FROM blocks_fts").fetchone()[0]
+        return int(a), int(b)
+
+
+def _split_sql(sql: str) -> list[str]:
+    lines = [ln for ln in sql.splitlines() if not ln.strip().startswith("--")]
+    return [s.strip() for s in "\n".join(lines).split(";") if s.strip()]
+
+
+def _migrate_v2(repo: SQLiteRepository) -> None:
+    """v1 -> v2: FTS index gets the porter stemmer (re-indexed from blocks)."""
+    repo.rebuild_fts()
+
+
+def _migrate_v3(repo: SQLiteRepository) -> None:
+    """v2 -> v3: Graph-lite tables (empty until a document is indexed)."""
+    sql = resources.files("treeengine.storage").joinpath("schema.sql").read_text("utf-8")
+    for stmt in _split_sql(sql):
+        if "entit" in stmt:
+            repo.conn.execute(stmt)
+
+
+_MIGRATIONS = {2: _migrate_v2, 3: _migrate_v3}
+"""VectorIndex implementations.
+
+* ``SQLiteVectorIndex``  sqlite-vec ``vec0`` table (``pip install treeengine[vector]``); lives in
+  the same SQLite file as the repository by default, next to ``blocks``.
+* ``MemoryVectorIndex``  dependency-free brute force (numpy used when available).
+
+Both store only ``block_id -> (document_id, embedding)``; block text stays in ``blocks``.
+Vectors are expected to be L2-normalised; scores are cosine similarities (higher = better).
+"""
+
+from __future__ import annotations
+
+import math
+import sqlite3
+import struct
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Any
+
+
+def _pack(v: Sequence[float]) -> bytes:
+    return struct.pack(f"{len(v)}f", *v)
+
+
+class SQLiteVectorIndex:
+    def __init__(self, db_path: str | Path = ":memory:", table: str = "block_vectors") -> None:
+        try:
+            import sqlite_vec
+        except ImportError as e:  # pragma: no cover - optional dependency
+            raise ImportError("SQLiteVectorIndex needs: pip install 'treeengine[vector]'") from e
+        self.db_path = str(db_path)
+        self.table = table
+        self.conn = sqlite3.connect(self.db_path)
+        self.conn.enable_load_extension(True)
+        sqlite_vec.load(self.conn)
+        self.conn.enable_load_extension(False)
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS vector_meta (name TEXT PRIMARY KEY, value TEXT)"
+        )
+        self.dim = self._meta("dim")
+
+    def _meta(self, name: str) -> int | None:
+        r = self.conn.execute("SELECT value FROM vector_meta WHERE name = ?", (name,)).fetchone()
+        return int(r[0]) if r else None
+
+    def _ensure(self, dim: int) -> None:
+        if self.dim == dim:
+            return
+        if self.dim is not None:
+            raise ValueError(f"vector index has dim {self.dim}, got {dim}; call rebuild()")
+        self.conn.execute(
+            f"CREATE VIRTUAL TABLE IF NOT EXISTS {self.table} USING vec0("
+            f"block_id TEXT PRIMARY KEY, document_id TEXT, "
+            f"embedding float[{dim}] distance_metric=cosine)"
+        )
+        self.conn.execute("INSERT OR REPLACE INTO vector_meta VALUES ('dim', ?)", (str(dim),))
+        self.dim = dim
+
+    # -- writes
+    def upsert(self, items: Sequence[tuple[str, str, Sequence[float]]]) -> None:
+        if not items:
+            return
+        self._ensure(len(items[0][2]))
+        with self.conn:
+            self.delete([i[0] for i in items], _commit=False)
+            self.conn.executemany(
+                f"INSERT INTO {self.table}(block_id, document_id, embedding) VALUES (?, ?, ?)",
+                [(b, d, _pack(v)) for b, d, v in items],
+            )
+
+    def delete(self, block_ids: Sequence[str], _commit: bool = True) -> None:
+        if self.dim is None or not block_ids:
+            return
+        for i in range(0, len(block_ids), 500):
+            chunk = list(block_ids[i : i + 500])
+            self.conn.execute(
+                f"DELETE FROM {self.table} WHERE block_id IN ({','.join('?' * len(chunk))})",
+                chunk,
+            )
+        if _commit:
+            self.conn.commit()
+
+    def delete_document(self, document_id: str) -> None:
+        if self.dim is None:
+            return
+        ids = [
+            r[0]
+            for r in self.conn.execute(
+                f"SELECT block_id FROM {self.table} WHERE document_id = ?", (document_id,)
+            )
+        ]
+        self.delete(ids)
+
+    def rebuild(self) -> None:
+        with self.conn:
+            self.conn.execute(f"DROP TABLE IF EXISTS {self.table}")
+            self.conn.execute("DELETE FROM vector_meta WHERE name = 'dim'")
+        self.dim = None
+
+    # -- reads
+    def vectors(self, block_ids: Sequence[str]) -> dict[str, list[float]]:
+        """Stored vectors of these blocks (missing ids are left out)."""
+        if self.dim is None or not block_ids:
+            return {}
+        out: dict[str, list[float]] = {}
+        for i in range(0, len(block_ids), 500):
+            chunk = list(block_ids[i : i + 500])
+            for bid, blob in self.conn.execute(
+                f"SELECT block_id, embedding FROM {self.table} "
+                f"WHERE block_id IN ({','.join('?' * len(chunk))})",
+                chunk,
+            ):
+                out[bid] = list(struct.unpack(f"{self.dim}f", blob))
+        return out
+
+    def count(self) -> int:
+        if self.dim is None:
+            return 0
+        return int(self.conn.execute(f"SELECT COUNT(*) FROM {self.table}").fetchone()[0])
+
+    def search(
+        self,
+        vector: Sequence[float],
+        *,
+        k: int = 10,
+        document_id: str | None = None,
+        block_ids: Sequence[str] | None = None,
+    ) -> list[tuple[str, float]]:
+        if self.dim is None:
+            return []
+        q = _pack(vector)
+        if block_ids is not None:
+            # scoped search (e.g. inside a tree scope): exact cosine over the scope
+            if not block_ids:
+                return []
+            out: list[tuple[str, float]] = []
+            for i in range(0, len(block_ids), 500):
+                chunk = list(block_ids[i : i + 500])
+                out += [
+                    (r[0], 1.0 - float(r[1]))
+                    for r in self.conn.execute(
+                        f"SELECT block_id, vec_distance_cosine(embedding, ?) FROM {self.table} "
+                        f"WHERE block_id IN ({','.join('?' * len(chunk))})",
+                        [q, *chunk],
+                    )
+                ]
+            return sorted(out, key=lambda x: -x[1])[:k]
+        sql = f"SELECT block_id, distance FROM {self.table} WHERE embedding MATCH ? AND k = ?"
+        params: list[Any] = [q, k]
+        if document_id is not None:
+            sql += " AND document_id = ?"
+            params.append(document_id)
+        rows = self.conn.execute(sql + " ORDER BY distance", params).fetchall()
+        return [(r[0], 1.0 - float(r[1])) for r in rows]
+
+    def size_bytes(self) -> int:
+        """Approximate storage taken by the vectors (dim * 4 bytes per block)."""
+        return self.count() * (self.dim or 0) * 4
+
+    def close(self) -> None:
+        self.conn.close()
+
+
+class MemoryVectorIndex:
+    def __init__(self) -> None:
+        self.rows: dict[str, tuple[str, list[float]]] = {}
+
+    def upsert(self, items: Sequence[tuple[str, str, Sequence[float]]]) -> None:
+        for b, d, v in items:
+            self.rows[b] = (d, list(v))
+
+    def delete(self, block_ids: Sequence[str]) -> None:
+        for b in block_ids:
+            self.rows.pop(b, None)
+
+    def delete_document(self, document_id: str) -> None:
+        self.delete([b for b, (d, _) in self.rows.items() if d == document_id])
+
+    def rebuild(self) -> None:
+        self.rows.clear()
+
+    def vectors(self, block_ids: Sequence[str]) -> dict[str, list[float]]:
+        return {b: list(self.rows[b][1]) for b in block_ids if b in self.rows}
+
+    def count(self) -> int:
+        return len(self.rows)
+
+    def size_bytes(self) -> int:
+        return sum(len(v) * 4 for _, v in self.rows.values())
+
+    def search(
+        self,
+        vector: Sequence[float],
+        *,
+        k: int = 10,
+        document_id: str | None = None,
+        block_ids: Sequence[str] | None = None,
+    ) -> list[tuple[str, float]]:
+        if block_ids is not None:
+            cand = [(b, self.rows[b][1]) for b in block_ids if b in self.rows]
+        else:
+            cand = [(b, v) for b, (d, v) in self.rows.items() if document_id in (None, d)]
+        if not cand:
+            return []
+        try:
+            import numpy as np
+
+            mat = np.asarray([v for _, v in cand], dtype=np.float32)
+            sims = mat @ np.asarray(vector, dtype=np.float32)
+            order = np.argsort(-sims)[:k]
+            return [(cand[i][0], float(sims[i])) for i in order]
+        except ImportError:
+            qn = math.sqrt(sum(x * x for x in vector)) or 1.0
+            scored = [
+                (b, sum(a * c for a, c in zip(v, vector, strict=False)) / qn) for b, v in cand
+            ]
+            return sorted(scored, key=lambda x: -x[1])[:k]
+
+    def close(self) -> None:
+        pass
+"""Evidence geometry (V0.7): stable retrieval blocks built from the canonical document text,
+independent of the tree, and mapped to tree nodes by offset overlap."""
+
+from .builder import EvidenceBuilder, pdf_evidence_elements, stable_block_id
+from .mapping import map_blocks, node_extents, own_ranges
+
+__all__ = [
+    "EvidenceBuilder",
+    "map_blocks",
+    "node_extents",
+    "own_ranges",
+    "pdf_evidence_elements",
+    "stable_block_id",
+]
+"""Evidence Builder: canonical document text -> stable retrieval blocks.
+
+Blocks are the evidence geometry: fine-grained, stable, citable units for FTS / Vector. They
+are cut from the canonical text only, by (in order of priority)
+
+1. source-level natural blocks (Markdown / HTML paragraphs, lists, tables, code, quotes);
+2. for PDF text: blank lines and page breaks, a short line ending a sentence and a paragraph
+   size cap - exactly the paragraphs of the structure-free ("flat") PDF ingestion that V0.4
+   validated as the strongest FTS baseline; no heading rule of any kind, so a heading line stays
+   inside its paragraph and no text is consumed;
+3. a token size guard (``EngineConfig.max_block_chars``, sentence-preferring split).
+
+Nothing here reads the tree: the heading detector, the bookmarks, the PDF structure mode or a
+reference outline cannot change a block. The tree is mapped onto the blocks afterwards
+(:mod:`treeengine.blocks.mapping`).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import re
+
+from ..core.config import EngineConfig
+from ..core.models import Block, Document
+from ..core.text import split_long_text
+from ..ingest.base import Element
+from ..ingest.pdf_text import PageLookup, running_lines, text_lines
+
+_CJK_GAP = re.compile(r"(?<=[一-鿿]) (?=[一-鿿])")
+
+
+def stable_block_id(document_id: str, start: int | None, end: int | None, content: str) -> str:
+    """Deterministic id from the document, the offsets and the content - never from a node, a
+    depth or a heading, so a new tree keeps every block id."""
+    digest = hashlib.sha1(content.encode("utf-8")).hexdigest()
+    key = f"{document_id}:{start}:{end}:{digest}"
+    return "blk_" + hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
+
+
+def pdf_evidence_elements(doc: Document) -> list[Element]:
+    """Paragraph blocks of a PDF's canonical text (independent of the structure mode)."""
+    pages: list[tuple[int, int, int]] = [
+        (int(no), int(s), int(e)) for no, s, e in doc.metadata.get("_pages", [])
+    ]
+    lines = text_lines(doc.text)
+    page_of = PageLookup(pages)
+    noise = running_lines(lines, pages)  # running headers / footers: text-only, mode-invariant
+    out: list[Element] = []
+    para: list[int] = []
+
+    def flush() -> None:
+        nonlocal para
+        if para:
+            start = lines[para[0]][0]
+            end = lines[para[-1]][0] + len(lines[para[-1]][1])
+            content = " ".join(lines[i][1].strip() for i in para if lines[i][1].strip())
+            content = _CJK_GAP.sub("", content)
+            if content:
+                out.append(Element("block", content, start, end, page=page_of(start)))
+        para = []
+
+    for idx, (_, ln) in enumerate(lines):
+        if idx in noise:
+            continue  # skipped without breaking the paragraph
+        if not ln.strip():
+            flush()  # blank line; pages are joined by a blank line, so blocks never span pages
+            continue
+        para.append(idx)
+        if ln.rstrip().endswith(("。", "！", "？", ".", "!", "?", ":", "：")) and len(ln) < 60:
+            flush()  # short line ending a sentence: likely paragraph end
+        elif sum(len(lines[i][1]) for i in para) > 900:
+            flush()
+    flush()
+    return out
+
+
+class EvidenceBuilder:
+    """Document -> stable blocks (``node_id`` is left empty: see ``blocks.mapping``)."""
+
+    def __init__(self, config: EngineConfig | None = None) -> None:
+        self.config = config or EngineConfig()
+
+    def elements(self, doc: Document) -> list[Element]:
+        if doc.source_type == "markdown":
+            from ..structure.markdown import parse_markdown  # the Markdown source parser
+
+            return [e for e in parse_markdown(doc.text) if e.kind == "block"]
+        if doc.source_type == "html":
+            from ..structure.html import html_elements  # the DOM blocks from the adapter
+
+            return [e for e in html_elements(doc) if e.kind == "block"]
+        if doc.source_type == "pdf":
+            return pdf_evidence_elements(doc)
+        from ..structure.markdown import plain_paragraphs
+
+        return plain_paragraphs(doc.text)
+
+    def build(self, doc: Document) -> list[Block]:
+        blocks: list[Block] = []
+        prev_end = 0
+        for el in self.elements(doc):
+            for rel, piece in split_long_text(el.text, self.config.max_block_chars):
+                # split pieces of a PDF paragraph only approximate their source offsets (lines
+                # were joined): keep them monotone and inside the element
+                start = max(el.start + rel, prev_end, el.start)
+                end = min(start + len(piece), el.end) if el.end >= start else start
+                prev_end = end
+                blocks.append(
+                    Block(
+                        id=stable_block_id(doc.id, start, end, piece),
+                        document_id=doc.id,
+                        node_id=None,
+                        position=len(blocks),
+                        block_type=el.block_type,
+                        content=piece,
+                        page=el.page,
+                        start_offset=start,
+                        end_offset=end,
+                        # index text comes from the document, not from the tree
+                        metadata=(
+                            {"index_title": doc.title}
+                            if self.config.index_title == "document"
+                            else {}
+                        ),
+                    )
+                )
+        return blocks
+
+
+__all__ = ["EvidenceBuilder", "pdf_evidence_elements", "stable_block_id"]
+"""Block <-> Node mapping by offset geometry.
+
+Blocks and nodes are built independently from the same canonical text, so both carry offsets
+in one coordinate system. A node's *extent* is [start, end) with end = the start of the next
+node that is not its descendant (the document end for the last one); its *own range* is the
+part of the extent before its first child. Own ranges partition the text covered by the tree,
+so every character belongs to exactly one node.
+
+Each block's primary node (``Block.node_id``) is the node whose own range overlaps the block
+most; ties go to the deeper node. A block that spans several own ranges also records them in
+``metadata["node_ids"]`` / ``metadata["node_overlap"]`` (characters per node). Mapping never
+re-cuts a block. Text before the first section (a preamble) gets a preamble node.
+"""
+
+from __future__ import annotations
+
+import bisect
+from collections import defaultdict
+from dataclasses import dataclass
+
+from ..core.ids import new_id
+from ..core.models import Block, Document, Node
+
+
+@dataclass(frozen=True)
+class OwnRange:
+    start: int
+    end: int
+    node: Node
+
+
+def node_extents(nodes: list[Node], doc_end: int) -> dict[str, tuple[int, int]]:
+    """node id -> [start, end); ``nodes`` in reading (creation) order."""
+    out: dict[str, tuple[int, int]] = {}
+    for i, n in enumerate(nodes):
+        start = n.start_offset or 0
+        end = doc_end
+        for m in nodes[i + 1 :]:
+            if m.depth <= n.depth:
+                end = m.start_offset if m.start_offset is not None else end
+                break
+        out[n.id] = (start, max(start, end))
+    return out
+
+
+def own_ranges(nodes: list[Node], doc_end: int) -> list[OwnRange]:
+    ext = node_extents(nodes, doc_end)
+    first_child: dict[str, int] = {}
+    for n in nodes:
+        if n.parent_id is not None and n.parent_id not in first_child:
+            first_child[n.parent_id] = n.start_offset or 0
+    out = []
+    for n in nodes:
+        start, end = ext[n.id]
+        end = min(end, first_child.get(n.id, end))
+        out.append(OwnRange(start, max(start, end), n))
+    return sorted(out, key=lambda r: (r.start, r.node.depth))
+
+
+def ensure_preamble(doc: Document, nodes: list[Node], blocks: list[Block]) -> list[Node]:
+    """Give text before the first section a node: widen a leading preamble / document node,
+    or insert one (and shift the other top-level positions)."""
+    starts = [b.start_offset for b in blocks if b.start_offset is not None]
+    if not starts:
+        return nodes
+    first = min(starts)
+    if not nodes:
+        return [_new_root(doc, first, "document", 0)]
+    roots = [n for n in nodes if n.parent_id is None]
+    head = min(roots, key=lambda n: n.start_offset or 0)
+    if (head.start_offset or 0) <= first:
+        return nodes
+    if head.node_type in ("preamble", "document"):
+        head.start_offset = first
+        return nodes
+    for n in roots:
+        n.position += 1
+    pre = _new_root(doc, first, "preamble", 0)
+    return [pre, *nodes]
+
+
+def _new_root(doc: Document, start: int, node_type: str, position: int) -> Node:
+    return Node(
+        id=new_id("node"),
+        document_id=doc.id,
+        parent_id=None,
+        depth=0,
+        position=position,
+        title=doc.title,
+        start_offset=start,
+        node_type=node_type,
+    )
+
+
+def map_blocks(doc: Document, nodes: list[Node], blocks: list[Block]) -> list[Node]:
+    """Set every block's primary node; return the (possibly extended) node list."""
+    nodes = ensure_preamble(doc, nodes, blocks)
+    ranges = own_ranges(nodes, len(doc.text))
+    starts = [r.start for r in ranges]
+    prev: Node | None = None
+    for b in blocks:
+        if b.start_offset is None:
+            b.node_id = prev.id if prev else (nodes[0].id if nodes else None)
+            continue
+        bs = b.start_offset
+        be = max(b.end_offset if b.end_offset is not None else bs, bs + 1)
+        lo = max(0, bisect.bisect_right(starts, bs) - 1)
+        overlap: dict[str, int] = defaultdict(int)
+        depth: dict[str, int] = {}
+        nodes_by: dict[str, Node] = {}
+        for r in ranges[lo:]:
+            if r.start >= be:
+                break
+            ov = min(be, r.end) - max(bs, r.start)
+            if ov > 0:
+                overlap[r.node.id] += ov
+                depth[r.node.id] = r.node.depth
+                nodes_by[r.node.id] = r.node
+        if overlap:
+            best = max(overlap, key=lambda k: (overlap[k], depth[k]))
+            node = nodes_by[best]
+        else:  # inside a zero-width range (several headings at one offset) or past the end
+            i = max(0, bisect.bisect_right(starts, bs) - 1)
+            node = ranges[i].node if ranges else (prev or nodes[0])
+        b.node_id = node.id
+        if len(overlap) > 1:
+            b.metadata["node_ids"] = sorted(overlap, key=lambda k: -overlap[k])
+            b.metadata["node_overlap"] = dict(overlap)
+        else:
+            b.metadata.pop("node_ids", None)
+            b.metadata.pop("node_overlap", None)
+        prev = node
+    return nodes
+
+
+__all__ = ["OwnRange", "ensure_preamble", "map_blocks", "node_extents", "own_ranges"]
+"""Ingestion pipeline.
+
+Source -> Adapter -> canonical Document (text + offsets [+ page offsets])
+                       |-- Evidence Builder  -> stable Blocks   (FTS / Vector)
+                       `-- Structure Builder -> Tree Nodes      (boundaries / navigation)
+                     Block <-> Node mapping by offset overlap -> Repository
+"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import Any
+
+from .blocks import EvidenceBuilder, map_blocks
+from .core.ids import text_hash
+from .core.models import Block, Document, Node
+from .core.protocols import Repository
+from .ingest.base import detect_source_type, get_adapter
+from .ingest.html import HTMLAdapter
+from .ingest.markdown import MarkdownAdapter
+from .retrieval.vector import VectorIndexer
+from .structure.builder import StructureBuilder
+
+log = logging.getLogger(__name__)
+
+
+def build_document(
+    doc: Document, structure: StructureBuilder, evidence: EvidenceBuilder | None = None
+) -> tuple[list[Node], list[Block]]:
+    """Decoupled build: the tree and the blocks come from the same canonical text but neither
+    is derived from the other; the mapping only sets each block's primary node."""
+    nodes = structure.build_tree(doc)
+    blocks = (evidence or EvidenceBuilder(structure.config)).build(doc)
+    nodes = map_blocks(doc, nodes, blocks)
+    structure.finalise(doc, nodes, blocks)
+    doc.metadata["evidence_geometry"] = "stable"
+    return nodes, blocks
+
+
+class IngestionPipeline:
+    def __init__(
+        self,
+        repo: Repository,
+        builder: StructureBuilder,
+        indexer: VectorIndexer | None = None,
+        graph_indexer: Any = None,
+    ) -> None:
+        self.repo = repo
+        self.builder = builder
+        self.indexer = indexer
+        self.graph_indexer = graph_indexer  # Graph-lite entity links (EngineConfig.graph_index)
+
+    def ingest(self, source: str | Path, source_type: str | None = None) -> Document:
+        """Ingest a file (Markdown / HTML / PDF). Re-ingesting the same path replaces it in
+        place (stable id); unchanged content is skipped."""
+        src = str(source)
+        stype = source_type or detect_source_type(src)
+        return self.store(get_adapter(stype).load(src))
+
+    def delete_document(self, document_id: str) -> None:
+        self.repo.delete_document(document_id)
+        if self.indexer is not None:
+            self.indexer.delete_document(document_id)
+
+    def ingest_text(
+        self,
+        text: str,
+        source_type: str = "markdown",
+        title: str | None = None,
+        uri: str | None = None,
+    ) -> Document:
+        if source_type == "markdown":
+            doc = MarkdownAdapter().from_text(text, uri=uri, fallback_title=title or "Untitled")
+        elif source_type == "html":
+            doc = HTMLAdapter().from_html(text, uri=uri, fallback_title=title or "Untitled")
+        else:
+            raise ValueError("ingest_text supports 'markdown' and 'html'")
+        if title:
+            doc.title = title
+        return self.store(doc)
+
+    def store(self, doc: Document) -> Document:
+        if doc.uri:
+            existing = self.repo.find_document_by_uri(doc.uri)
+            if existing is not None:
+                if self.repo.get_document_hash(existing.id) == text_hash(doc.text):
+                    log.info("unchanged, skipping re-ingest: %s", doc.uri)
+                    return existing
+                doc.id = existing.id
+        nodes, blocks = self.builder.build(doc)  # stable evidence geometry: build_document
+        self.repo.save_document(doc, nodes, blocks)
+        if self.indexer is not None:
+            self.indexer.index_document(doc.id)
+        if self.graph_indexer is not None:
+            self.graph_indexer.index_document(doc.id)
+        stored = self.repo.get_document(doc.id)
+        assert stored is not None
+        return stored

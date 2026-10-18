@@ -15,6 +15,8 @@ Suites:
                 questions with a gold reading resolution (evidence = text needles, answers)
   multires2     the same construction over other documents and another seed: an independent
                 validation set for changes designed while looking at multires (all test)
+  finx          V0.16 fresh held-out: FinanceBench-style analyst questions over 24 10-Ks no
+                other suite uses (evidence = page; all test)
 
     python -m benchmarks.datasets controlled     # download / verify one suite's documents
 """
@@ -31,7 +33,7 @@ from typing import Any
 
 HERE = Path(__file__).parent
 ROOT = HERE.parent.parent
-SUITES = ("controlled", "longdoc", "financebench", "multires", "multires2")
+SUITES = ("controlled", "longdoc", "financebench", "multires", "multires2", "finx")
 
 
 @dataclass

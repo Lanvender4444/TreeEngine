@@ -691,6 +691,27 @@ FTS、向量、Graph 不再各自返回结果列表，而是在同一棵检索�
 | test（251 题 × 2 轮，对 V0.13） | **G-full 50:16，p=3e-5**（FinanceBench @2000 65.2，auto 43.0）；G-skip 50:20，27% 的题不调 LLM；outline 44:12；V0.14 toc 42:19（每题 2 次调用） |
 | 决策 | 推荐 `fusion="gate"` + `context_policy="gate"`（每题 1 次调用），省钱用 `gate_fast`；默认仍为 `auto` |
 
+## V0.16 — 参考路线统一评测（`results/v0.16-routes.md`，设计见 `docs/v0.16-evidence-search.md`）
+
+这一版把参考项目里的六条路线做进了项目，并统一评测：
+- 本地 reranker：交叉编码器 / ColBERT（`RetrievalPolicy.rerank`）；
+- 表格感知 PDF 解析（`pdf_tables`）；
+- 上下文索引标题（`index_title="context"`）；
+- 答案自检重试（`+retry`）；
+- COPRO 式提示词优化（`optimize_prompt.py`）；
+- Evidence Search（`treeengine/esearch`）：以 reranker 为节点价值函数，支持 best-first / beam / MCTS，以及 LLM 评估环。
+
+另外新建了**全新留出集 finx**：116 题，来自 24 份此前未用过的 10-K。
+
+| 问题 | 结果 |
+|---|---|
+| held-out（FinanceBench test 115 题 + finx 116 题，各 2 轮，对 V0.15 gate） | **reranker 特征 + gate+retry：71.3 / 86.2（V0.15 为 64.8 / 77.6），44:9，p=1.2e-6**；只用 gate+retry：39:15，p=0.0015；只加 reranker 特征：20:11（不显著）；gate_fast：14:21 |
+| reranker | 用作置信度特征比用于重排更好；MiniLM、bge-base、ColBERT 三者相当，推荐最小的 MiniLM |
+| Evidence Search（best-first / beam / MCTS） | 不调 LLM 时与 auto 相当，低于 gate；没有进入 held-out。框架保留 |
+| 提示词优化 | 0.794 对 0.790，没有收益 |
+| 表格感知解析 + 上下文索引（仅 dev） | LLM 选读方案合计 20:6；gate 54.3 → 71.4，gate+retry 71.4 → 80.0；对 auto 和 Evidence Search 没有影响；held-out 待验证 |
+| 决策 | 推荐 `fusion="gate", rerank="ce:Xenova/ms-marco-MiniLM-L-12-v2"` + `context_policy="gate"` + 答案自检重试；默认仍为 `auto` |
+
 ## 待完成
 
 | 实验 | 需要 |

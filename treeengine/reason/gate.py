@@ -41,6 +41,23 @@ FEATURES = (
 )
 
 
+RERANK_FEATURES = ("inv_rerank", "rerank_z", "rerank_top1")
+
+
+def rerank_features(rr: tuple[int, float] | None, stats: tuple[float, float]) -> dict[str, float]:
+    """Reranker rank / score features; ``stats`` = (mean, std) of this question's scored
+    candidates (score scales differ between models and queries)."""
+    if rr is None:
+        return {"inv_rerank": 0.0, "rerank_z": -3.0, "rerank_top1": 0.0}
+    rank, score = rr
+    mean, std = stats
+    return {
+        "inv_rerank": 1.0 / rank,
+        "rerank_z": max(-3.0, min(3.0, (score - mean) / (std or 1.0))),
+        "rerank_top1": 1.0 if rank == 1 else 0.0,
+    }
+
+
 def features(ranks: Mapping[str, int], fused_rank: int) -> dict[str, float]:
     def inv(s: str) -> float:
         r = ranks.get(s)
@@ -72,18 +89,45 @@ DEFAULT_COEF: dict[str, float] = {
 }
 
 
+# per reranker, fitted on the same dev data with the reranker features (benchmarks/fit_gate.py)
+RERANK_COEF: dict[str, dict[str, float]] = {
+    "ce:Xenova/ms-marco-MiniLM-L-12-v2": {
+        "bias": -3.6377,
+        "inv_fts": 1.7585,
+        "inv_vector": 0.8437,
+        "inv_node": 0.0,
+        "log_fused": -0.0839,
+        "fts_and_vector": 0.5975,
+        "n_sources": 0.1367,
+        "top1_any": 0.0475,
+        "inv_rerank": 1.0413,
+        "rerank_z": 0.0877,
+        "rerank_top1": 0.3366,
+    },
+}
+
+
 def confidence(
-    ranks: Mapping[str, int], fused_rank: int, coef: Mapping[str, float] | None = None
+    ranks: Mapping[str, int],
+    fused_rank: int,
+    coef: Mapping[str, float] | None = None,
+    extra: Mapping[str, float] | None = None,
 ) -> float:
     c = coef or DEFAULT_COEF
-    x = features(ranks, fused_rank)
+    x = {**features(ranks, fused_rank), **(extra or {})}
     z = c.get("bias", 0.0) + sum(c.get(k, 0.0) * v for k, v in x.items())
     return 1.0 / (1.0 + math.exp(-z))
 
 
-def annotate(anchors: Sequence[Any], lists: Mapping[str, Sequence[Any]]) -> None:
+def annotate(
+    anchors: Sequence[Any],
+    lists: Mapping[str, Sequence[Any]],
+    rerank: Mapping[str, tuple[int, float]] | None = None,
+    rerank_model: str | None = None,
+) -> None:
     """Write each fused block anchor's source ranks and confidence into its metadata (and its
-    evidence's), so a reader downstream can gate on them."""
+    evidence's), so a reader downstream can gate on them. With reranker results, their features
+    are recorded and the reranker's fitted coefficients are used (when fitted)."""
     pos: dict[str, dict[str, int]] = {}
     for src, lst in lists.items():
         if src not in SOURCES:
@@ -91,19 +135,24 @@ def annotate(anchors: Sequence[Any], lists: Mapping[str, Sequence[Any]]) -> None
         for r, a in enumerate(lst, 1):
             if getattr(a, "block_id", None):
                 pos.setdefault(str(a.block_id), {}).setdefault(src, r)
+    stats = (0.0, 1.0)
+    if rerank:
+        vals = [sc for _, sc in rerank.values()]
+        mean = sum(vals) / len(vals)
+        stats = (mean, (sum((v - mean) ** 2 for v in vals) / len(vals)) ** 0.5)
+    coef = RERANK_COEF.get(rerank_model or "") if rerank else None
     for fr, a in enumerate(anchors, 1):
         if getattr(a, "kind", "block") != "block" or not a.block_id:
             continue
         ranks = pos.get(str(a.block_id), {})
-        conf = round(confidence(ranks, fr), 4)
-        a.metadata["src_ranks"] = dict(ranks)
-        a.metadata["conf"] = conf
+        extra = rerank_features(rerank.get(str(a.block_id)), stats) if rerank else None
+        conf = round(confidence(ranks, fr, coef, extra if coef else None), 4)
+        md: dict[str, Any] = {"src_ranks": dict(ranks), "conf": conf}
+        if extra is not None:
+            md["rerank"] = extra
+        a.metadata.update(md)
         if a.evidence is not None:
-            a.evidence.metadata = {
-                **(a.evidence.metadata or {}),
-                "src_ranks": dict(ranks),
-                "conf": conf,
-            }
+            a.evidence.metadata = {**(a.evidence.metadata or {}), **md}
 
 
 def conf_of(item: Any) -> float:
@@ -137,6 +186,9 @@ def split(pool: Sequence[Any], accept_tau: float, skip_tau: float, accept_max: i
 
 __all__ = [
     "DEFAULT_COEF",
+    "RERANK_COEF",
+    "RERANK_FEATURES",
+    "rerank_features",
     "FEATURES",
     "SOURCES",
     "GateDecision",

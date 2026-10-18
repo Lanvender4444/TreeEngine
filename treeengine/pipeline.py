@@ -34,6 +34,10 @@ def build_document(
     blocks = (evidence or EvidenceBuilder(structure.config)).build(doc)
     nodes = map_blocks(doc, nodes, blocks)
     structure.finalise(doc, nodes, blocks)
+    if structure.config.index_title == "context":  # V0.16 contextual index text
+        from .blocks.context import contextual_titles
+
+        contextual_titles(doc, nodes, blocks)
     doc.metadata["evidence_geometry"] = "stable"
     return nodes, blocks
 

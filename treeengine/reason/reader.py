@@ -34,10 +34,18 @@ whole region in tokens, and matching excerpts:
 {outline_block}
 Choose what to read, most useful first, staying within the budget:
 - an excerpt id (e.g. "R1a") reads that excerpt with a little surrounding text (~{window} tokens);
-{whole_rule}Skip what is clearly irrelevant. Prefer text that directly states the needed facts
-or numbers.
+{whole_rule}{guidance}
 {search_rule}Reply as JSON: {{"read": ["R2", "R1a"], {search_key}"reason": "short"}}
 """
+
+# the free-text guidance of the selector prompt; "default" is the hand-written V0.13 text, other
+# entries come from the V0.16 prompt optimisation on dev (benchmarks/optimize_prompt.py)
+GUIDANCE: dict[str, str] = {
+    "default": (
+        "Skip what is clearly irrelevant. Prefer text that directly states the needed facts\n"
+        "or numbers."
+    ),
+}
 
 OUTLINE_BLOCK = """
 The rest of the document, one line per page (section titles starting there, or the page's first
@@ -86,6 +94,7 @@ class ReasonSpec:
     accept_share: float = 0.5  # accepted candidates take at most this share of the budget
     outline: bool = False  # the page outline goes into the selector prompt (page ids "p57")
     outline_lines: int = 150
+    guidance: str = "default"  # V0.16: key into GUIDANCE (optimised selector instructions)
 
 
 # context-mode name -> spec (benchmarks: --context reason_node,...)
@@ -108,6 +117,9 @@ REASON_MODES: dict[str, ReasonSpec] = {
     # recommended (V0.15 test): accept confident candidates, ONE call with catalog + outline
     "gate": ReasonSpec(summaries=True, outline=True, gate=True, accept_tau=0.5, skip_tau=1.01),
     # cheaper: questions whose best candidate is >= 0.65 confident make no LLM call (~27%)
+    # V0.16 second attempt after an "insufficient" answer: expansion + page outline over what
+    # was not read yet (benchmarks: "<mode>+retry")
+    "retry": ReasonSpec(summaries=True, outline=True, expand=True),
     "gate_fast": ReasonSpec(summaries=True, outline=True, gate=True, accept_tau=0.5, skip_tau=0.65),
 }
 
@@ -118,6 +130,7 @@ _GATE_KEYS: dict[str, tuple[str, Callable[[str], Any]]] = {
     "as": ("accept_share", float),
     "ol": ("outline", lambda v: v not in ("0", "false", "no")),
     "mr": ("max_regions", int),
+    "gd": ("guidance", str),
 }
 
 
@@ -162,6 +175,23 @@ def build_context(
     either it falls back to ``auto`` (the info says so). V0.14 policies (expansion, outline
     routing, follow-up search) also need ``retrieve(query)``; without it they read like
     ``reason_node_sum``."""
+    from ..esearch import EvidenceSearch, parse_search_mode
+
+    sspec = parse_search_mode(policy)
+    if sspec is not None:  # V0.16 Evidence Search ("search", "search_mcts@iters=64", ...)
+        if not question:
+            return builder.build(items, token_budget=budget, policy="auto"), {
+                "fallback": True,
+                "reason": "no question",
+            }
+        try:
+            es = EvidenceSearch(builder, sspec, retrieve=retrieve, llm=llm)
+            spans, info = es.run(question, items, budget)
+            info["trace"] = es.trace
+            return spans, info
+        except Exception as e:  # noqa: BLE001 - no reranker available: the default context
+            spans = builder.build(items, token_budget=budget, policy="auto")
+            return spans, {"fallback": True, "reason": str(e)[:200]}
     spec = reason_spec(policy)
     if spec is None:
         return builder.build(items, token_budget=budget, policy=policy), None
@@ -308,6 +338,7 @@ class ReasonedReader:
             catalog=render_catalog(cat),
             window=window,
             whole_rule=WHOLE_RULE.format(cap=int(budget * s.whole_share)) if s.whole else "",
+            guidance=GUIDANCE.get(s.guidance, GUIDANCE["default"]),
             search_rule=SEARCH_RULE if s.search and allow_search else "",
             search_key='"search": [], ' if s.search and allow_search else "",
             outline_block=OUTLINE_BLOCK.format(

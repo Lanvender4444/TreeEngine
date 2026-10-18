@@ -58,6 +58,13 @@ class RetrievalPolicy:
     # ranked by title path / subtree centroid, best block each). Off by default: on the V0.15
     # dev sweep any weight > 0 diluted the FTS + Vector ranking (results/v0.15-confidence-gate.md)
     node_source_weight: float = 0.0
+    # V0.16 fusion="gate": a local reranker over the top ``rerank_k`` candidates
+    # ("ce:<model>" cross-encoder / "colbert:<model>" late interaction; retrieval/rerank.py).
+    # Its rank and score become confidence features; ``rerank_order`` also re-sorts those
+    # candidates by the reranker.
+    rerank: str = ""
+    rerank_k: int = 30
+    rerank_order: bool = False
     node_signal_weight: float = 1.0  # node title (lexical) + centroid (semantic) activation
     section_share: float = 0.5  # a section may be emitted whole if it fits this budget share
     node_signals: str = "both"  # which node signals: both | lexical | semantic | none

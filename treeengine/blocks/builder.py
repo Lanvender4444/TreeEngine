@@ -37,16 +37,94 @@ def stable_block_id(document_id: str, start: int | None, end: int | None, conten
     return "blk_" + hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
 
 
-def pdf_evidence_elements(doc: Document) -> list[Element]:
-    """Paragraph blocks of a PDF's canonical text (independent of the structure mode)."""
+_NUM = re.compile(r"^[\s$€£(\-—–]*\d[\d,]*(\.\d+)?\s*%?\)?\s*$|^[\s$]*[—–-]+\s*$")
+
+
+def _cell_numeric(text: str) -> bool:
+    """A value cell: a number (with $ / % / parentheses / dashes for zero), nothing else."""
+    return bool(_NUM.match(text.strip()))
+
+
+def table_regions(
+    lines: list[tuple[int, str]],
+    noise: set[int],
+    page_of: object = None,
+    max_cell: int = 80,
+    min_cells: int = 8,
+) -> dict[int, int]:
+    """V0.16 ``pdf_tables``: line index -> last line index of a table region starting there.
+
+    PDF text puts every table cell on its own line (whitespace-only lines between them), so a
+    table becomes one block per cell. A region is a run of short lines (<= ``max_cell``
+    characters; whitespace-only lines do not break it) on one page with at least
+    ``min_cells`` cells of which >= 30% (and >= 4) are numeric. Its caption / column header are
+    the short lines that start the run."""
+    out: dict[int, int] = {}
+    n = len(lines)
+    pg = page_of if callable(page_of) else (lambda _off: None)
+    i = 0
+    while i < n:
+        t = lines[i][1]
+        if i in noise or not t.strip() or len(t.strip()) > max_cell:
+            i += 1
+            continue
+        page = pg(lines[i][0])
+        cells: list[int] = []
+        j = i
+        while j < n:
+            tj = lines[j][1]
+            if j in noise or not tj.strip():
+                j += 1
+                continue
+            if len(tj.strip()) > max_cell or pg(lines[j][0]) != page:
+                break
+            cells.append(j)
+            j += 1
+        numeric = sum(1 for k in cells if _cell_numeric(lines[k][1]))
+        if len(cells) >= min_cells and numeric >= 4 and numeric >= 0.3 * len(cells):
+            out[cells[0]] = cells[-1]
+            i = cells[-1] + 1
+        else:
+            i = (cells[-1] + 1) if cells else i + 1
+    return out
+
+
+def table_text(cells: list[str]) -> str:
+    """Cells in reading order -> rows: a label starts a row, the values after it follow."""
+    rows: list[str] = []
+    cur = ""
+    prev_num = False
+    for c in (x.strip() for x in cells):
+        if not c:
+            continue
+        num = _cell_numeric(c) or c in ("$", "€", "£", "%")
+        if num and cur:
+            cur += "  " + c
+        else:
+            if cur:
+                rows.append(cur)
+            cur = c
+        prev_num = num
+    if cur:
+        rows.append(cur)
+    _ = prev_num
+    return "\n".join(rows)
+
+
+def pdf_evidence_elements(doc: Document, tables: bool = False) -> list[Element]:
+    """Paragraph blocks of a PDF's canonical text (independent of the structure mode). With
+    ``tables`` (V0.16), a table region - numeric rows plus their caption / column header - is
+    one block instead of rows cut into paragraph-sized pieces."""
     pages: list[tuple[int, int, int]] = [
         (int(no), int(s), int(e)) for no, s, e in doc.metadata.get("_pages", [])
     ]
     lines = text_lines(doc.text)
     page_of = PageLookup(pages)
     noise = running_lines(lines, pages)  # running headers / footers: text-only, mode-invariant
+    regions = table_regions(lines, noise, page_of) if tables else {}
     out: list[Element] = []
     para: list[int] = []
+    skip_to = -1
 
     def flush() -> None:
         nonlocal para
@@ -60,6 +138,21 @@ def pdf_evidence_elements(doc: Document) -> list[Element]:
         para = []
 
     for idx, (_, ln) in enumerate(lines):
+        if idx <= skip_to:
+            continue
+        if idx in regions:
+            flush()
+            end_idx = regions[idx]
+            rows = [k for k in range(idx, end_idx + 1) if k not in noise and lines[k][1].strip()]
+            if rows:
+                start = lines[rows[0]][0]
+                end = lines[rows[-1]][0] + len(lines[rows[-1]][1])
+                content = table_text([lines[k][1] for k in rows])
+                out.append(
+                    Element("block", content, start, end, block_type="table", page=page_of(start))
+                )
+            skip_to = end_idx
+            continue
         if idx in noise:
             continue  # skipped without breaking the paragraph
         if not ln.strip():
@@ -90,7 +183,7 @@ class EvidenceBuilder:
 
             return [e for e in html_elements(doc) if e.kind == "block"]
         if doc.source_type == "pdf":
-            return pdf_evidence_elements(doc)
+            return pdf_evidence_elements(doc, tables=self.config.pdf_tables)
         from ..structure.markdown import plain_paragraphs
 
         return plain_paragraphs(doc.text)
@@ -99,7 +192,12 @@ class EvidenceBuilder:
         blocks: list[Block] = []
         prev_end = 0
         for el in self.elements(doc):
-            for rel, piece in split_long_text(el.text, self.config.max_block_chars):
+            limit = (
+                self.config.max_table_chars
+                if el.block_type == "table" and self.config.pdf_tables
+                else self.config.max_block_chars
+            )
+            for rel, piece in split_long_text(el.text, limit):
                 # split pieces of a PDF paragraph only approximate their source offsets (lines
                 # were joined): keep them monotone and inside the element
                 start = max(el.start + rel, prev_end, el.start)

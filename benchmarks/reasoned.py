@@ -116,7 +116,7 @@ def run_reasoned(
         j.title = title(j.doc_id)  # repository access stays on this thread
         j.pool = [e.metadata.get("anchor", e) if e.metadata else e for e in j.run.evidence]
         spec = readers[j.mode].spec
-        if (spec.toc or spec.plan) and j.pool:
+        if (spec.toc or spec.plan or spec.outline) and j.pool:
             doc = j.doc_id or j.pool[0].document_id
             j.outline = page_outline(readers[j.mode].builder, doc)
 

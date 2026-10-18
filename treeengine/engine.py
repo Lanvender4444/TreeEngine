@@ -239,9 +239,10 @@ class TreeEngine:
     ) -> list[ContextSpan]:
         """Any context policy; a reasoned one (V0.13 "reason", "reason_page" ...) uses the
         question and the configured LLM, and falls back to auto without them."""
+        from .esearch import parse_search_mode
         from .reason import build_context, reason_spec
 
-        base = "auto" if reason_spec(policy) else policy
+        base = "auto" if (reason_spec(policy) or parse_search_mode(policy)) else policy
         spans, _ = build_context(
             BlockContextBuilder(self.repo, policy=base), policy, question, items, budget, self.llm
         )

@@ -13,9 +13,13 @@ class EngineConfig:
     evidence_geometry: str = "stable"
     # title indexed with a stable block (FTS title column, embedding prefix): "document" keeps
     # the retrieval corpus independent of the tree; "section" uses the mapped node's title
-    # (tree-dependent, the pre-V0.7 signal; experiments)
+    # (tree-dependent, the pre-V0.7 signal; experiments); "context" (V0.16): document title +
+    # section path + the page's heading line (blocks/context.py)
     index_title: str = "document"
     max_block_chars: int = 1200  # long paragraphs are split into several blocks
+    # V0.16: PDF table regions (numeric rows + caption / column header) as one block each
+    pdf_tables: bool = False
+    max_table_chars: int = 3000
 
     # structure
     summary_chars: int = 240  # heuristic summary length

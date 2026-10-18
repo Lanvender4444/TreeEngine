@@ -54,6 +54,18 @@ REASON = [
     "gate",
     "gate_fast",
 ]
+# V0.16 Evidence Search (treeengine/esearch): "search@algo=mcts;rr=ce:...;stop=0.4"
+SEARCH = [
+    "search",
+    "search_fill",
+    "search_beam",
+    "search_mcts",
+    "search_loop",
+    "search_prior",
+    "search_mcts_prior",
+]
+MODES += SEARCH
+
 MODES += REASON
 
 

@@ -28,7 +28,14 @@ HERE = Path(__file__).parent
 CACHE = HERE / ".cache"
 
 
-def corpus_key(docs: list[CorpusDoc]) -> str:
+# V0.16 added opt-in ingestion options (pdf_tables, index_title="context") without changing
+# what the default options produce (checked block by block on a FinanceBench 10-K and by the
+# regression fingerprints). Corpora built without the new options keep the V0.15 code key, so
+# the existing caches stay valid; with them, the current code is hashed as before.
+LEGACY_CODE = Path(__file__).parent / "ingest_code_v015.bin"
+
+
+def corpus_key(docs: list[CorpusDoc], legacy: bool = False) -> str:
     """Cache key: document checksums + every source file that influences ingestion."""
     import treeengine
 
@@ -36,6 +43,9 @@ def corpus_key(docs: list[CorpusDoc]) -> str:
     for d in docs:
         h.update(d.name.encode())
         h.update(hashlib.sha256(d.path.read_bytes()).digest())
+    if legacy and LEGACY_CODE.exists():
+        h.update(LEGACY_CODE.read_bytes())
+        return h.hexdigest()[:16]
     root = Path(treeengine.__file__).parent
     for sub in ("core", "ingest", "structure", "pdf", "storage", "blocks"):
         for f in sorted((root / sub).glob("*")):
@@ -46,7 +56,10 @@ def corpus_key(docs: list[CorpusDoc]) -> str:
 
 
 def geometry_config(
-    evidence_geometry: str = "stable", index_title: str = "document", pdf_structure: str = "auto"
+    evidence_geometry: str = "stable",
+    index_title: str = "document",
+    pdf_structure: str = "auto",
+    pdf_tables: bool = False,
 ) -> tuple[EngineConfig, str]:
     """(EngineConfig, corpus-cache variant tag) for an evidence-geometry setting (V0.7) and a
     PDF structure source (V0.8). The defaults have no tag."""
@@ -57,12 +70,15 @@ def geometry_config(
         evidence_geometry=evidence_geometry,
         index_title=index_title,
         pdf_structure=pdf_structure,
+        pdf_tables=pdf_tables,
     )
     parts = []
     if (evidence_geometry, index_title) != ("stable", "document"):
         parts.append(f"geometry={evidence_geometry},title={index_title}")
     if pdf_structure != "auto":
         parts.append(f"pdf={pdf_structure}")
+    if pdf_tables:
+        parts.append("tables")
     return cfg, ",".join(parts)
 
 
@@ -81,8 +97,13 @@ def add_geometry_args(ap: Any) -> None:
     ap.add_argument(
         "--index-title",
         default="document",
-        choices=["document", "section"],
+        choices=["document", "section", "context"],
         help="title indexed with stable blocks (FTS title column / embedding prefix)",
+    )
+    ap.add_argument(
+        "--pdf-tables",
+        action="store_true",
+        help="V0.16: PDF table regions (rows + caption / header) as one block each",
     )
 
 
@@ -124,7 +145,10 @@ def load_corpus(
     path = None
     if use_cache:
         CACHE.mkdir(exist_ok=True)
-        key = corpus_key(docs)
+        cfg0 = config or EngineConfig()
+        key = corpus_key(
+            docs, legacy=not cfg0.pdf_tables and cfg0.index_title in ("document", "section")
+        )
         if variant:
             key = hashlib.sha256(f"{key}:{variant}".encode()).hexdigest()[:16]
         path = CACHE / f"corpus-{key}.db"
