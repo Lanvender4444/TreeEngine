@@ -6,22 +6,27 @@ It owns no retrieval logic; it only delegates to wired components (see ``factory
 * Agent Navigation:  list_documents / get_document / get_roots / get_children / get_node /
                      get_ancestors / read_node / read_blocks / search_text / search_semantic
 * Managed Retrieval: retrieve (SearchResult: anchors / evidence / context_spans / trace / stats)
-                     / search (Evidence[])
+                     / search (Evidence[]) / evidence_search (V0.16 best-first / beam / MCTS
+                     over reading units, reranker as the value function; search tree + trace)
 * Context:           build_context (any hits -> ContextSpans; works with external retrievers)
-* Convenience:       ask (answer with citations, read from ContextSpans) / get_tree / format_tree
+* Convenience:       ask (answer with citations, read from ContextSpans; ``retry=True``: search
+                     again when the answer says the evidence was insufficient) / get_tree /
+                     format_tree
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, overload
 
+from .answer import insufficient
 from .context import BlockContextBuilder
 from .context.builder import as_anchors
 from .context.span import ContextSpan
 from .core.config import EngineConfig
 from .core.models import AnswerResult, Block, Document, Evidence, Node, NodeView
 from .core.protocols import EmbeddingProvider, LLMProvider, Repository
+from .esearch import EvidenceSearchResult
 from .factory import Components, build_local_components
 from .reason import reason_spec
 from .retrieval.planner import QueryType
@@ -29,6 +34,9 @@ from .retrieval.policy import RetrievalPolicy
 from .retrieval.result import SearchResult
 from .retrieval.tree import TreeSearchResult
 from .treeview import format_tree, render_tree
+
+if TYPE_CHECKING:
+    from .treerag import TreeRAGResult
 
 
 class TreeEngine:
@@ -201,18 +209,137 @@ class TreeEngine:
         self.last_result, self.last_plan = res, res.plan
         return res
 
+    @overload
     def search(
         self,
         query: str,
         document_id: str | None = None,
         limit: int = 10,
         mode: QueryType | str | None = None,
-    ) -> list[Evidence]:
-        """Retrieval only: Evidence[], never calls the answer model."""
-        return self.retrieve(query, document_id=document_id, limit=limit, mode=mode).evidence
+    ) -> list[Evidence]: ...
+
+    @overload
+    def search(
+        self,
+        query: str,
+        document_id: str | None = None,
+        limit: int = 10,
+        mode: QueryType | str | None = None,
+        *,
+        strategy: str,
+        budget: dict[str, int] | None = None,
+        **kw: Any,
+    ) -> TreeRAGResult: ...
+
+    def search(
+        self,
+        query: str,
+        document_id: str | None = None,
+        limit: int = 10,
+        mode: QueryType | str | None = None,
+        *,
+        strategy: str | None = None,
+        budget: dict[str, int] | None = None,
+        **kw: Any,
+    ) -> list[Evidence] | TreeRAGResult:
+        """Without ``strategy``: retrieval only, Evidence[], never calls the answer model.
+
+        With ``strategy`` ("best_first" | "beam" | "mcts"; V0.17 Tree-RAG): a budgeted search
+        over the Query Tree (DECOMPOSE), the Retrieval Search Tree (SEARCH / VERIFY /
+        REWRITE_QUERY) and the Evidence Tree (READ_BLOCK / NEIGHBORS / PARENT / CHILD / PAGE /
+        TABLE, FOLLOW_ENTITY, SEARCH_IN_SECTION) with a local reranker as the node value.
+        ``budget``: ``max_steps`` (READ actions), ``max_llm_calls`` (DECOMPOSE + VERIFY),
+        ``max_context_tokens``. Returns a ``TreeRAGResult``: answer, query_tree, search_tree
+        (``.render()``), evidence, context_spans, trace, stats. Other keywords go to
+        ``treeengine.treerag.TreeRAG.run`` (policy, decompose, actions, answer, reranker,
+        SearchSpec fields)."""
+        if strategy is None:
+            if budget is not None or kw:
+                raise TypeError("budget / search options need a strategy")
+            return self.retrieve(query, document_id=document_id, limit=limit, mode=mode).evidence
+        from .treerag import TreeRAG
+
+        policy = kw.pop("policy", None)
+        return TreeRAG.from_engine(self, policy).run(
+            query, document_id=document_id, strategy=strategy, budget=budget, **kw
+        )
 
     def tree_search(self, query: str, document_id: str) -> TreeSearchResult:
         return self.tree.locate(query, document_id)
+
+    def build_summary_tree(self, document_id: str, **kw: Any) -> dict[str, int]:
+        """V0.17 RAPTOR-style summary tree for one document (LLM summaries of clustered leaf
+        windows, recursively). ``search(strategy=...)`` then also reads summaries
+        (READ_SUMMARY). Keywords: leaf_tokens, fanout, max_levels, words."""
+        from .treerag.raptor import RaptorIndex
+
+        embedder = getattr(self.components.pipeline.indexer, "embedder", None)
+        return RaptorIndex(self.repo, self.llm, embedder).build(document_id, **kw)
+
+    def evidence_search(
+        self,
+        query: str,
+        document_id: str | None = None,
+        *,
+        algo: str = "best_first",
+        budget: int = 2000,
+        policy: RetrievalPolicy | None = None,
+        reranker: str | None = None,
+        loop: bool = False,
+        **params: Any,
+    ) -> EvidenceSearchResult:
+        """V0.16 Evidence Search: retrieval as a budgeted search for the smallest sufficient
+        evidence set (``treeengine/esearch``).
+
+        State = evidence read + budget used; actions = READ a candidate window / its
+        neighbours / its section head / its page (and, with ``loop``, REWRITE_QUERY after an
+        LLM sufficiency check); a local reranker is the node value function. ``algo`` is
+        ``best_first`` | ``beam`` | ``mcts``. ``params`` are ``SearchSpec`` fields (``iters``,
+        ``c_uct``, ``beam``, ``branch``, ``window``, ``stop_rel``, ``lam``, ``prior``,
+        ``fill``, ...). The candidates come from ``policy`` (default:
+        ``RetrievalPolicy.recommended()``, so candidates carry a confidence prior).
+
+        Returns the evidence (ContextSpans), the action trace, the explored search tree and,
+        for MCTS, the most visited states. Without a loadable reranker it raises; the context
+        policies ``search*`` fall back to the default reading instead."""
+        from dataclasses import replace
+
+        from .esearch import EvidenceSearch, SearchSpec
+
+        if algo not in ("best_first", "beam", "mcts"):
+            raise ValueError(f"unknown search algo {algo!r} (best_first | beam | mcts)")
+        pol = policy or RetrievalPolicy.recommended()
+        seed_pol = replace(pol, context_policy="auto", context_budget=1)
+        res = self.components.controller.retrieve(query, document_id=document_id, policy=seed_pol)
+        kw: dict[str, Any] = {"algo": algo, "loop": loop, **params}
+        if reranker:
+            kw["reranker"] = reranker
+        spec = replace(SearchSpec(), **kw)
+
+        def again(q: str) -> list[Any]:
+            return list(
+                self.components.controller.retrieve(
+                    q, document_id=document_id, policy=seed_pol
+                ).anchors
+            )
+
+        es = EvidenceSearch(
+            BlockContextBuilder(self.repo, policy="auto"),
+            spec,
+            retrieve=again,
+            llm=self.llm if loop else None,
+        )
+        spans, info = es.run(query, res.anchors, budget)
+        return EvidenceSearchResult(
+            query=query,
+            algo=algo,
+            spans=spans,
+            trace=list(es.trace),
+            tree=es.search_tree(),
+            states=es.mcts_states() if algo == "mcts" else [],
+            stats=info,
+            candidates=len(res.anchors),
+        )
 
     # ------------------------------------------------------------------ context
     def build_context(
@@ -258,10 +385,19 @@ class TreeEngine:
         *,
         policy: RetrievalPolicy | None = None,
         context_budget: int | None = None,
+        retry: bool | None = None,
     ) -> AnswerResult:
         """Retrieve -> anchors -> ContextSpans -> answer. The answer model reads continuous
         spans (``EngineConfig.answer_context_tokens``); citations point at the spans' first
-        blocks. ``answer_context_tokens=None`` answers from the top evidence items as before."""
+        blocks. ``answer_context_tokens=None`` answers from the top evidence items as before.
+
+        ``retry`` (default ``EngineConfig.answer_retry``; V0.16): when the answer says its
+        evidence was insufficient, search once more - drop the blocks already read from the
+        candidate pool, rewrite the question in the document's vocabulary and retrieve it with
+        the same policy, read again with a reasoned reading over a region catalog + page outline
+        - and answer from the new evidence. Needs an LLM; ``result.metadata["retry"]`` records
+        the first answer and the cost of the second pass. Recommended with
+        ``RetrievalPolicy.recommended()`` (results/v0.16-routes.md)."""
         k = max_evidence or self.config.answer_max_evidence
         budget = context_budget or self.config.answer_context_tokens
         res = self.retrieve(question, document_id=document_id, limit=k, mode=mode, policy=policy)
@@ -273,7 +409,80 @@ class TreeEngine:
             res.anchors if reason_spec(self.config.answer_context_policy) else res.anchors[:k],
             budget,
         )
-        return self.components.answerer.answer(question, self._span_evidence(spans), res.query_type)
+        result = self.components.answerer.answer(
+            question, self._span_evidence(spans), res.query_type
+        )
+        if retry is None:
+            retry = self.config.answer_retry
+        if retry and self.llm is not None and result.generated and insufficient(result.answer):
+            second = self._retry(question, document_id, policy, res, spans, budget)
+            if second is not None:
+                result2 = self.components.answerer.answer(
+                    question, self._span_evidence(second[0]), res.query_type
+                )
+                result2.metadata["retry"] = {
+                    "first_answer": result.answer,
+                    "first_evidence": len(result.evidence),
+                    **second[1],
+                }
+                return result2
+        return result
+
+    def _retry(
+        self,
+        question: str,
+        document_id: str | None,
+        policy: RetrievalPolicy | None,
+        res: SearchResult,
+        spans: list[ContextSpan],
+        budget: int,
+    ) -> tuple[list[ContextSpan], dict[str, Any]] | None:
+        """The second pass of ``ask(retry=True)``: new ContextSpans (and what it cost), or None
+        when nothing is left to read."""
+        from dataclasses import replace
+
+        from .reason import build_context
+
+        read = {b for sp in spans for b in (sp.block_ids or [])}
+        pool = [
+            a for a in res.anchors if not (getattr(a, "block_id", None) and str(a.block_id) in read)
+        ]
+
+        def again(q: str) -> list[Any]:  # the same fast paths for a rewritten question
+            if policy is not None:
+                sub = replace(policy, context_policy="auto", context_budget=1)
+                found = self.components.controller.retrieve(q, document_id=document_id, policy=sub)
+            else:
+                found = self.planner.retrieve(q, document_id=document_id, limit=20)
+                found.anchors = as_anchors(found.evidence)
+            return [
+                a
+                for a in found.anchors
+                if not (getattr(a, "block_id", None) and str(a.block_id) in read)
+            ]
+
+        before = self.llm.usage.snapshot() if self.llm else None
+        title = self.components.controller._title(document_id)
+        new, info = build_context(
+            BlockContextBuilder(self.repo, policy="auto"),
+            "retry",
+            question,
+            pool,
+            budget,
+            self.llm,
+            retrieve=again,
+            title=title,
+        )
+        new = [sp for sp in new if not set(sp.block_ids or []) <= read] or new
+        if not new:
+            return None
+        cost: dict[str, Any] = {"spans": len(new), "tokens": sum(s.token_count for s in new)}
+        if self.llm is not None and before is not None:
+            used = self.llm.usage.since(before)
+            cost.update(llm_calls=used.calls, llm_input_tokens=used.input_tokens)
+        if info:
+            cost["reading"] = {k: v for k, v in info.items() if k in ("expansions", "chosen")}
+        return new, cost
 
     def _span_evidence(self, spans: list[ContextSpan]) -> list[Evidence]:
         out = []

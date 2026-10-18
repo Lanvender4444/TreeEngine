@@ -27,9 +27,17 @@ The reranker is the only learned component: no LLM call unless ``loop`` is on.
 from .core import (
     SEARCH_MODES,
     EvidenceSearch,
+    EvidenceSearchResult,
     SearchSpec,
     Unit,
     parse_search_mode,
 )
 
-__all__ = ["SEARCH_MODES", "EvidenceSearch", "SearchSpec", "Unit", "parse_search_mode"]
+__all__ = [
+    "SEARCH_MODES",
+    "EvidenceSearch",
+    "EvidenceSearchResult",
+    "SearchSpec",
+    "Unit",
+    "parse_search_mode",
+]

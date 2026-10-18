@@ -149,5 +149,24 @@ class RetrievalPolicy:
         base.update(kw)
         return cls(fts_weight=1.0, vector_weight=1.0, tree_weight=0.5, **base)  # type: ignore[arg-type]
 
+    @classmethod
+    def recommended(cls, **kw: object) -> RetrievalPolicy:
+        """The V0.16 held-out winner (results/v0.16-routes.md): FTS + Vector candidates, a local
+        cross-encoder's rank / score as confidence features (not a re-sort), confident
+        candidates read directly and one PageIndex-style reading call for the rest. Use with
+        ``ask(..., retry=True)``. Without fastembed the reranker is skipped (V0.15 gate).
+        ``vector_weight`` only takes effect when the engine has an embedder."""
+        base: dict[str, object] = {
+            "fusion": "gate",
+            "rerank": RECOMMENDED_RERANKER,
+            "rerank_k": 30,
+            "context_budget": 2000,
+            "context_policy": "gate",
+        }
+        base.update(kw)
+        return cls(fts_weight=1.0, vector_weight=1.0, tree_weight=0.0, **base)  # type: ignore[arg-type]
 
-__all__ = ["AgenticMode", "RetrievalPolicy"]
+
+RECOMMENDED_RERANKER = "ce:Xenova/ms-marco-MiniLM-L-12-v2"
+
+__all__ = ["RECOMMENDED_RERANKER", "AgenticMode", "RetrievalPolicy"]

@@ -57,6 +57,9 @@ class EngineConfig:
     # many tokens (None: the pre-V0.9 behaviour, the top evidence items as they are)
     answer_context_tokens: int | None = 2000
     answer_context_policy: str = "auto"
+    # V0.16: ask() re-searches once when the answer says its evidence was insufficient
+    # (exclude what was read, rewrite the question, reasoned reading again, answer again)
+    answer_retry: bool = False
     # retrieve() without a RetrievalPolicy also fills result.context_spans within this many
     # tokens (None / 0: evidence only, the pre-V0.9 behaviour)
     retrieve_context_tokens: int | None = None

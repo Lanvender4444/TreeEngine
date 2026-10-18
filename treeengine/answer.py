@@ -10,6 +10,21 @@ from .llm import prompts
 
 _CITE = re.compile(r"\[E(\d+)\]")
 
+# V0.16 answer self-check: the answer model says the evidence it was given is not enough.
+# ask(retry=True) then searches once more over what was not read yet and answers again.
+INSUFFICIENT = re.compile(
+    r"insufficient|not (explicitly )?(provided|stated|mentioned|specified|available|included|"
+    r"given)|does not (contain|include|provide|mention|specify|state)|do not (contain|include|"
+    r"provide|mention)|cannot (be )?(determine|calculate|answer)|no (information|data|mention)|"
+    r"unable to (determine|calculate|find)|not enough",
+    re.I,
+)
+
+
+def insufficient(answer: str | None) -> bool:
+    """True when an answer declares its evidence insufficient (the retry trigger)."""
+    return bool(INSUFFICIENT.search(answer or ""))
+
 
 class Answerer:
     def __init__(self, repo: Repository, llm: LLMProvider | None = None) -> None:

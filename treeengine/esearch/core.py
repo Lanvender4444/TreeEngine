@@ -6,7 +6,7 @@ import math
 import random
 import re
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
 from ..context.builder import BlockContextBuilder, Item, as_anchors
@@ -19,11 +19,23 @@ EVAL_PROMPT = """Question: {question}
 Evidence read so far:
 {evidence}
 
-Can the question be answered fully and exactly from this evidence? If not, what single piece of
-information is missing? Write it as a short search query in the document's own words (the
+Can the question be answered fully and exactly from this evidence? Estimate which share of the
+facts the question needs is present ("coverage", 0 to 1). If something is missing, write the
+single most important missing piece as a short search query in the document's own words (the
 statement, table, note or line item that would contain it).
-Reply as JSON: {{"answerable": true, "missing": ""}}
+Reply as JSON: {{"answerable": true, "coverage": 1.0, "missing": ""}}
 """
+
+
+_NUMERIC = re.compile(r"^[\s$(]*-?[\d,.]+%?\)?\s*$")
+
+
+def _is_table(b: Any) -> bool:
+    """A table block (V0.16 table-aware parsing), or a block that is mostly numbers."""
+    if getattr(b, "block_type", "") == "table":
+        return True
+    cells = [c for c in re.split(r"\s{2,}|\n", b.content or "") if c.strip()]
+    return len(cells) >= 8 and sum(1 for c in cells if _NUMERIC.match(c)) / len(cells) >= 0.4
 
 
 @dataclass
@@ -60,8 +72,15 @@ class SearchSpec:
     c_uct: float = 0.8
     seed: int = 7
     prior: float = 0.0  # V0.16b: weight of the retrieval confidence prior in a unit's value
-    loop: bool = False  # LLM evaluation + REWRITE_QUERY once
+    loop: bool = False  # LLM evaluation (VERIFY) + REWRITE_QUERY
     loop_share: float = 0.7  # budget of the first pass when looping
+    # V0.17 Evidence Tree actions beyond neighbours / section head / page, comma separated:
+    # child (READ_CHILD: the opening of each sub-section), table (READ_TABLE: table blocks on
+    # the same or adjacent page), entity (FOLLOW_ENTITY: Graph-lite, blocks sharing the unit's
+    # rarest entities), section (SEARCH_IN_SECTION: BM25 inside the enclosing section)
+    actions: str = ""
+    max_steps: int = 0  # READ actions per search (0 = budget only)
+    loop_rounds: int = 1  # VERIFY -> REWRITE_QUERY rounds when looping
 
 
 SEARCH_MODES: dict[str, SearchSpec] = {
@@ -73,6 +92,18 @@ SEARCH_MODES: dict[str, SearchSpec] = {
     # value = (1 - prior) * reranker + prior * retrieval confidence; looser stop, cheap cost
     "search_prior": SearchSpec(prior=0.5, stop_rel=0.2, lam=0.05, fill=True),
     "search_mcts_prior": SearchSpec(algo="mcts", prior=0.5, stop_rel=0.2, lam=0.05, fill=True),
+    # V0.17: the full Evidence Tree action space (+ child / table / entity / in-section search)
+    "search_tree": SearchSpec(
+        prior=0.5, stop_rel=0.2, lam=0.05, fill=True, actions="child,table,entity,section"
+    ),
+    "search_tree_mcts": SearchSpec(
+        algo="mcts",
+        prior=0.5,
+        stop_rel=0.2,
+        lam=0.05,
+        fill=True,
+        actions="child,table,entity,section",
+    ),
 }
 
 _KEYS: dict[str, tuple[str, Callable[[str], Any]]] = {
@@ -88,6 +119,9 @@ _KEYS: dict[str, tuple[str, Callable[[str], Any]]] = {
     "iters": ("iters", int),
     "loop": ("loop", lambda v: v not in ("0", "false")),
     "prior": ("prior", float),
+    "act": ("actions", lambda v: v.replace("+", ",")),
+    "steps": ("max_steps", int),
+    "rounds": ("loop_rounds", int),
 }
 
 
@@ -107,6 +141,38 @@ def parse_search_mode(name: str) -> SearchSpec | None:
 
 
 @dataclass
+class EvidenceSearchResult:
+    """What ``TreeEngine.evidence_search`` returns: the evidence set found (as ContextSpans)
+    plus the search itself - the actions taken, the explored search tree and, for MCTS, the
+    most visited states."""
+
+    query: str
+    algo: str
+    spans: list[ContextSpan]
+    trace: list[dict[str, Any]]  # actions in the order they were taken
+    tree: list[dict[str, Any]]  # explored units: action, parent, value, read order
+    states: list[dict[str, Any]]  # MCTS: evidence sets with visits / mean reward
+    stats: dict[str, Any]  # read units, tokens, scored, coverage, llm calls, ...
+    candidates: int = 0  # retrieval candidates that seeded the search
+
+    @property
+    def text(self) -> str:
+        return "\n\n".join(s.content for s in self.spans)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "query": self.query,
+            "algo": self.algo,
+            "spans": [asdict(s) for s in self.spans],
+            "trace": self.trace,
+            "tree": self.tree,
+            "states": self.states,
+            "stats": self.stats,
+            "candidates": self.candidates,
+        }
+
+
+@dataclass
 class _State:
     read: list[str] = field(default_factory=list)  # unit keys in reading order
     blocks: set[tuple[str, int]] = field(default_factory=set)
@@ -121,8 +187,11 @@ class EvidenceSearch:
         *,
         retrieve: Callable[[str], Sequence[Any]] | None = None,
         llm: Any = None,
+        raptor: Any = None,
     ) -> None:
         self.b = builder
+        self.raptor = raptor  # treerag.raptor.RaptorIndex: READ_SUMMARY units (V0.17)
+        self.summary_of: dict[str, Any] = {}  # unit key -> SummaryNode
         self.spec = spec or SearchSpec()
         self.retrieve = retrieve
         self.llm = llm
@@ -136,6 +205,10 @@ class EvidenceSearch:
         self.llm_out = 0
         self.trace: list[dict[str, Any]] = []
         self._kids: dict[str, list[Unit]] = {}
+        self._mcts_stats: dict[frozenset[str], list[float]] = {}
+        self._read: list[str] = []
+        self.last_coverage: float | None = None
+        self.verifications: list[dict[str, Any]] = []
         self._maps: dict[str, tuple[dict[Any, list[int]], dict[Any, list[int]]]] = {}
 
     def _doc_maps(self, doc: str) -> tuple[dict[Any, list[int]], dict[Any, list[int]]]:
@@ -201,7 +274,32 @@ class EvidenceSearch:
             u.prior = max(u.prior, c if c > 0 else 1.0 / (1 + len(out)))
             if u not in out:
                 out.append(u)
+        if self.raptor is not None and origin == "pool":
+            for doc in dict.fromkeys(a.document_id for a in as_anchors(pool)):
+                if self.raptor.has(doc):
+                    top = max(n.level for n in self.raptor.nodes(doc, 1))
+                    for n in self.raptor.nodes(doc, max(1, top - 1)):
+                        out.append(self._summary_unit(n, None))
         return out
+
+    def _summary_unit(self, n: Any, parent: str | None) -> Unit:
+        key = f"{n.document_id}:S:{n.id}"
+        if key not in self.units:
+            u = Unit(
+                key,
+                n.document_id,
+                n.block_lo,
+                n.block_hi,
+                "summary",
+                f"L{n.level}",
+                parent,
+                n.tokens,
+                n.summary,
+            )
+            u.prior = 0.3
+            self.units[key] = u
+            self.summary_of[key] = n
+        return self.units[key]
 
     def children(self, u: Unit) -> list[Unit]:
         """READ_NEIGHBORS (after / before), READ_PARENT (section head), READ_PAGE."""
@@ -209,6 +307,22 @@ class EvidenceSearch:
             return []
         if u.key in self._kids:
             return self._kids[u.key]
+        if u.kind == "summary":  # READ_SUMMARY: lower summaries, or the leaf windows
+            sn = self.summary_of[u.key]
+            by_id = {n.id: n for n in self.raptor.nodes(u.doc)}
+            kids = []
+            for cid in sn.children:
+                c = by_id.get(cid)
+                if c is None:
+                    continue
+                if c.level >= 1:
+                    kids.append(self._summary_unit(c, u.key))
+                else:
+                    kids.append(self._unit(u.doc, c.block_lo, c.block_hi, "leaf", c.id, u.key))
+            for c in kids:
+                c.prior = max(c.prior, u.prior)
+            self._kids[u.key] = kids
+            return kids
         blocks = self.b.blocks(u.doc)
         by_node, by_page = self._doc_maps(u.doc)
         out: list[Unit] = []
@@ -231,11 +345,75 @@ class EvidenceSearch:
             ptok = sum(self.b.tokens(blocks[k]) for k in pidx)
             if pidx and ptok <= self.spec.page_max and (pidx[0], pidx[-1]) != (u.lo, u.hi):
                 out.append(self._unit(u.doc, pidx[0], pidx[-1], "page", "page", u.key))
-        kids = [c for c in out if c.lo <= c.hi]
+        acts = {a.strip() for a in self.spec.actions.split(",") if a.strip()}
+        if acts:
+            out += self._more_children(u, acts, blocks, by_node, by_page)
+        seen: set[str] = set()
+        kids = []
+        for c in out:
+            if c.lo <= c.hi and c.key != u.key and c.key not in seen:
+                seen.add(c.key)
+                kids.append(c)
         for c in kids:
             c.prior = max(c.prior, 0.8 * u.prior)
         self._kids[u.key] = kids
         return kids
+
+    def _more_children(
+        self,
+        u: Unit,
+        acts: set[str],
+        blocks: Sequence[Any],
+        by_node: dict[Any, list[int]],
+        by_page: dict[Any, list[int]],
+    ) -> list[Unit]:
+        """V0.17 Evidence Tree actions: READ_CHILD, READ_TABLE, FOLLOW_ENTITY,
+        SEARCH_IN_SECTION. Each child unit is a window around one block."""
+        repo: Any = self.b.repo  # SQLite repository: Graph-lite and section-scoped BM25
+        out: list[Unit] = []
+        inside = set(range(u.lo, u.hi + 1))
+        node = blocks[u.lo].node_id
+
+        def win(i: int, kind: str, origin: str) -> None:
+            if i in inside:
+                return
+            lo, hi = self._window(u.doc, i, self.spec.window)
+            if blocks[i].block_type == "table":
+                lo = hi = i  # a table block is read whole, alone
+            out.append(self._unit(u.doc, lo, hi, kind, origin, u.key))
+
+        if "child" in acts and node:
+            for ch in repo.get_children(str(node))[:4]:
+                idx = by_node.get(ch.id)
+                if idx:
+                    win(idx[0], "child", ch.title or "child")
+        if "table" in acts:
+            page = blocks[u.lo].page
+            if page is not None:
+                near = [k for p in (page, page + 1, page - 1) for k in by_page.get(p, [])]
+                tables = [k for k in near if _is_table(blocks[k])][:3]
+                for k in tables:
+                    win(k, "table", f"p{blocks[k].page}")
+        if "entity" in acts and hasattr(repo, "block_entities"):
+            ids = [blocks[k].id for k in range(u.lo, u.hi + 1)]
+            ents = [e for v in repo.block_entities(ids).values() for e in v]
+            ents = sorted({e["id"]: e for e in ents}.values(), key=lambda e: e["df"])
+            where = self.b._where
+            for e in ents[:2]:
+                for bid, doc, _ in repo.entity_blocks(e["id"], document_id=u.doc, limit=4):
+                    loc = where.get(bid)
+                    if doc == u.doc and loc is not None:
+                        win(loc[1], "entity", str(e["name"]))
+        if "section" in acts and node and self.terms and hasattr(repo, "fts_query"):
+            n = repo.get_node(str(node))
+            scope = n.parent_id if n is not None and n.parent_id else str(node)
+            ids = [scope, *repo.get_subtree_ids(scope)]
+            where = self.b._where
+            for b, _ in repo.fts_query(self.terms, document_id=u.doc, node_ids=ids, limit=4):
+                loc = where.get(b.id)
+                if loc is not None:
+                    win(loc[1], "section_search", "bm25")
+        return out
 
     # ------------------------------------------------------------------ value function
     def score(self, units: Sequence[Unit]) -> None:
@@ -261,9 +439,13 @@ class EvidenceSearch:
                     x.value = min(1.0, x.value / top)
 
     def _blocks_of(self, u: Unit) -> set[tuple[str, int]]:
+        if u.kind == "summary":  # a summary adds its own text, it does not read the blocks
+            return set()
         return {(u.doc, k) for k in range(u.lo, u.hi + 1)}
 
     def _new_tokens(self, u: Unit, st: _State) -> int:
+        if u.kind == "summary":
+            return 0 if u.key in st.read else u.tokens
         blocks = self.b.blocks(u.doc)
         return sum(
             self.b.tokens(blocks[k]) for k in range(u.lo, u.hi + 1) if (u.doc, k) not in st.blocks
@@ -310,6 +492,8 @@ class EvidenceSearch:
         return out
 
     def _ok(self, u: Unit, st: _State, budget: int) -> bool:
+        if self.spec.max_steps and len(st.read) >= self.spec.max_steps:
+            return False
         nt = self._new_tokens(u, st)
         return nt > 0 and st.used + nt <= budget and u.value >= self.spec.stop_rel * self.best0
 
@@ -349,6 +533,7 @@ class EvidenceSearch:
     def mcts(self, st: _State, seeds: Sequence[Unit], budget: int) -> _State:
         rng = random.Random(self.spec.seed)
         stats: dict[frozenset[str], list[float]] = {}  # state -> [visits, total reward]
+        self._mcts_stats = stats
         tried: dict[frozenset[str], list[str]] = {}
         STOP = "__stop__"
 
@@ -440,6 +625,11 @@ class EvidenceSearch:
             data = {}
         ok = bool(data.get("answerable")) if isinstance(data, dict) else False
         missing = str(data.get("missing") or "").strip() if isinstance(data, dict) else ""
+        try:
+            cov = data.get("coverage") if isinstance(data, dict) else None
+            self.last_coverage = float(cov) if cov is not None else None
+        except (TypeError, ValueError):
+            self.last_coverage = None
         return ok, missing
 
     # ------------------------------------------------------------------ run
@@ -454,19 +644,43 @@ class EvidenceSearch:
         algo = {"best_first": self.best_first, "beam": self.beam_search, "mcts": self.mcts}[
             self.spec.algo
         ]
-        first = int(budget * self.spec.loop_share) if self.spec.loop and self.llm else budget
+        looping = self.spec.loop and self.llm is not None
+        rounds = max(1, self.spec.loop_rounds) if looping else 0
+        share = self.spec.loop_share
+        first = int(budget * share) if looping else budget
         st = algo(_State(), seeds, first)
         info: dict[str, Any] = {"algo": self.spec.algo}
-        if self.spec.loop and self.llm is not None:
+        self.verifications = []
+        for r in range(rounds):
             ok, missing = self.evaluate(st)
+            self.verifications.append(
+                {
+                    "round": r + 1,
+                    "answerable": ok,
+                    "coverage": self.last_coverage,
+                    "missing": missing,
+                    "read": len(st.read),
+                    "tokens": st.used,
+                }
+            )
+            self.trace.append({"verify": ok, "missing": missing})
             info["answerable"] = ok
-            if not ok and missing and self.retrieve is not None:
+            if ok:
+                break
+            if missing and self.retrieve is not None:
+                info.setdefault("rewrites", []).append(missing)
                 info["rewrite"] = missing
+                self.trace.append({"rewrite": missing})
                 more = self.seed_units(list(self.retrieve(missing))[:10], origin="rewrite")
                 self.score(more)
                 seeds = list(seeds) + more
-            st = algo(st, seeds, budget)
+            last = r == rounds - 1
+            cap = budget if last else int(budget * (share + (1 - share) * (r + 1) / rounds))
+            st = algo(st, seeds, cap)
+        if looping:
+            info["verify"] = self.verifications
         units = [self.units[k] for k in st.read]
+        self._read = list(st.read)
         spans = self._pack(units, pool, budget)
         info.update(
             {
@@ -486,11 +700,54 @@ class EvidenceSearch:
         )
         return spans, info
 
+    # ------------------------------------------------------------------ inspection
+    def search_tree(self, limit: int = 200) -> list[dict[str, Any]]:
+        """The explored retrieval search tree after ``run``: every unit that was created and
+        scored, with the action that created it (``kind``), the unit it expanded (``parent``),
+        its value and whether it was read (and in which order)."""
+        order = {k: i for i, k in enumerate(self._read, 1)}
+        rows = []
+        for u in self.units.values():
+            rows.append(
+                {
+                    "unit": u.key,
+                    "parent": u.parent,
+                    "action": u.kind,
+                    "origin": u.origin,
+                    "value": round(u.value, 4),
+                    "prior": round(u.prior, 4),
+                    "tokens": u.tokens,
+                    "read": order.get(u.key),
+                    "preview": u.text[:120],
+                }
+            )
+        rows.sort(key=lambda r: (r["read"] is None, int(r["read"] or 0), -float(r["value"] or 0.0)))
+        return rows[:limit]
+
+    def mcts_states(self, limit: int = 50) -> list[dict[str, Any]]:
+        """MCTS only: the most visited states (evidence sets) with visits and mean reward."""
+        out = []
+        for key, (n, w) in self._mcts_stats.items():
+            if n <= 0:
+                continue
+            out.append(
+                {
+                    "state": sorted(k for k in key if k != "__stop__"),
+                    "stop": "__stop__" in key,
+                    "visits": int(n),
+                    "mean_reward": round(w / n, 4),
+                }
+            )
+        out.sort(key=lambda r: -int(r["visits"]))  # type: ignore[call-overload]
+        return out[:limit]
+
     def _pack(self, units: Sequence[Unit], pool: Sequence[Item], budget: int) -> list[ContextSpan]:
         from ..context.builder import resolve_policy
         from ..reason.reader import ReasonedReader
 
         reader = ReasonedReader(self.b)
+        summaries = [self.summary_span(u) for u in units if u.kind == "summary"]
+        budget -= sum(sp.token_count for sp in summaries)
         rows = [
             (
                 u.doc,
@@ -500,6 +757,7 @@ class EvidenceSearch:
                 "section" if u.kind in ("page", "parent") else "window",
             )
             for u in units
+            if u.kind != "summary"
         ]
         if self.spec.fill:
             pol = resolve_policy("auto", budget)
@@ -508,11 +766,34 @@ class EvidenceSearch:
                     iv = self.b.interval(a, pol)
                     if iv:
                         rows.append((*iv, str(a.block_id), "window"))
-        return reader._pack(rows, budget, self.b.allow_first_overflow)
+        return summaries + reader._pack(rows, budget, self.b.allow_first_overflow)
+
+    def summary_span(self, u: Unit) -> ContextSpan:
+        """A read summary as a pass-through ContextSpan (no blocks of its own)."""
+        blocks = self.b.blocks(u.doc)[u.lo : u.hi + 1]
+        pages = sorted({b.page for b in blocks if b.page is not None})
+        sn = self.summary_of.get(u.key)
+        head = f"[Summary, level {sn.level if sn else '?'}"
+        head += f", pages {pages[0]}-{pages[-1]}]" if pages else "]"
+        return ContextSpan(
+            document_id=u.doc,
+            node_id=None,
+            block_ids=[],
+            content=f"{head}\n{u.text}",
+            page_start=pages[0] if pages else None,
+            page_end=pages[-1] if pages else None,
+            start_offset=None,
+            end_offset=None,
+            source_evidence_ids=[f"es:{u.key}"],
+            token_count=u.tokens + 12,
+            pages=pages,
+            resolution="summary",
+        )
 
 
 __all__ = [
     "EVAL_PROMPT",
+    "EvidenceSearchResult",
     "EVAL_SYSTEM",
     "SEARCH_MODES",
     "EvidenceSearch",

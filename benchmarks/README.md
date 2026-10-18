@@ -712,6 +712,23 @@ FTS、向量、Graph 不再各自返回结果列表，而是在同一棵检索�
 | 表格感知解析 + 上下文索引（仅 dev） | LLM 选读方案合计 20:6；gate 54.3 → 71.4，gate+retry 71.4 → 80.0；对 auto 和 Evidence Search 没有影响；held-out 待验证 |
 | 决策 | 推荐 `fusion="gate", rerank="ce:Xenova/ms-marco-MiniLM-L-12-v2"` + `context_policy="gate"` + 答案自检重试；默认仍为 `auto` |
 
+## V0.17 — Tree-RAG：三棵树（`results/v0.17-tree-rag.md`，设计见 `docs/v0.17-tree-rag.md`）
+
+`engine.search(query, strategy="best_first"|"beam"|"mcts", budget={...})` 由三棵树组成：
+- Query Tree：DECOMPOSE 拆成子问题。
+- Retrieval Search Tree：SEARCH → VERIFY（LLM Judge）→ REWRITE_QUERY。
+- Evidence Tree：READ_BLOCK / NEIGHBORS / PARENT / CHILD / PAGE / TABLE、FOLLOW_ENTITY、SEARCH_IN_SECTION，可选 RAPTOR 摘要。
+
+返回回答、query_tree、可视化的 search_tree、trace 和 stats。叶子读法有两种：`reader="search"`（reranker 价值函数）和 `reader="gate"`（LLM 选读）。V0.16 的 retry 也已做成接口：`ask(retry=True)`；最优配置为 `RetrievalPolicy.recommended()`。
+
+| 问题 | 结果（dev 78 题，对 V0.16 最优方案） |
+|---|---|
+| Tree-RAG 最好的配置 | gate 叶子读法 + VERIFY / 改写、不拆问题：82.1 对 84.6，3:5，LLM 调用 2.8 次对 1.3 次，没有超过参照 |
+| best-first / beam / MCTS | 75.6 / 73.1 / 74.4，4:11 ~ 4:13，搜索策略之间差别很小 |
+| Query Tree | 用 reranker 读法时拆问题提升最大（61.5 → 75.6）；用 LLM 选读时反而有害（82.1 → 79.5） |
+| 新的 Evidence Tree 动作 | 去掉后不变（75.6） |
+| 决策 | 推荐配置不变（V0.16）；Tree-RAG 作为可解释的搜索接口提供，留待多跳 / 跨文档题集再评 |
+
 ## 待完成
 
 | 实验 | 需要 |

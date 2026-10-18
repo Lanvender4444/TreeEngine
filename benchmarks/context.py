@@ -63,8 +63,14 @@ SEARCH = [
     "search_loop",
     "search_prior",
     "search_mcts_prior",
+    "search_tree",
+    "search_tree_mcts",
 ]
 MODES += SEARCH
+# V0.17 Tree-RAG (treeengine/treerag): Query Tree + Search Tree + Evidence Tree,
+# "treerag@algo=mcts;steps=12;llm=4;dec=1;act=child+table+section;raptor=0"
+TREERAG = ["treerag", "treerag_beam", "treerag_mcts"]
+MODES += TREERAG
 
 MODES += REASON
 

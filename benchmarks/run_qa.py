@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -28,11 +27,12 @@ from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
 
+from treeengine.answer import insufficient
 from treeengine.core.protocols import LLMProvider
 from treeengine.llm.base import CallableLLM, MeteredLLM
 
 from .answer import Answerer, llm_from_env
-from .context import MODES, REASON, SEARCH, ContextBuilder, as_evidence, fragmentation
+from .context import MODES, REASON, SEARCH, TREERAG, ContextBuilder, as_evidence, fragmentation
 from .freeze import candidate_pool
 from .judges import UNCERTAIN, Verdict
 from .judges import exact as exact_judge
@@ -127,20 +127,6 @@ def context_label(strategy: str, mode: str, budget: int | None) -> str:
     return f"{RETRIEVER_LABEL.get(strategy, strategy)}:{policy} @{budget}"
 
 
-INSUFFICIENT = re.compile(
-    r"insufficient|not (explicitly )?(provided|stated|mentioned|specified|available|included|"
-    r"given)|does not (contain|include|provide|mention|specify|state)|do not (contain|include|"
-    r"provide|mention)|cannot (be )?(determine|calculate|answer)|no (information|data|mention)|"
-    r"unable to (determine|calculate|find)|not enough",
-    re.I,
-)
-
-
-def insufficient(answer: str | None) -> bool:
-    """V0.16: the answer model says its context was not enough (the retry trigger)."""
-    return bool(INSUFFICIENT.search(answer or ""))
-
-
 def _base(mode: str) -> str:
     """Context-mode family: "gate@at=0.5+retry" -> "gate"."""
     return mode.replace("+retry", "").partition("@")[0]
@@ -201,6 +187,106 @@ def _search_job(
         input_tokens=run.input_tokens + es.llm_in,
         output_tokens=run.output_tokens + es.llm_out,
         latency_ms=run.latency_ms + info["search_ms"],
+    )
+    return (label, q, run2, recall5, extra)
+
+
+_TREERAG_KEYS: dict[str, tuple[str, Any]] = {
+    "algo": ("strategy", str),
+    "steps": ("max_steps", int),
+    "llm": ("max_llm_calls", int),
+    "dec": ("decompose", lambda v: v not in ("0", "false")),
+    "act": ("actions", lambda v: v.replace("+", ",")),
+    "raptor": ("raptor", lambda v: v not in ("0", "false")),
+    "rr": ("reranker", str),
+    "prior": ("prior", float),
+    "stop": ("stop_rel", float),
+    "win": ("window", int),
+    "iters": ("iters", int),
+    "rd": ("reader", str),
+}
+
+
+def treerag_args(mode: str) -> tuple[dict[str, Any], dict[str, int]]:
+    """ "treerag_mcts@steps=12;llm=4" -> (TreeRAG.run keywords, budget)."""
+    base, _, params = mode.replace("+retry", "").partition("@")
+    kw: dict[str, Any] = {
+        "strategy": {"treerag_beam": "beam", "treerag_mcts": "mcts"}.get(base, "best_first")
+    }
+    budget: dict[str, int] = {}
+    for item in filter(None, params.split(";")):
+        k, _, v = item.partition("=")
+        if k not in _TREERAG_KEYS:
+            raise ValueError(f"unknown treerag parameter {k!r} in {mode!r}")
+        field, conv = _TREERAG_KEYS[k]
+        if field in ("max_steps", "max_llm_calls"):
+            budget[field] = conv(v)
+        else:
+            kw[field] = conv(v)
+    return kw, budget
+
+
+def _treerag_job(
+    mode: str,
+    label: str,
+    q: Any,
+    run: Any,
+    recall5: Any,
+    judged: bool,
+    base_extra: dict[str, Any],
+    strat: Any,
+    doc_id: str | None,
+    budget: int,
+    builder: Any,
+    llm: Any,
+    paths: Any,
+) -> tuple[str, Any, Any, Any, dict[str, Any]]:
+    """V0.17 Tree-RAG for one (question, budget): the benchmark answers from its context."""
+    from treeengine.treerag import TreeRAG
+
+    kw, b = treerag_args(mode)
+    b["max_context_tokens"] = budget
+    pool = list(run.evidence)
+    first: dict[str, list[Any]] = {q.query: pool}
+
+    def retrieve(query: str, doc: str | None) -> list[Any]:
+        if query in first:  # the strategy's own retrieval of the question
+            return first.pop(query)
+        return list(strat.retrieve(query, document_id=doc, limit=50).evidence)
+
+    t0 = time.perf_counter()
+    tr = TreeRAG(builder.inner.repo, retrieve, llm)
+    res = tr.run(q.query, doc_id, budget=b, answer=False, **kw)
+    ms = round((time.perf_counter() - t0) * 1000)
+    spans = res.context_spans
+    ctx = as_evidence(run.evidence, spans)
+    info = {
+        **res.stats,
+        "search_ms": ms,
+        "query_tree": res.query_tree,
+        "tree": res.render(max_lines=60),
+    }
+    extra = {
+        **base_extra,
+        **fragmentation(spans),
+        "reason": info,
+        "retrieval_llm_calls": base_extra["retrieval_llm_calls"] + tr.llm_calls,
+        "retrieval_llm_input_tokens": base_extra["retrieval_llm_input_tokens"] + tr.llm_in,
+        "retrieval_llm_output_tokens": base_extra["retrieval_llm_output_tokens"] + tr.llm_out,
+    }
+    if judged:
+        depth = len(run.evidence) or 1
+        extra["candidate_recall"] = evaluate(q, label, run, paths, [depth]).recall.get(depth)
+        cut = replace(run, evidence=ctx, metadata={})
+        n = len(ctx) or 1
+        extra["context_coverage"] = evaluate(q, label, cut, paths, [n]).recall.get(n)
+    run2 = replace(
+        run,
+        evidence=ctx,
+        llm_calls=run.llm_calls + tr.llm_calls,
+        input_tokens=run.input_tokens + tr.llm_in,
+        output_tokens=run.output_tokens + tr.llm_out,
+        latency_ms=run.latency_ms + ms,
     )
     return (label, q, run2, recall5, extra)
 
@@ -352,6 +438,25 @@ def main(argv: list[str] | None = None) -> int:
             for m, b in variants:
                 if m is None or b is None or name == "full_context":
                     jobs.append((labels[(m, b)], q, run, recall5, dict(base_extra)))
+                    continue
+                if _base(m) in TREERAG and not chunked:
+                    jobs.append(
+                        _treerag_job(
+                            m,
+                            labels[(m, b)],
+                            q,
+                            run,
+                            recall5,
+                            judged,
+                            base_extra,
+                            strat,
+                            doc_id,
+                            b,
+                            builder,
+                            answer_llm,
+                            paths,
+                        )
+                    )
                     continue
                 if _base(m) in SEARCH and not chunked:
                     jobs.append(

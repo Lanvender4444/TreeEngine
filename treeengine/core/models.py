@@ -106,6 +106,8 @@ class AnswerResult(_Serializable):
     evidence: list[Evidence]
     query_type: str
     generated: bool  # False when no LLM was available (extractive fallback)
+    # V0.16: how the answer was produced (e.g. {"retry": {...}} after a self-check retry)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
