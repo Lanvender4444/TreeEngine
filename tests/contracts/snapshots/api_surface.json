@@ -1,0 +1,366 @@
+{
+ "TreeEngine": {
+  "ask": [
+   "question",
+   "document_id=None",
+   "mode=None",
+   "max_evidence=None",
+   "*policy=None",
+   "*context_budget=None",
+   "*retry=None",
+   "*preset=None"
+  ],
+  "build_context": [
+   "hits",
+   "token_budget=2000",
+   "policy='auto'",
+   "*document_id=None",
+   "*question=None",
+   "*strict_mapping=False",
+   "*on_unmapped=None"
+  ],
+  "build_graph_index": [],
+  "build_summary_tree": [
+   "document_id",
+   "**kw"
+  ],
+  "close": [],
+  "delete_document": [
+   "document_id"
+  ],
+  "document_info": [
+   "document_id"
+  ],
+  "evidence_search": [
+   "query",
+   "document_id=None",
+   "*algo='best_first'",
+   "*budget=2000",
+   "*policy=None",
+   "*reranker=None",
+   "*loop=False",
+   "**params"
+  ],
+  "export_blocks": [
+   "document_id"
+  ],
+  "format_tree": [
+   "document_id"
+  ],
+  "from_components": [],
+  "fts_search": [
+   "query",
+   "document_id=None",
+   "node_id=None",
+   "limit=10"
+  ],
+  "get_ancestors": [
+   "node_id"
+  ],
+  "get_children": [
+   "node_id"
+  ],
+  "get_document": [
+   "document_id"
+  ],
+  "get_node": [
+   "node_id"
+  ],
+  "get_roots": [
+   "document_id"
+  ],
+  "get_tree": [
+   "document_id",
+   "max_depth=None",
+   "include_text=False"
+  ],
+  "health": [],
+  "ingest": [
+   "source",
+   "source_type=None",
+   "*metadata=None"
+  ],
+  "ingest_bytes": [
+   "data",
+   "*filename=None",
+   "*source_type=None",
+   "*uri=None",
+   "*title=None",
+   "*metadata=None"
+  ],
+  "ingest_many": [
+   "sources",
+   "*source_type=None",
+   "*metadata=None",
+   "*stop_on_error=False"
+  ],
+  "ingest_text": [
+   "text",
+   "source_type='markdown'",
+   "title=None",
+   "uri=None",
+   "*metadata=None"
+  ],
+  "list_documents": [],
+  "map_hits": [
+   "hits",
+   "*document_id=None",
+   "*strict=False"
+  ],
+  "open": [
+   "*llm=None",
+   "*embedder=None",
+   "*config=None",
+   "*use_vector=None"
+  ],
+  "read_blocks": [
+   "node_id",
+   "limit=20",
+   "offset=0"
+  ],
+  "read_node": [
+   "node_id",
+   "max_chars=None"
+  ],
+  "register_adapter": [
+   "extensions=()"
+  ],
+  "reindex_vectors": [],
+  "repair": [],
+  "research": [
+   "query",
+   "document_id=None",
+   "*strategy='best_first'",
+   "*budget=None",
+   "*policy=None",
+   "**kw"
+  ],
+  "retrieve": [
+   "query",
+   "document_id=None",
+   "limit=10",
+   "mode=None",
+   "*policy=None",
+   "*context_budget=None",
+   "*context_policy='auto'",
+   "*options=None",
+   "*preset=None"
+  ],
+  "search": [
+   "query",
+   "document_id=None",
+   "limit=10",
+   "mode=None",
+   "*strategy=None",
+   "*budget=None",
+   "**kw"
+  ],
+  "search_semantic": [
+   "query",
+   "document_id=None",
+   "node_id=None",
+   "limit=10"
+  ],
+  "search_text": [
+   "query",
+   "document_id=None",
+   "node_id=None",
+   "limit=10"
+  ],
+  "stats": [],
+  "tree_search": [
+   "query",
+   "document_id"
+  ],
+  "verify": []
+ },
+ "treeengine.__all__": [
+  "Anchor",
+  "AnswerResult",
+  "Block",
+  "BlockAnchor",
+  "BlockContextBuilder",
+  "CallableLLM",
+  "Citation",
+  "ContextSpan",
+  "Document",
+  "DocumentNotFoundError",
+  "EmbeddingProvider",
+  "EngineConfig",
+  "Evidence",
+  "ExternalHit",
+  "IndexCompatibilityError",
+  "IngestOutcome",
+  "IngestionError",
+  "InvalidPolicyError",
+  "LLMProvider",
+  "MeteredLLM",
+  "Node",
+  "NodeAnchor",
+  "NodeView",
+  "OpenAICompatibleLLM",
+  "QueryType",
+  "Repository",
+  "ResourceLimitError",
+  "RetrievalOptions",
+  "RetrievalPolicy",
+  "Retriever",
+  "SearchPreset",
+  "SearchResult",
+  "SearchStats",
+  "TreeEngine",
+  "TreeEngineError",
+  "UnsupportedFormatError",
+  "VectorIndex",
+  "__version__",
+  "build_components",
+  "create_local_engine"
+ ],
+ "treeengine.api.__all__": [
+  "AccessDeniedError",
+  "AnswerV1",
+  "BlockV1",
+  "CitationV1",
+  "ContextSpanV1",
+  "DependencyMissingError",
+  "DocumentNotFoundError",
+  "DocumentV1",
+  "ERRORS",
+  "ERRORS",
+  "EvidenceV1",
+  "IndexCompatibilityError",
+  "IngestionError",
+  "IntegrationError",
+  "InvalidPolicyError",
+  "MappingError",
+  "MappingV1",
+  "NodeNotFoundError",
+  "NodeV1",
+  "OCRRequiredError",
+  "ResearchResultV1",
+  "ResourceLimitError",
+  "RetrievalOptions",
+  "RetrievalResultV1",
+  "SCHEMA_VERSION",
+  "SearchPreset",
+  "SourceNotFoundError",
+  "StorageError",
+  "TreeEngineError",
+  "UnsupportedFormatError",
+  "dto",
+  "resolve",
+  "schema"
+ ],
+ "v1_records": {
+  "answer": [
+   "question",
+   "status",
+   "answer",
+   "citations",
+   "context_spans",
+   "retry",
+   "schema_version"
+  ],
+  "block": [
+   "id",
+   "document_id",
+   "position",
+   "block_type",
+   "text",
+   "node_id",
+   "page",
+   "start_offset",
+   "end_offset"
+  ],
+  "citation": [
+   "document_id",
+   "block_ids",
+   "node_id",
+   "title",
+   "page_start",
+   "page_end",
+   "start_offset",
+   "end_offset",
+   "source_revision"
+  ],
+  "context_span": [
+   "text",
+   "document_id",
+   "token_count",
+   "block_ids",
+   "node_id",
+   "node_ids",
+   "page_start",
+   "page_end",
+   "start_offset",
+   "end_offset",
+   "source_evidence_ids",
+   "resolution",
+   "source_revision",
+   "citation",
+   "mapping"
+  ],
+  "document": [
+   "id",
+   "title",
+   "source_type",
+   "uri",
+   "source_revision",
+   "index_revision",
+   "index_status",
+   "metadata",
+   "schema_version"
+  ],
+  "evidence": [
+   "document_id",
+   "text",
+   "block_id",
+   "node_id",
+   "node_title",
+   "page",
+   "score",
+   "source",
+   "retrieval_paths",
+   "source_revision"
+  ],
+  "mapping": [
+   "status",
+   "mapped_by",
+   "quality",
+   "reason"
+  ],
+  "node": [
+   "id",
+   "document_id",
+   "title",
+   "depth",
+   "node_type",
+   "parent_id",
+   "page_start",
+   "page_end",
+   "summary"
+  ],
+  "research_result": [
+   "query",
+   "strategy",
+   "status",
+   "answer",
+   "query_tree",
+   "context_spans",
+   "search_tree",
+   "stats",
+   "schema_version"
+  ],
+  "retrieval_result": [
+   "query",
+   "status",
+   "retrieval",
+   "evidence",
+   "context_spans",
+   "stats",
+   "trace_id",
+   "trace",
+   "schema_version"
+  ]
+ }
+}

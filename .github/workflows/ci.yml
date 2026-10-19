@@ -1,0 +1,144 @@
+# TE-005: every PR gets lint + types + tests on the supported Pythons, the optional adapters in
+# their own environments (a skipped adapter test fails there), and a wheel built and installed
+# into a clean venv. Benchmarks with models are NOT run here (see benchmark-gate.yml).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e ".[dev]"
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: mypy treeengine
+
+  test:
+    name: test (${{ matrix.os }}, py${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.11", "3.12", "3.13"]
+        include:
+          - os: windows-latest
+            python: "3.12"
+          - os: macos-latest
+            python: "3.12"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - run: python -m pip install -e ".[dev]"
+      - name: core tests (PDF + sqlite-vec required, framework adapters may skip here)
+        env:
+          TREEENGINE_REQUIRE_EXTRAS: pdf
+        run: python -m pytest -q -rs --ignore=tests/performance
+
+  adapters:
+    name: adapter (${{ matrix.extra }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        extra: [vector, mcp, server, langchain, llamaindex]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e ".[dev,${{ matrix.extra }}]"
+      - name: adapter tests (a skip for this extra is a failure)
+        env:
+          TREEENGINE_REQUIRE_EXTRAS: ${{ matrix.extra }}
+        run: python -m pytest -q -rs -m "not slow" tests/integrations tests/contracts tests/test_v09_integrations.py tests/test_vector.py
+
+  mcp-compat:
+    name: mcp ${{ matrix.mcp }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mcp: ["mcp==1.25.0", "mcp>=1.25,<2", "mcp>=2,<3"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e ".[dev]" "${{ matrix.mcp }}"
+      - env:
+          TREEENGINE_REQUIRE_EXTRAS: mcp
+        run: python -m pytest -q -rs tests/integrations/test_mcp_roundtrip.py
+
+  framework-compat:
+    name: ${{ matrix.pkg }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - pkg: "langchain-core>=0.3,<0.4"
+            extra: langchain
+          - pkg: "langchain-core>=1,<2"
+            extra: langchain
+          - pkg: "llama-index-core>=0.12,<0.13"
+            extra: llamaindex
+          - pkg: "llama-index-core>=0.14"
+            extra: llamaindex
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      # only this framework: the adapters must not need each other
+      - run: python -m pip install -e . pytest "${{ matrix.pkg }}"
+      - env:
+          TREEENGINE_REQUIRE_EXTRAS: ${{ matrix.extra }}
+        run: python -m pytest -q -rs tests/integrations/test_frameworks.py
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install build twine
+      - name: build, twine check, audit, install the wheel in a clean venv, smoke test
+        run: python tools/check_wheel.py
+      - name: same with the vector + mcp extras
+        run: python tools/check_wheel.py --extras vector,mcp
+
+  examples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e ".[dev,server,langchain]"
+      - name: README + examples smoke tests (no keys, no models)
+        run: python -m pytest -q -rs tests/test_examples.py tests/test_readme.py

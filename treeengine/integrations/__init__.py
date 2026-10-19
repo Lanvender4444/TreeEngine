@@ -15,11 +15,15 @@ from typing import Any
 from .hits import ExternalHit, as_external, resolve_hit, resolve_hits
 
 
-def span_record(span: Any) -> dict[str, Any]:
-    """One ContextSpan as ``{"text", "metadata"}`` - all an external framework needs."""
+def span_record(span: Any, source_revision: str | None = None) -> dict[str, Any]:
+    """One ContextSpan as ``{"text", "metadata"}`` - all an external framework needs. The
+    metadata is flat (frameworks filter on scalar keys) and carries the citation: document,
+    section, pages, offsets, block ids, source revision."""
     return {
         "text": span.content,
         "metadata": {
+            "source_revision": source_revision,
+            "mapping_status": (getattr(span, "mapping", None) or {}).get("status"),
             "document_id": span.document_id,
             "node_id": span.node_id,
             "node_ids": list(span.node_ids),
@@ -38,7 +42,8 @@ def span_record(span: Any) -> dict[str, Any]:
 def to_documents(result_or_spans: Any) -> list[dict[str, Any]]:
     """A SearchResult (its context spans) or a list of ContextSpans -> records."""
     spans = getattr(result_or_spans, "context_spans", result_or_spans)
-    return [span_record(s) for s in spans]
+    revs = getattr(result_or_spans, "source_revisions", None) or {}
+    return [span_record(s, revs.get(s.document_id)) for s in spans]
 
 
 __all__ = [

@@ -4,6 +4,8 @@
     treeengine --db te.db tree <document_id>
     treeengine --db te.db search "为什么 gross margin 下降？" [--doc ID] [--mode HYBRID]
     treeengine --db te.db ask "..."        # uses OPENAI_* env vars if set, else extractive
+    treeengine --db te.db verify           # index consistency (exit 1 when repair is needed)
+    treeengine --db te.db repair           # rebuild FTS from blocks, finish partial indexes
 
 LLM env vars (OpenAI-compatible): TREEENGINE_LLM_MODEL, TREEENGINE_LLM_BASE_URL,
 TREEENGINE_LLM_API_KEY.
@@ -57,6 +59,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--type", default=None)
     sub.add_parser("list")
     sub.add_parser("reindex", help="re-embed all blocks (needs --embedder)")
+    sub.add_parser("verify", help="check FTS / vector / index-status consistency (read-only)")
+    sub.add_parser("repair", help="fix what verify reports (rebuild FTS, finish indexes)")
+    sub.add_parser("health", help="engine and index state as JSON")
     s = sub.add_parser("tree")
     s.add_argument("document_id")
     s.add_argument("--json", action="store_true")
@@ -109,6 +114,11 @@ def main(argv: list[str] | None = None) -> int:
                 print(te.format_tree(args.document_id))
         elif args.cmd == "reindex":
             print(f"embedded {te.reindex_vectors()} blocks")
+        elif args.cmd in ("verify", "repair", "health"):
+            out = getattr(te, args.cmd)()
+            print(json.dumps(out, ensure_ascii=False, indent=2, default=str))
+            if args.cmd != "health" and not out.get("ok", True):
+                return 1
         elif args.cmd == "semantic":
             for i, e in enumerate(
                 te.search_semantic(args.query, document_id=args.doc, limit=args.limit), 1

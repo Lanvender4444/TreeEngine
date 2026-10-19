@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Lanvender4444/TreeEngine/schemas/v1/mapping.json",
+  "title": "MappingV1",
+  "description": "How an external hit was mapped back to local blocks (``build_context``).",
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string"
+    },
+    "mapped_by": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "quality": {
+      "type": "number"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "additionalProperties": true,
+  "required": [
+    "status"
+  ]
+}

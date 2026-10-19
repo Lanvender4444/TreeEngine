@@ -78,7 +78,10 @@ def test_search_keeps_plain_retrieval(tmp_path: Path) -> None:
     with pytest.raises(TypeError):
         engine.search("margin costs", doc, budget={"max_steps": 3})
     with pytest.raises(ValueError):
-        engine.search("x", doc, strategy="nope")
+        engine.research("x", doc, strategy="nope")
+    with pytest.warns(DeprecationWarning):  # the old spelling still works, with a warning
+        r = engine.search("margin costs", doc, strategy="best_first", answer=False)
+    assert r.context_spans
 
 
 @pytest.mark.parametrize("strategy", ["best_first", "beam", "mcts"])
@@ -86,7 +89,7 @@ def test_tree_rag_three_trees(tmp_path: Path, strategy: str) -> None:
     calls: list[str] = []
     engine, doc = _engine(tmp_path, llm_fn(calls))
     budget = {"max_steps": 8, "max_llm_calls": 3, "max_context_tokens": 300}
-    r = engine.search(
+    r = engine.research(
         "How did sales in region 1 and costs in plant 2 change?",
         doc,
         strategy=strategy,
@@ -121,7 +124,7 @@ def test_tree_rag_three_trees(tmp_path: Path, strategy: str) -> None:
 def test_no_llm_budget_means_no_decompose_or_verify(tmp_path: Path) -> None:
     calls: list[str] = []
     engine, doc = _engine(tmp_path, llm_fn(calls))
-    r = engine.search(
+    r = engine.research(
         "margin costs plant", doc, strategy="best_first", budget={"max_llm_calls": 0}, policy=POL
     )
     assert calls == ["answer"] and r.query_tree == ["margin costs plant"]
@@ -165,7 +168,7 @@ def test_raptor_summary_tree(tmp_path: Path) -> None:
     assert rx.has(doc)
     top = rx.nodes(doc, 1)
     assert all(n.children for n in top)
-    r = engine.search(
+    r = engine.research(
         "Acme margin costs plants",
         doc,
         strategy="best_first",
@@ -182,7 +185,7 @@ def test_raptor_summary_tree(tmp_path: Path) -> None:
 def test_gate_reader_select_verify_rewrite(tmp_path: Path) -> None:
     calls: list[str] = []
     engine, doc = _engine(tmp_path, llm_fn(calls))
-    r = engine.search(
+    r = engine.research(
         "How did costs in plant 2 change?",
         doc,
         strategy="best_first",
@@ -196,4 +199,4 @@ def test_gate_reader_select_verify_rewrite(tmp_path: Path) -> None:
     assert all(n.action == "READ_SELECT" for n in t.read_nodes())
     assert r.stats["llm_calls_retrieval"] <= 3 and r.stats["context_tokens"] <= 300
     with pytest.raises(ValueError):
-        engine.search("x", doc, strategy="best_first", reader="nope")
+        engine.research("x", doc, strategy="best_first", reader="nope")

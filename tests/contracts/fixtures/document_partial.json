@@ -1,0 +1,16 @@
+{
+ "schema": "document",
+ "record": {
+  "schema_version": "1",
+  "id": "doc-1",
+  "title": "Report",
+  "source_type": "pdf",
+  "uri": "file:///r.pdf",
+  "source_revision": "sha256:aa",
+  "index_revision": 3,
+  "index_status": "partial",
+  "metadata": {
+   "team": "finance"
+  }
+ }
+}

@@ -1,0 +1,16 @@
+{
+ "schema": "error",
+ "record": {
+  "schema_version": "1",
+  "status": "error",
+  "error": {
+   "code": "index_incompatible",
+   "message": "the vector index was written by embedding model 'a' ...",
+   "retryable": false,
+   "details": {
+    "index_model": "a",
+    "engine_model": "b"
+   }
+  }
+ }
+}

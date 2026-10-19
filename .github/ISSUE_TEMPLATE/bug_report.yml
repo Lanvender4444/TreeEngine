@@ -1,0 +1,33 @@
+name: Bug report
+description: Something does not work as documented
+labels: ["kind:bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: A short script and a small (synthetic) document. No confidential files.
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: |
+        TreeEngine version, Python, OS, installed extras ([pdf] [vector] [mcp] ...),
+        and the output of `treeengine --db <db> health` and `treeengine --db <db> verify`.
+      render: text
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [ingest / PDF, retrieval, context reconstruction, storage, MCP, HTTP, LangChain / LlamaIndex, packaging, docs, other]

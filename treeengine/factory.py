@@ -46,6 +46,11 @@ class Components:
     answerer: Answerer
     controller: RetrievalController
     graph: Any = None  # GraphExpander when the repository has a Graph-lite store
+    # TE-009 resource ownership: what ``TreeEngine.close()`` closes (in reverse order).
+    # None = legacy wiring (``build_components`` with a caller's repository): the engine closes
+    # the repository and any vector index the wiring created itself, as before.
+    owned: list[Any] | None = None
+    vector_index: Any = None
 
 
 def build_components(
@@ -77,6 +82,7 @@ def build_components(
             from .storage.vectors import MemoryVectorIndex
 
             vector_index = MemoryVectorIndex()
+        _check_fingerprint(vector_index, embedder, cfg)
         vector = VectorRetriever(repository, vector_index, embedder, cfg)
         indexer = VectorIndexer(repository, vector_index, embedder)
 
@@ -122,7 +128,16 @@ def build_components(
             graph=graph,
         ),
         graph=graph,
+        vector_index=vector_index,
     )
+
+
+def _check_fingerprint(index: Any, embedder: Any, cfg: EngineConfig) -> None:
+    """TE-012: refuse to query vectors written by another embedding model (see
+    ``embeddings.fingerprint``)."""
+    from .embeddings.fingerprint import check_index_fingerprint
+
+    check_index_fingerprint(index, embedder, cfg)
 
 
 def build_local_components(
@@ -135,24 +150,39 @@ def build_local_components(
     llm_planner: bool = False,
     use_vector: bool = False,
 ) -> Components:
-    # the only place the app picks concrete backends
+    # the only place the app picks concrete backends; everything opened here is owned by the
+    # engine (closed by TreeEngine.close()) and closed again if wiring fails half way
     from .storage.sqlite import SQLiteRepository
 
-    vector_index: VectorIndex | None = None
-    if embedder is not None:
-        from .storage.vectors import SQLiteVectorIndex
+    opened: list[Any] = []
+    try:
+        repo = SQLiteRepository(db_path)
+        opened.append(repo)
+        vector_index: VectorIndex | None = None
+        if embedder is not None:
+            from .storage.vectors import SQLiteVectorIndex
 
-        vector_index = SQLiteVectorIndex(db_path)  # same file, table block_vectors
-    return build_components(
-        SQLiteRepository(db_path),
-        llm,
-        config,
-        embedder=embedder,
-        vector_index=vector_index,
-        llm_tree_navigation=llm_tree_navigation,
-        llm_planner=llm_planner,
-        use_vector=use_vector,
-    )
+            vector_index = SQLiteVectorIndex(db_path)  # same file, table block_vectors
+            opened.append(vector_index)
+        c = build_components(
+            repo,
+            llm,
+            config,
+            embedder=embedder,
+            vector_index=vector_index,
+            llm_tree_navigation=llm_tree_navigation,
+            llm_planner=llm_planner,
+            use_vector=use_vector,
+        )
+    except BaseException:
+        for r in reversed(opened):
+            try:
+                r.close()
+            except Exception:  # noqa: BLE001 - keep the original error
+                pass
+        raise
+    c.owned = opened
+    return c
 
 
 def create_local_engine(

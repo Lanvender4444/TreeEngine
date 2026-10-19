@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
+from typing import Any
 
 from ..core.models import Evidence
 
@@ -32,6 +33,9 @@ class ContextSpan:
     # section (a NodeAnchor's section) | section_window (a section's dense stretch); "+"-joined
     # when merged units differ (policy "resolution"); None for pass-through items
     resolution: str | None = None
+    # external hits (engine.build_context): how the span's first hit was mapped back to blocks
+    # - {"status", "mapped_by", "quality", "reason"}; None for TreeEngine's own retrieval
+    mapping: dict[str, Any] | None = None
 
     @property
     def section_crossings(self) -> int:

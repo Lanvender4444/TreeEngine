@@ -1,0 +1,27 @@
+{
+ "schema": "context_span",
+ "record": {
+  "text": "text from another index",
+  "document_id": "external",
+  "token_count": 5,
+  "block_ids": [],
+  "node_id": null,
+  "node_ids": [],
+  "page_start": null,
+  "page_end": null,
+  "start_offset": null,
+  "end_offset": null,
+  "source_evidence_ids": [
+   "external:9f2c"
+  ],
+  "resolution": null,
+  "source_revision": null,
+  "citation": null,
+  "mapping": {
+   "status": "unmapped",
+   "mapped_by": "none",
+   "quality": 0.0,
+   "reason": "no block matches"
+  }
+ }
+}

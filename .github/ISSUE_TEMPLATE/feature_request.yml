@@ -1,0 +1,26 @@
+name: Feature request
+description: A capability or an API you need
+labels: ["kind:feature"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would it solve?
+      description: The use case, as an outside developer would see it.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour or API
+  - type: textarea
+    id: measure
+    attributes:
+      label: How would we know it helps?
+      description: Evidence quality, latency, cost, a benchmark or a test case.
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: It can live in an optional module / extra (the core stays dependency-free)

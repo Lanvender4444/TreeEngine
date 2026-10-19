@@ -1,29 +1,54 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "treeengine"
-version = "0.3.0.dev0"
-description = "Local-first structured retrieval engine for AI agents (Tree + FTS on SQLite)"
+dynamic = ["version"]
+description = "Local-first evidence retrieval and context reconstruction for RAG and AI agents (SQLite + FTS5, optional vectors)"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Lanvender4444" }]
+keywords = ["rag", "retrieval", "agents", "mcp", "sqlite", "fts5", "pdf", "context"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Text Processing :: Indexing",
+    "Typing :: Typed",
+]
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/Lanvender4444/TreeEngine"
+Repository = "https://github.com/Lanvender4444/TreeEngine"
+Issues = "https://github.com/Lanvender4444/TreeEngine/issues"
+Changelog = "https://github.com/Lanvender4444/TreeEngine/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 pdf = ["pypdf>=4.0", "pypdfium2>=4.0"]
 vector = ["fastembed>=0.4", "sqlite-vec>=0.1.6"]
 # integrations (thin adapters over the same core)
-mcp = ["mcp>=1.2"]
-server = ["fastapi>=0.110", "uvicorn>=0.29"]
-langchain = ["langchain-core>=0.2"]
-llamaindex = ["llama-index-core>=0.10"]
+mcp = ["mcp>=1.25,<3"]  # tested: 1.25.0, latest 1.x, latest 2.x (CI mcp-compat)
+server = ["fastapi>=0.110", "uvicorn>=0.29", "httpx>=0.27"]
+langchain = ["langchain-core>=0.3"]
+llamaindex = ["llama-index-core>=0.12"]
 # benchmarks: exact token counts for chunking / context size, report figures
 bench = ["pypdf>=4.0", "pypdfium2>=4.0", "sqlite-vec>=0.1.6", "tiktoken>=0.7", "matplotlib>=3.8"]
 # only for re-building the longdoc suite from MMLongBench-Doc
 bench-build = ["huggingface_hub>=0.23", "pyarrow>=14"]
-dev = ["pytest>=7", "ruff>=0.4", "mypy>=1.8", "pypdf>=4.0", "pypdfium2>=4.0", "reportlab>=4.0", "sqlite-vec>=0.1.6"]
+dev = ["pytest>=7", "ruff>=0.4", "mypy>=1.8", "pypdf>=4.0", "pypdfium2>=4.0", "reportlab>=4.0", "sqlite-vec>=0.1.6", "build>=1.2", "twine>=5", "jsonschema>=4"]
+# everything an integration CI job needs (each adapter is also tested in its own environment)
+all = ["treeengine[pdf,vector,mcp,server,langchain,llamaindex]", "httpx>=0.27"]
 
 [project.scripts]
 treeengine = "treeengine.cli:main"
@@ -34,7 +59,10 @@ treeengine-server = "treeengine.integrations.http:main"
 include = ["treeengine*"]
 
 [tool.setuptools.package-data]
-treeengine = ["storage/schema.sql"]
+treeengine = ["storage/schema.sql", "py.typed", "api/schemas/*.json"]
+
+[tool.setuptools.dynamic]
+version = { attr = "treeengine._version.__version__" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

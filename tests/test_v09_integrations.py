@@ -192,6 +192,8 @@ def test_mcp_server_tools(te: TreeEngine, fixtures: Path) -> None:
     def payload(r: Any) -> Any:
         if isinstance(r, tuple):  # mcp 1.x: (content, structured)
             r = r[1] if r[1] is not None else r[0]
+        if isinstance(r, dict):  # mcp 1.x structured output
+            return r.get("result", r)
         structured = getattr(r, "structured_content", None) or getattr(r, "structuredContent", None)
         if structured is not None:
             return structured.get("result", structured)
@@ -199,7 +201,8 @@ def test_mcp_server_tools(te: TreeEngine, fixtures: Path) -> None:
         return json.loads(content[0].text)
 
     out = payload(res)
-    assert out["context_spans"] and out["anchors"]
+    assert out["schema_version"] == "1" and out["context_spans"] and out["evidence"]
+    assert out["context_spans"][0]["citation"]["document_id"] == doc
     assert payload(roots)
 
 
@@ -209,8 +212,14 @@ def test_http_api(te: TreeEngine, fixtures: Path) -> None:
     from fastapi.testclient import TestClient
 
     from treeengine.integrations.http import create_app
+    from treeengine.integrations.service import ServiceConfig
 
-    c = TestClient(create_app(te))
+    locked = TestClient(create_app(te))  # default: ingestion by server path is off
+    assert (
+        locked.post("/ingest", json={"path": str(fixtures / "handbook_large.md")}).status_code
+        == 403
+    )
+    c = TestClient(create_app(te, ServiceConfig(ingest_roots=[fixtures])))
     d = c.post("/ingest", json={"path": str(fixtures / "handbook_large.md")}).json()
     assert c.get("/documents").json()[0]["id"] == d["id"]
     hits = c.post("/search", json={"query": "Redis eviction", "limit": 3}).json()

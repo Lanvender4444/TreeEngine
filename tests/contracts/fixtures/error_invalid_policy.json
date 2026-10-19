@@ -1,0 +1,17 @@
+{
+ "schema": "error",
+ "record": {
+  "schema_version": "1",
+  "status": "error",
+  "error": {
+   "code": "invalid_request",
+   "message": "unknown policy fields: ['nope']",
+   "retryable": false,
+   "details": {
+    "fields": [
+     "nope"
+    ]
+   }
+  }
+ }
+}

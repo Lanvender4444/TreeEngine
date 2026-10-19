@@ -1,0 +1,28 @@
+{
+ "schema": "context_span",
+ "record": {
+  "text": "...",
+  "document_id": "doc-1",
+  "token_count": 512,
+  "block_ids": [
+   "b1",
+   "b2"
+  ],
+  "node_id": null,
+  "node_ids": [
+   "n1",
+   "n2"
+  ],
+  "page_start": 12,
+  "page_end": 13,
+  "start_offset": 100,
+  "end_offset": 2400,
+  "source_evidence_ids": [
+   "b1"
+  ],
+  "resolution": "window+section",
+  "source_revision": "sha256:ff",
+  "citation": null,
+  "mapping": null
+ }
+}

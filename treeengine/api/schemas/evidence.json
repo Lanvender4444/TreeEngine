@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Lanvender4444/TreeEngine/schemas/v1/evidence.json",
+  "title": "EvidenceV1",
+  "description": "A retrieved, citable unit (a block, or a section for node anchors).",
+  "type": "object",
+  "properties": {
+    "document_id": {
+      "type": "string"
+    },
+    "text": {
+      "type": "string"
+    },
+    "block_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "node_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "node_title": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "page": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "score": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "source": {
+      "type": "string"
+    },
+    "retrieval_paths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "source_revision": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "additionalProperties": true,
+  "required": [
+    "document_id",
+    "text"
+  ]
+}

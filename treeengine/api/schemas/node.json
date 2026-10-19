@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Lanvender4444/TreeEngine/schemas/v1/node.json",
+  "title": "NodeV1",
+  "description": "NodeV1(id: 'str', document_id: 'str', title: 'str', depth: 'int', node_type: 'str', parent_id: 'str | None' = None, page_start: 'int | None' = None, page_end: 'int | None' = None, summary: 'str | None' = None)",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "document_id": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "depth": {
+      "type": "integer"
+    },
+    "node_type": {
+      "type": "string"
+    },
+    "parent_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "page_start": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "page_end": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "summary": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "additionalProperties": true,
+  "required": [
+    "id",
+    "document_id",
+    "title",
+    "depth",
+    "node_type"
+  ]
+}

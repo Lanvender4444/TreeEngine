@@ -2,7 +2,7 @@
 
 **Local-first RAG · Fine-grained Evidence · Context Reconstruction · Structure-aware Documents**
 
-**[中文](README_zh.md)**
+**English** · **[中文](README.zh-CN.md)**
 
 ---
 
@@ -92,49 +92,45 @@ This keeps retrieval narrow without forcing the model to read isolated fragments
 
 # Quickstart
 
-Install TreeEngine:
+Install from the repository (the package is not on PyPI yet):
 
 ```bash
-pip install -e ".[dev]"
+pip install "treeengine @ git+https://github.com/Lanvender4444/TreeEngine"
 ```
 
-For PDF support:
+Optional extras — the core needs nothing but Python ≥ 3.11 and the SQLite that ships with it:
 
-```bash
-pip install -e ".[pdf]"
-```
+| extra | adds |
+|---|---|
+| `[pdf]` | PDF ingestion with layout-aware structure (`pypdf`, `pypdfium2`) |
+| `[vector]` | local embeddings + `sqlite-vec` vector index (`fastembed`) |
+| `[mcp]` | `treeengine-mcp`, an MCP server for agents |
+| `[server]` | `treeengine-server`, a small HTTP API (`fastapi`, `uvicorn`) |
+| `[langchain]` / `[llamaindex]` | retriever adapters |
 
-For vector retrieval:
-
-```bash
-pip install -e ".[vector]"
-```
-
-Ingest a document and retrieve evidence:
+Ingest a document, find evidence, read reconstructed context — no LLM, no embedding model:
 
 ```python
+from pathlib import Path
 from treeengine import TreeEngine
 
-engine = TreeEngine("treeengine.db")
-
-doc = engine.ingest("annual_report.pdf")
-
-evidence = engine.search(
-    "Why did operating margin decline?",
-    document_id=doc.id,
+Path("report.md").write_text(
+    "# Annual report\n\n## Results\n\nRevenue grew 12% to $4.2 billion.\n\n"
+    "## Margins\n\nOperating margin declined to 18% because raw material costs rose.\n",
+    encoding="utf-8",
 )
-```
 
-Then reconstruct context around the retrieved evidence:
+with TreeEngine("treeengine.db") as engine:
+    doc = engine.ingest("report.md")
 
-```python
-from treeengine import BlockContextBuilder
+    # 1. Evidence: where the relevant information is
+    evidence = engine.search("Why did operating margin decline?", document_id=doc.id)
+    print(evidence[0].content, evidence[0].block_id)
 
-spans = BlockContextBuilder(engine.repo).build(
-    evidence,
-    token_budget=2000,
-    policy="auto",
-)
+    # 2. ContextSpans: what the model should read (continuous, budgeted, with provenance)
+    spans = engine.build_context(evidence, token_budget=2000)
+    for span in spans:
+        print(span.page_start, span.block_ids, span.content)
 ```
 
 The distinction is intentional:
@@ -142,7 +138,7 @@ The distinction is intentional:
 ```text
 Evidence[]
   ↓
-ContextBuilder
+Context reconstruction
   ↓
 ContextSpan[]
 ```
@@ -150,6 +146,45 @@ ContextSpan[]
 `Evidence` tells you **where the relevant information is**.
 
 `ContextSpan` determines **what the model should read**.
+
+### Use it with your existing RAG
+
+TreeEngine does not have to be your retriever. Hits from any vector store can be mapped back
+to blocks (by `block_id`, offsets, page or text) and turned into coherent reading context:
+
+```python
+from treeengine import TreeEngine
+
+with TreeEngine("treeengine.db") as engine:
+    doc = engine.list_documents()[0]
+    hits = [{"document_id": doc.id, "text": "raw material costs rose"}]   # from your retriever
+    for span in engine.build_context(hits, token_budget=1000):
+        print(span.content)
+```
+
+### Use it from an agent (MCP)
+
+```bash
+pip install "treeengine[mcp] @ git+https://github.com/Lanvender4444/TreeEngine"
+treeengine --db treeengine.db ingest report.md
+treeengine-mcp --db treeengine.db          # stdio; tools: search, retrieve, build_context,
+                                           # list_documents, get_roots, get_children, read_node ...
+```
+
+### Quality presets (optional LLM)
+
+```python
+from treeengine import TreeEngine, RetrievalPolicy
+
+engine = TreeEngine("treeengine.db", llm=my_llm, embedder=my_embedder, use_vector=True)
+result = engine.ask("Why did operating margin decline?",
+                    policy=RetrievalPolicy.recommended(), retry=True)
+```
+
+`RetrievalPolicy.recommended()` (FTS + vector candidates, a local reranker, one
+PageIndex-style reading call, an answer self-check) is the best configuration on our held-out
+financial QA sets; the default path uses no LLM at all. See
+[benchmarks/results/v0.16-routes.md](benchmarks/results/v0.16-routes.md).
 
 ---
 
@@ -360,3 +395,29 @@ Retrieval should be precise.
 Reading context should be coherent.
 
 > **Retrieve fine. Read coherent.**
+
+---
+
+# Status and limitations
+
+- **Alpha** (`0.3.0.dev`): the Python API listed in [docs/api/python.md](docs/api/python.md) is
+  the supported surface; modules marked experimental (`treeengine.treerag`, `treeengine.esearch`,
+  RAPTOR summaries) may change.
+- Inputs: Markdown, HTML, plain text and PDFs with a text layer. Scanned PDFs need OCR first.
+- The default backend is a single SQLite file; it is built for one process with modest
+  concurrency, not for a multi-tenant service.
+- Benchmark claims are tied to the datasets, models and splits in
+  [benchmarks/README.md](benchmarks/README.md) — they are not universal.
+
+# Documentation
+
+- [Documentation home](docs/index.md) · [Getting started](docs/getting-started/installation.md) ·
+  [Concepts](docs/concepts/document-node-block.md) ·
+  [Integrations](docs/integrations/external-retriever.md) ·
+  [API](docs/api/python.md) · [Operations](docs/operations/security.md)
+- [Examples](examples/) — every example runs in CI without keys or models.
+- [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
+
+# License
+
+[MIT](LICENSE)

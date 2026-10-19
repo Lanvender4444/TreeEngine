@@ -71,6 +71,12 @@ class TreeRAGResult:
     def render(self, **kw: Any) -> str:
         return self.search_tree.render(**kw)
 
+    def to_v1(self) -> Any:
+        """A versioned ``ResearchResultV1`` record (``.to_dict()`` for JSON)."""
+        from ..api.dto import research_v1
+
+        return research_v1(None, self)
+
     def to_dict(self) -> dict[str, Any]:
         from dataclasses import asdict
 

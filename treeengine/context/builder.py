@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, overload
 
 from ..core.anchor import Anchor, anchor_from_evidence
 from ..core.models import Block, Evidence
@@ -106,6 +106,7 @@ class BlockContextBuilder:
         allow_first_overflow: bool = False,
         overshoot: float = 1.25,
         node_scope: Literal["subtree", "own"] = "subtree",
+        bounded: bool = True,
     ) -> None:
         self.repo = repo
         self.policy = policy
@@ -114,21 +115,35 @@ class BlockContextBuilder:
         self.allow_first_overflow = allow_first_overflow
         self.overshoot = overshoot  # adaptive growth stops before a block would exceed size*this
         self.node_scope = node_scope
-        self._blocks: dict[str, list[Block]] = {}
-        self._where: dict[str, tuple[str, int]] = {}  # block id -> (document, index)
+        self._bounded = bounded and all(
+            hasattr(repo, m)
+            for m in ("count_document_blocks", "get_block_range", "get_block_location")
+        )
+        self._blocks: dict[str, Sequence[Block]] = {}
+        # block id -> (document, index); resolves unknown ids from the repository on lookup
+        self._where: dict[str, tuple[str, int]] = _Where(self) if self._bounded else {}
         self._tokens: dict[str, int] = {}
         self._resolution: Any = None  # ResolutionPlanner, created on first "resolution" build
         self._adaptive: Any = None  # AdaptiveContextPolicy (V0.12), on first "adaptive" build
         self._budget = 0  # token budget of the build in progress (section-read NodeAnchors)
 
-    # ---- document geometry (one read per document, cached)
-    def blocks(self, document_id: str) -> list[Block]:
+    # ---- document geometry (cached). TE-029: with a repository that supports bounded reads
+    # (SQLite), blocks are loaded in pages around the anchors instead of a whole document per
+    # build; iterating a document's blocks still loads all of them (advanced policies do).
+    def blocks(self, document_id: str) -> Sequence[Block]:
         if document_id not in self._blocks:
-            blocks = self.repo.get_document_blocks(document_id)
-            self._blocks[document_id] = blocks
-            for i, b in enumerate(blocks):
-                self._where[b.id] = (document_id, i)
+            if self._bounded:
+                self._blocks[document_id] = _LazyBlocks(self.repo, document_id, self._where)
+            else:
+                blocks = self.repo.get_document_blocks(document_id)
+                self._blocks[document_id] = blocks
+                for i, b in enumerate(blocks):
+                    self._where[b.id] = (document_id, i)
         return self._blocks[document_id]
+
+    def locate(self, block_id: str) -> tuple[str, int] | None:
+        """(document, index) of a block, loading only its page."""
+        return self._where.get(block_id)
 
     def tokens(self, b: Block) -> int:
         if b.id not in self._tokens:
@@ -165,7 +180,7 @@ class BlockContextBuilder:
                 break
         return a.document_id, lo, hi
 
-    def _grow(self, blocks: list[Block], i: int, size: int, ids: set[str]) -> tuple[int, int]:
+    def _grow(self, blocks: Sequence[Block], i: int, size: int, ids: set[str]) -> tuple[int, int]:
         """Grow [i, i] alternately left / right while blocks stay in ``ids`` and the span stays
         under ``size`` tokens (same growth rule as the section policy)."""
         lo = hi = i
@@ -381,6 +396,96 @@ def as_anchors(items: Sequence[Item]) -> list[Anchor]:
         elif it.block_id or it.node_id:
             out.append(anchor_from_evidence(it, rank=len(out) + 1))
     return out
+
+
+class _LazyBlocks(Sequence[Block]):
+    """A document's blocks, read from the repository in pages of ``PAGE`` on first access."""
+
+    PAGE = 128
+
+    def __init__(self, repo: Any, document_id: str, where: dict[str, tuple[str, int]]) -> None:
+        self.repo = repo
+        self.document_id = document_id
+        self.where = where
+        self._n: int | None = None
+        self._pages: dict[int, list[Block]] = {}
+
+    def __len__(self) -> int:
+        if self._n is None:
+            self._n = int(self.repo.count_document_blocks(self.document_id))
+        return self._n
+
+    def _page(self, p: int) -> list[Block]:
+        if p not in self._pages:
+            rows = self.repo.get_block_range(self.document_id, p * self.PAGE, self.PAGE)
+            self._pages[p] = rows
+            for i, b in enumerate(rows):
+                dict.__setitem__(self.where, b.id, (self.document_id, p * self.PAGE + i))
+        return self._pages[p]
+
+    @overload
+    def __getitem__(self, i: int) -> Block: ...
+
+    @overload
+    def __getitem__(self, i: slice) -> list[Block]: ...
+
+    def __getitem__(self, i: int | slice) -> Block | list[Block]:
+        n = len(self)
+        if isinstance(i, slice):
+            return [self[k] for k in range(*i.indices(n))]
+        if i < 0:
+            i += n
+        if not 0 <= i < n:
+            raise IndexError(i)
+        page = self._page(i // self.PAGE)
+        return page[i % self.PAGE]
+
+    def __iter__(self) -> Iterator[Block]:
+        for p in range((len(self) + self.PAGE - 1) // self.PAGE):
+            yield from self._page(p)
+
+    @property
+    def loaded(self) -> int:
+        return sum(len(v) for v in self._pages.values())
+
+
+class _Where(dict[str, tuple[str, int]]):
+    """block id -> (document, index); a miss asks the repository where the block is and loads
+    only that block's page."""
+
+    def __init__(self, builder: BlockContextBuilder) -> None:
+        super().__init__()
+        self.builder = builder
+        self.unknown: set[str] = set()
+
+    def _resolve(self, key: object) -> tuple[str, int] | None:
+        if not isinstance(key, str) or key in self.unknown:
+            return None
+        loc = self.builder.repo.get_block_location(key)  # type: ignore[attr-defined]
+        if loc is None:
+            self.unknown.add(key)
+            return None
+        doc, pos = loc
+        blocks = self.builder.blocks(doc)
+        if 0 <= pos < len(blocks) and blocks[pos].id == key:
+            return dict.get(self, key)
+        self.unknown.add(key)  # positions not contiguous: not addressable by index
+        return None
+
+    def __contains__(self, key: object) -> bool:
+        return dict.__contains__(self, key) or self._resolve(key) is not None
+
+    def __missing__(self, key: str) -> tuple[str, int]:
+        loc = self._resolve(key)
+        if loc is None:
+            raise KeyError(key)
+        return loc
+
+    def get(self, key: str, default: Any = None) -> Any:
+        if dict.__contains__(self, key):
+            return dict.__getitem__(self, key)
+        loc = self._resolve(key)
+        return default if loc is None else loc
 
 
 __all__ = [

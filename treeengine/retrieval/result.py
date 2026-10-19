@@ -57,7 +57,18 @@ class SearchResult:
     # V0.9: the retrieval decisions - ranked positions worth reading (BlockAnchor / NodeAnchor,
     # after fusion). ``evidence`` is their citable record; ``context_spans`` what to read.
     anchors: list[Any] = field(default_factory=list)
+    # SDK v1 (TE-021 / TE-022): the preset used, capabilities it had to do without, and the
+    # source revision of each document in the result (for stable citations)
+    preset: str | None = None
+    degradations: list[str] = field(default_factory=list)
+    source_revisions: dict[str, str | None] = field(default_factory=dict)
 
     @property
     def query_type(self) -> str:
         return str(getattr(self.plan, "query_type", ""))
+
+    def to_v1(self, *, include_trace: bool = False, max_evidence: int = 20) -> Any:
+        """This result as a versioned ``RetrievalResultV1`` (``.to_dict()`` for JSON)."""
+        from ..api.dto import retrieval_v1
+
+        return retrieval_v1(None, self, include_trace=include_trace, max_evidence=max_evidence)

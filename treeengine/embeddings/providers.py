@@ -13,6 +13,7 @@ import json
 import math
 import sqlite3
 import struct
+import threading
 import urllib.error
 import urllib.request
 from collections.abc import Sequence
@@ -193,7 +194,8 @@ class CachedEmbedding:
     def __init__(self, inner: EmbeddingProvider, path: str | Path) -> None:
         self.inner = inner
         self.model_name = inner.model_name
-        self.conn = sqlite3.connect(str(path))
+        self._lock = threading.RLock()
+        self.conn = sqlite3.connect(str(path), check_same_thread=False, timeout=30)
         self.conn.execute(
             "CREATE TABLE IF NOT EXISTS emb (model TEXT, kind TEXT, key TEXT, vec BLOB, "
             "PRIMARY KEY (model, kind, key))"
@@ -224,7 +226,15 @@ class CachedEmbedding:
         )
         self.conn.commit()
 
+    def close(self) -> None:
+        with self._lock:
+            self.conn.close()
+
     def embed_texts(self, texts: Sequence[str]) -> list[list[float]]:
+        with self._lock:
+            return self._embed_texts(texts)
+
+    def _embed_texts(self, texts: Sequence[str]) -> list[list[float]]:
         keys = [self._key(t) for t in texts]
         have = self._get("passage", list(dict.fromkeys(keys)))
         missing = [(k, t) for k, t in dict(zip(keys, texts, strict=True)).items() if k not in have]
@@ -238,6 +248,10 @@ class CachedEmbedding:
         return [have[k] for k in keys]
 
     def embed_query(self, query: str) -> list[float]:
+        with self._lock:
+            return self._embed_query(query)
+
+    def _embed_query(self, query: str) -> list[float]:
         key = self._key(query)
         got = self._get("query", [key])
         if key in got:

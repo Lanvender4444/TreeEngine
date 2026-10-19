@@ -1,0 +1,313 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Lanvender4444/TreeEngine/schemas/v1/research_result.json",
+  "title": "ResearchResultV1",
+  "description": "ResearchResultV1(query: 'str', strategy: 'str', status: 'str', answer: 'str | None', query_tree: 'list[str]', context_spans: 'list[ContextSpanV1]', search_tree: 'dict[str, Any]', stats: 'dict[str, Any]', schema_version: 'str' = '1')",
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string"
+    },
+    "strategy": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string"
+    },
+    "answer": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "query_tree": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "context_spans": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ContextSpanV1"
+      }
+    },
+    "search_tree": {
+      "type": "object"
+    },
+    "stats": {
+      "type": "object"
+    },
+    "schema_version": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true,
+  "required": [
+    "query",
+    "strategy",
+    "status",
+    "answer",
+    "query_tree",
+    "context_spans",
+    "search_tree",
+    "stats"
+  ],
+  "$defs": {
+    "ContextSpanV1": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "document_id": {
+          "type": "string"
+        },
+        "token_count": {
+          "type": "integer"
+        },
+        "block_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "node_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "node_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "page_start": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "page_end": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "start_offset": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "end_offset": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source_evidence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "resolution": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source_revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "citation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CitationV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mapping": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MappingV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": true,
+      "required": [
+        "text",
+        "document_id",
+        "token_count"
+      ]
+    },
+    "CitationV1": {
+      "type": "object",
+      "properties": {
+        "document_id": {
+          "type": "string"
+        },
+        "block_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "node_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "page_start": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "page_end": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "start_offset": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "end_offset": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source_revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": true,
+      "required": [
+        "document_id"
+      ]
+    },
+    "MappingV1": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "mapped_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "quality": {
+          "type": "number"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": true,
+      "required": [
+        "status"
+      ]
+    }
+  }
+}

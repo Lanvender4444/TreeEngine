@@ -48,3 +48,36 @@ def keyword_navigator(keyword_map: dict[str, str] | None = None) -> CallableLLM:
         return "summary"
 
     return CallableLLM(fn)
+
+
+# ---------------------------------------------------------------- required extras (TE-005/036)
+# CI jobs set TREEENGINE_REQUIRE_EXTRAS="mcp,server,..." so that a test which would be skipped
+# for a missing optional dependency FAILS instead ("no false green" for adapters).
+_EXTRA_MODULES = {
+    "pdf": ("pypdf", "pypdfium2", "reportlab"),
+    "vector": ("sqlite_vec", "sqlite-vec", "fastembed"),
+    "mcp": ("mcp",),
+    "server": ("fastapi", "httpx", "uvicorn"),
+    "langchain": ("langchain_core",),
+    "llamaindex": ("llama_index",),
+}
+
+
+def _required_modules() -> set[str]:
+    import os
+
+    names = {e.strip() for e in os.environ.get("TREEENGINE_REQUIRE_EXTRAS", "").split(",")}
+    return {m for e in names if e for m in _EXTRA_MODULES.get(e, (e,))}
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]):  # type: ignore[no-untyped-def]
+    outcome = yield
+    rep = outcome.get_result()
+    required = _required_modules()
+    if required and rep.skipped:
+        reason = str(rep.longrepr)
+        hit = [m for m in required if m in reason]
+        if hit:
+            rep.outcome = "failed"
+            rep.longrepr = f"required extra missing ({', '.join(hit)}): {reason}"

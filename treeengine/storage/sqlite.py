@@ -19,7 +19,7 @@ from ..core.models import Block, Document, Node, dumps_meta, loads_meta
 from ..core.protocols import MatchMode
 from .fts5 import fts_match_expr, segment_for_index
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _NODE_COLS = (
     "id, document_id, parent_id, depth, position, title, summary, text, node_type, "
@@ -145,11 +145,14 @@ class SQLiteRepository:
             yield self.conn
         except BaseException:
             self._tx_depth -= 1
-            if self._tx_depth == 0:
-                self.conn.execute("ROLLBACK")
-            else:
-                self.conn.execute(f"ROLLBACK TO sp{self._tx_depth}")
-                self.conn.execute(f"RELEASE sp{self._tx_depth}")
+            # SQLite already rolled back after some errors (SQLITE_FULL, SQLITE_IOERR): a
+            # second ROLLBACK would fail and hide the real error
+            if self.conn.in_transaction:
+                if self._tx_depth == 0:
+                    self.conn.execute("ROLLBACK")
+                else:
+                    self.conn.execute(f"ROLLBACK TO sp{self._tx_depth}")
+                    self.conn.execute(f"RELEASE sp{self._tx_depth}")
             raise
         else:
             self._tx_depth -= 1
@@ -170,7 +173,17 @@ class SQLiteRepository:
                     "SELECT created_at FROM documents WHERE id = ?", (doc.id,)
                 ).fetchone()
                 created = row["created_at"]
+                idx = self.conn.execute(
+                    "SELECT * FROM document_index WHERE document_id = ?", (doc.id,)
+                ).fetchone()
                 self.delete_document(doc.id)
+                if idx is not None:  # an update keeps the index history (index_revision)
+                    cols = idx.keys()
+                    self.conn.execute(
+                        f"INSERT INTO document_index ({', '.join(cols)}) "
+                        f"VALUES ({', '.join('?' * len(cols))})",
+                        tuple(idx),
+                    )
             meta = {k: v for k, v in doc.metadata.items() if not k.startswith("_")}
             self.conn.execute(
                 "INSERT INTO documents (id, source_type, uri, title, description, text, "
@@ -222,6 +235,7 @@ class SQLiteRepository:
                 (document_id,),
             )
             self.conn.execute("DELETE FROM entity_blocks WHERE document_id = ?", (document_id,))
+            self.conn.execute("DELETE FROM document_index WHERE document_id = ?", (document_id,))
             self.conn.execute("DELETE FROM blocks WHERE document_id = ?", (document_id,))
             self.conn.execute("DELETE FROM nodes WHERE document_id = ?", (document_id,))
             self.conn.execute("DELETE FROM documents WHERE id = ?", (document_id,))
@@ -496,6 +510,31 @@ class SQLiteRepository:
         ).fetchall()
         return [_row_to_block(r) for r in rows]
 
+    # ---- bounded reads (TE-029): a context needs the blocks around its anchors, not the
+    # whole document. Block positions are 0..n-1 in document order.
+    def count_document_blocks(self, document_id: str) -> int:
+        return int(
+            self.conn.execute(
+                "SELECT COUNT(*) FROM blocks WHERE document_id = ?", (document_id,)
+            ).fetchone()[0]
+        )
+
+    def get_block_range(self, document_id: str, start: int, limit: int) -> list[Block]:
+        """Blocks with position in [start, start + limit), in document order."""
+        rows = self.conn.execute(
+            f"SELECT {_BLOCK_COLS} FROM blocks WHERE document_id = ? AND position >= ? "
+            "AND position < ? ORDER BY position",
+            (document_id, start, start + limit),
+        ).fetchall()
+        return [_row_to_block(r) for r in rows]
+
+    def get_block_location(self, block_id: str) -> tuple[str, int] | None:
+        """(document id, position) of a block."""
+        r = self.conn.execute(
+            "SELECT document_id, position FROM blocks WHERE id = ?", (block_id,)
+        ).fetchone()
+        return (str(r[0]), int(r[1])) if r else None
+
     # ------------------------------------------------------------------ graph-lite
     def save_entity_links(
         self, document_id: str, links: Sequence[tuple[str, str, str | None, str, int]]
@@ -601,6 +640,62 @@ class SQLiteRepository:
             return []
         return [(_row_to_block(r), -float(r["rank"])) for r in rows]
 
+    # ------------------------------------------------------------------ index status (v4)
+    def set_index_status(self, document_id: str, **fields: Any) -> None:
+        """Upsert a document's index record; ``bump=True`` increments index_revision."""
+        bump = bool(fields.pop("bump", False))
+        allowed = {"source_revision", "status", "vector_status", "graph_status", "error"}
+        bad = set(fields) - allowed
+        if bad:
+            raise ValueError(f"unknown index status fields: {sorted(bad)}")
+        now = _now()
+        with self.transaction():
+            self.conn.execute(
+                "INSERT OR IGNORE INTO document_index (document_id, status, updated_at) "
+                "VALUES (?, 'indexing', ?)",
+                (document_id, now),
+            )
+            sets = [f"{k} = ?" for k in fields] + ["updated_at = ?"]
+            vals = [*fields.values(), now]
+            if bump:
+                sets.append("index_revision = index_revision + 1")
+            self.conn.execute(
+                f"UPDATE document_index SET {', '.join(sets)} WHERE document_id = ?",
+                [*vals, document_id],
+            )
+
+    def get_index_status(self, document_id: str) -> dict[str, Any] | None:
+        r = self.conn.execute(
+            "SELECT * FROM document_index WHERE document_id = ?", (document_id,)
+        ).fetchone()
+        return dict(r) if r else None
+
+    def list_index_status(self) -> list[dict[str, Any]]:
+        rows = self.conn.execute("SELECT * FROM document_index ORDER BY document_id").fetchall()
+        return [dict(r) for r in rows]
+
+    def fts_mismatches(self) -> dict[str, int]:
+        """Rows of blocks_fts without a block, blocks without an FTS row, and FTS rows whose
+        block id disagrees (all should be 0)."""
+        q = self.conn.execute
+        orphans = q(
+            "SELECT COUNT(*) FROM blocks_fts f LEFT JOIN blocks b ON b.rowid = f.rowid "
+            "WHERE b.rowid IS NULL"
+        ).fetchone()[0]
+        missing = q(
+            "SELECT COUNT(*) FROM blocks b LEFT JOIN blocks_fts f ON f.rowid = b.rowid "
+            "WHERE f.rowid IS NULL"
+        ).fetchone()[0]
+        wrong = q(
+            "SELECT COUNT(*) FROM blocks b JOIN blocks_fts f ON f.rowid = b.rowid "
+            "WHERE f.block_id != b.id"
+        ).fetchone()[0]
+        return {
+            "orphan_fts_rows": int(orphans),
+            "blocks_missing_fts": int(missing),
+            "mismatched": int(wrong),
+        }
+
     def fts_integrity(self) -> tuple[int, int]:
         """(#blocks, #fts rows) - should always be equal."""
         a = self.conn.execute("SELECT COUNT(*) FROM blocks").fetchone()[0]
@@ -626,4 +721,19 @@ def _migrate_v3(repo: SQLiteRepository) -> None:
             repo.conn.execute(stmt)
 
 
-_MIGRATIONS = {2: _migrate_v2, 3: _migrate_v3}
+def _migrate_v4(repo: SQLiteRepository) -> None:
+    """v3 -> v4: document_index (revisions + index status); existing documents are recorded
+    as ready at revision 1 with their stored text hash."""
+    sql = resources.files("treeengine.storage").joinpath("schema.sql").read_text("utf-8")
+    for stmt in _split_sql(sql):
+        if "document_index" in stmt:
+            repo.conn.execute(stmt)
+    repo.conn.execute(
+        "INSERT OR IGNORE INTO document_index (document_id, source_revision, index_revision, "
+        "status, vector_status, graph_status, updated_at) "
+        "SELECT id, 'sha256:' || text_hash, 1, 'ready', 'unknown', 'unknown', updated_at "
+        "FROM documents"
+    )
+
+
+_MIGRATIONS = {2: _migrate_v2, 3: _migrate_v3, 4: _migrate_v4}

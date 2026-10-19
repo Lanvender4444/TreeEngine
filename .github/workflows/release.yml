@@ -1,0 +1,115 @@
+# TE-043: build once, verify, publish to TestPyPI, install from TestPyPI and smoke-test, then
+# publish the same files to PyPI. Publishing uses PyPI Trusted Publishing (OIDC): no token in
+# the repository. One-time setup (maintainer): on test.pypi.org and pypi.org add a trusted
+# publisher for this repository, workflow "release.yml", environments "testpypi" / "pypi".
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      publish_pypi:
+        description: "also publish to PyPI (otherwise TestPyPI only)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install build twine
+      - name: version must match the tag
+        id: v
+        run: |
+          v=$(python -c "import re,pathlib;print(re.search(r'__version__ = \"([^\"]+)\"', pathlib.Path('treeengine/_version.py').read_text()).group(1))")
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          if [[ "${GITHUB_REF}" == refs/tags/v* && "${GITHUB_REF#refs/tags/v}" != "$v" ]]; then
+            echo "tag ${GITHUB_REF#refs/tags/} does not match version $v"; exit 1
+          fi
+          grep -q "^## \[$v\]" CHANGELOG.md || { echo "CHANGELOG.md has no [$v] section"; exit 1; }
+      - name: build, twine check, audit, clean-venv install + smoke test
+        run: python tools/check_wheel.py --keep --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  testpypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  verify-testpypi:
+    needs: [build, testpypi]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tests/packaging
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: install from TestPyPI in a clean venv (dependencies from PyPI) and smoke-test
+        run: |
+          python -m venv /tmp/v
+          for i in 1 2 3 4 5; do
+            /tmp/v/bin/pip install --index-url https://test.pypi.org/simple/ \
+              --extra-index-url https://pypi.org/simple/ \
+              "treeengine[mcp]==${{ needs.build.outputs.version }}" && break
+            sleep 30  # the index needs a moment to serve a new upload
+          done
+          cd /tmp && /tmp/v/bin/python "$GITHUB_WORKSPACE/tests/packaging/smoke_installed.py"
+          /tmp/v/bin/treeengine-mcp --help > /dev/null
+
+  pypi:
+    needs: [build, verify-testpypi]
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.publish_pypi
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    needs: [build, pypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: release notes from CHANGELOG.md
+        run: |
+          v=${{ needs.build.outputs.version }}
+          awk -v v="$v" '$0 ~ "^## \\[" v "\\]" {f=1; next} /^## \[/ {f=0} f' CHANGELOG.md > notes.md
+      - run: gh release create "v${{ needs.build.outputs.version }}" dist/* --notes-file notes.md
+        env:
+          GH_TOKEN: ${{ github.token }}

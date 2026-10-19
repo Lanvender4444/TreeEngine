@@ -1,0 +1,84 @@
+{
+ "schema": "retrieval_result",
+ "record": {
+  "schema_version": "1",
+  "query": "why did operating margin decline?",
+  "status": "ok",
+  "retrieval": {
+   "preset": "balanced",
+   "context_policy": "auto",
+   "paths_used": [
+    "fts",
+    "vector"
+   ],
+   "degradations": []
+  },
+  "evidence": [
+   {
+    "document_id": "doc-123",
+    "text": "Operating margin declined 2.1 points.",
+    "block_id": "blk-456",
+    "node_id": "node-9",
+    "node_title": "Results",
+    "page": 41,
+    "score": 0.031,
+    "source": "fts+vector",
+    "retrieval_paths": [
+     "fts",
+     "vector"
+    ],
+    "source_revision": "sha256:ab12"
+   }
+  ],
+  "context_spans": [
+   {
+    "text": "...",
+    "document_id": "doc-123",
+    "token_count": 330,
+    "block_ids": [
+     "blk-455",
+     "blk-456",
+     "blk-457"
+    ],
+    "node_id": "node-9",
+    "node_ids": [
+     "node-9"
+    ],
+    "page_start": 41,
+    "page_end": 41,
+    "start_offset": 10025,
+    "end_offset": 10542,
+    "source_evidence_ids": [
+     "blk-456"
+    ],
+    "resolution": "window",
+    "source_revision": "sha256:ab12",
+    "citation": {
+     "document_id": "doc-123",
+     "block_ids": [
+      "blk-455",
+      "blk-456",
+      "blk-457"
+     ],
+     "node_id": "node-9",
+     "title": "Results",
+     "page_start": 41,
+     "page_end": 41,
+     "start_offset": 10025,
+     "end_offset": 10542,
+     "source_revision": "sha256:ab12"
+    },
+    "mapping": null
+   }
+  ],
+  "stats": {
+   "latency_ms": 35.2,
+   "context_tokens": 330,
+   "evidence": 12,
+   "llm_calls": 0,
+   "llm_input_tokens": 0
+  },
+  "trace_id": null,
+  "trace": null
+ }
+}

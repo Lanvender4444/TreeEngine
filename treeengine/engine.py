@@ -16,6 +16,10 @@ It owns no retrieval logic; it only delegates to wired components (see ``factory
 
 from __future__ import annotations
 
+import functools
+import sqlite3
+import threading
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, overload
 
@@ -37,6 +41,25 @@ from .treeview import format_tree, render_tree
 
 if TYPE_CHECKING:
     from .treerag import TreeRAGResult
+
+
+@dataclass
+class IngestOutcome:
+    """One item of ``ingest_many``: ``ok`` with the stored ``document``, or the ``error``
+    record (``{"code", "message", "retryable"}``)."""
+
+    source: str
+    ok: bool
+    document: Document | None
+    error: dict[str, Any] | None
+
+
+def _error_record(e: BaseException) -> dict[str, Any]:
+    from .api.errors import TreeEngineError
+
+    if isinstance(e, TreeEngineError):
+        return {"code": e.code, "message": e.message, "retryable": e.retryable}
+    return {"code": "internal_error", "message": f"{type(e).__name__}: {e}", "retryable": False}
 
 
 class TreeEngine:
@@ -73,13 +96,67 @@ class TreeEngine:
         self.last_plan: Any = None  # RetrievalPlan, or ControllerPlan for policy retrieval
         self.last_result: SearchResult | None = None
 
+        self._lock = threading.RLock()
+        self._closed = False
+
     @classmethod
     def from_components(cls, components: Components) -> TreeEngine:
         return cls(components=components)
 
+    @classmethod
+    def open(
+        cls,
+        db_path: str | Path = "treeengine.db",
+        *,
+        llm: LLMProvider | None = None,
+        embedder: EmbeddingProvider | None = None,
+        config: EngineConfig | None = None,
+        use_vector: bool | None = None,
+    ) -> TreeEngine:
+        """Open (or create) a knowledge base. The engine owns what it opens: use it as a
+        context manager or call ``close()``. Vector retrieval is fused in when an ``embedder``
+        is given (``use_vector`` defaults to that)."""
+        return cls(
+            db_path,
+            llm,
+            config,
+            embedder=embedder,
+            use_vector=bool(embedder) if use_vector is None else use_vector,
+        )
+
     # ------------------------------------------------------------------ lifecycle
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
     def close(self) -> None:
-        self.repo.close()
+        """Close every resource this engine owns (repository, vector index, ...). Idempotent.
+        Resources passed in by the caller (``build_components`` with your own repository
+        keeps the pre-0.3 behaviour: the repository is closed) follow ``Components.owned``."""
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            owned = self.components.owned
+            if owned is None:  # legacy wiring
+                owned = [self.repo]
+                vi = self.components.vector_index
+                if vi is not None and vi is not self.repo:
+                    owned.append(vi)
+            first: BaseException | None = None
+            for r in reversed(owned):
+                try:
+                    r.close()
+                except Exception as e:  # noqa: BLE001 - close the rest, re-raise the first
+                    first = first or e
+            if first is not None:
+                raise first
+
+    def _check_open(self) -> None:
+        if self._closed:
+            from .api.errors import StorageError
+
+            raise StorageError("this TreeEngine is closed")
 
     def __enter__(self) -> TreeEngine:
         return self
@@ -88,8 +165,17 @@ class TreeEngine:
         self.close()
 
     # ------------------------------------------------------------------ ingest
-    def ingest(self, source: str | Path, source_type: str | None = None) -> Document:
-        return self.components.pipeline.ingest(source, source_type)
+    def ingest(
+        self,
+        source: str | Path,
+        source_type: str | None = None,
+        *,
+        metadata: dict[str, Any] | None = None,
+    ) -> Document:
+        """Ingest a file (Markdown / HTML / text / PDF, or a registered adapter's type).
+        Re-ingesting the same path updates the document in place; unchanged files are
+        skipped. ``metadata`` (str keys) is stored with the document."""
+        return self.components.pipeline.ingest(source, source_type, metadata=metadata)
 
     def ingest_text(
         self,
@@ -97,11 +183,202 @@ class TreeEngine:
         source_type: str = "markdown",
         title: str | None = None,
         uri: str | None = None,
+        *,
+        metadata: dict[str, Any] | None = None,
     ) -> Document:
-        return self.components.pipeline.ingest_text(text, source_type, title, uri)
+        return self.components.pipeline.ingest_text(
+            text, source_type, title, uri, metadata=metadata
+        )
+
+    def ingest_bytes(
+        self,
+        data: bytes,
+        *,
+        filename: str | None = None,
+        source_type: str | None = None,
+        uri: str | None = None,
+        title: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> Document:
+        """Ingest in-memory content (an upload). ``filename`` picks the format; ``uri`` is the
+        document's stable key for re-ingestion (default: the content hash)."""
+        return self.components.pipeline.ingest_bytes(
+            data,
+            filename=filename,
+            source_type=source_type,
+            uri=uri,
+            title=title,
+            metadata=metadata,
+        )
+
+    def ingest_many(
+        self,
+        sources: Any,
+        *,
+        source_type: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        stop_on_error: bool = False,
+    ) -> list[IngestOutcome]:
+        """Ingest several files; one outcome per source, in order. A failing source does not
+        stop the batch (unless ``stop_on_error``) and never leaves a half-written document:
+        each document is stored atomically, optional-index failures are recorded as
+        ``partial`` (see ``verify()`` / ``repair()``)."""
+        out: list[IngestOutcome] = []
+        for src in sources:
+            try:
+                doc = self.components.pipeline.ingest(src, source_type, metadata=metadata)
+                out.append(IngestOutcome(str(src), True, doc, None))
+            except Exception as e:  # noqa: BLE001 - reported per item
+                out.append(IngestOutcome(str(src), False, None, _error_record(e)))
+                if stop_on_error:
+                    break
+        return out
+
+    @staticmethod
+    def register_adapter(adapter: Any, extensions: tuple[str, ...] = ()) -> None:
+        """Register a source adapter for every engine (see ``treeengine.ingest.base``)."""
+        from .ingest.base import register_adapter
+
+        register_adapter(adapter, extensions)
 
     def delete_document(self, document_id: str) -> None:
+        from .api.errors import DocumentNotFoundError
+
+        if self.repo.get_document(document_id) is None:
+            raise DocumentNotFoundError(f"no document {document_id!r}", document_id=document_id)
         self.components.pipeline.delete_document(document_id)
+
+    # ------------------------------------------------------------------ index health
+    def verify(self) -> dict[str, Any]:
+        """Check index consistency without changing anything (TE-011 / TE-013): FTS rows vs
+        blocks, documents whose optional indexes failed or never finished, vectors whose
+        document or block is gone, the embedding fingerprint. ``ok`` is True when nothing
+        needs ``repair()``."""
+        repo: Any = self.repo
+        out: dict[str, Any] = {"schema_version": getattr(repo, "schema_version", None)}
+        if hasattr(repo, "fts_mismatches"):
+            out["fts"] = repo.fts_mismatches()
+        statuses = repo.list_index_status() if hasattr(repo, "list_index_status") else []
+        out["documents"] = len(self.repo.list_documents())
+        out["not_ready"] = [
+            {k: r[k] for k in ("document_id", "status", "vector_status", "graph_status", "error")}
+            for r in statuses
+            if r["status"] != "ready"
+        ]
+        vi = self.components.vector_index
+        if vi is not None and hasattr(vi, "count"):
+            from .embeddings.fingerprint import read_fingerprint
+
+            out["vectors"] = {"count": vi.count(), "fingerprint": read_fingerprint(vi)}
+            out["vectors"]["dangling"] = self._dangling_vectors()
+        fts_bad = sum((out.get("fts") or {}).values())
+        dangling = (out.get("vectors") or {}).get("dangling", 0)
+        out["ok"] = not fts_bad and not out["not_ready"] and not dangling
+        return out
+
+    def _dangling_vectors(self) -> int:
+        vi: Any = self.components.vector_index
+        conn = getattr(vi, "conn", None)
+        if conn is None or getattr(vi, "dim", None) is None:
+            if hasattr(vi, "rows"):
+                return sum(1 for b in list(vi.rows) if self.repo.get_block(b) is None)
+            return 0
+        with vi._lock:
+            ids = [r[0] for r in conn.execute(f"SELECT block_id FROM {vi.table}")]
+        return sum(1 for b in ids if self.repo.get_block(b) is None)
+
+    def repair(self) -> dict[str, Any]:
+        """Fix what ``verify()`` reports: rebuild the FTS index from the blocks, finish
+        documents left ``partial`` / ``indexing`` (vectors, Graph-lite), drop vectors of
+        deleted blocks. Returns what was done."""
+        repo: Any = self.repo
+        done: dict[str, Any] = {"fts_rebuilt": False, "documents_completed": [], "failed": []}
+        if hasattr(repo, "fts_mismatches") and sum(repo.fts_mismatches().values()):
+            repo.rebuild_fts()
+            done["fts_rebuilt"] = True
+        for r in repo.list_index_status() if hasattr(repo, "list_index_status") else []:
+            if r["status"] == "ready":
+                continue
+            errs = self.components.pipeline.complete_indexes(r["document_id"])
+            (done["failed"] if errs else done["documents_completed"]).append(r["document_id"])
+        vi: Any = self.components.vector_index
+        if vi is not None and self._dangling_vectors():
+            if getattr(vi, "conn", None) is not None:
+                with vi._lock:
+                    ids = [r[0] for r in vi.conn.execute(f"SELECT block_id FROM {vi.table}")]
+                stale = [b for b in ids if self.repo.get_block(b) is None]
+            else:
+                stale = [b for b in vi.rows if self.repo.get_block(b) is None]
+            vi.delete(stale)
+            done["dangling_vectors_removed"] = len(stale)
+        done["ok"] = self.verify()["ok"]
+        return done
+
+    def health(self) -> dict[str, Any]:
+        """Cheap liveness / capability report (no index scans)."""
+        from . import __version__
+
+        vi = self.components.vector_index
+        return {
+            "schema_version": "1",
+            "status": "closed" if self._closed else "ok",
+            "version": __version__,
+            "storage": type(self.repo).__name__,
+            "db_schema": getattr(self.repo, "schema_version", None),
+            "capabilities": {
+                "fts": True,
+                "vector": self.components.vector is not None,
+                "vector_index": type(vi).__name__ if vi is not None else None,
+                "llm": self.llm is not None,
+                "graph": self.components.graph is not None,
+            },
+        }
+
+    def document_info(self, document_id: str) -> dict[str, Any]:
+        """The v1 document record: title, uri, ``source_revision`` (sha256 of the text),
+        ``index_revision`` (bumped on every re-index) and ``index_status``. Raises
+        ``DocumentNotFoundError``."""
+        from .api import dto
+        from .api.errors import DocumentNotFoundError
+
+        d = self.repo.get_document(document_id)
+        if d is None:
+            raise DocumentNotFoundError(f"no document {document_id!r}", document_id=document_id)
+        return dto.document_v1(self.repo, d).to_dict()
+
+    def export_blocks(self, document_id: str) -> list[dict[str, Any]]:
+        """Every block of a document as v1 records plus its ``source_revision`` - what an
+        external vector store / search index should keep per point so its hits map back
+        exactly (``build_context(hits, strict_mapping=True)``; docs/integrations/
+        external-retriever.md)."""
+        from .api import dto
+
+        rev = self.document_info(document_id)["source_revision"]
+        return [
+            {**dto.block_v1(b).to_dict(), "source_revision": rev}
+            for b in self.repo.get_document_blocks(document_id)
+        ]
+
+    def stats(self) -> dict[str, Any]:
+        """Index size: documents, nodes, blocks, vectors, entities, file size."""
+        repo: Any = self.repo
+        out: dict[str, Any] = {"schema_version": "1"}
+        conn = getattr(repo, "conn", None)
+        if conn is not None:
+            q = lambda sql: int(conn.execute(sql).fetchone()[0])  # noqa: E731
+            out.update(
+                documents=q("SELECT COUNT(*) FROM documents"),
+                nodes=q("SELECT COUNT(*) FROM nodes"),
+                blocks=q("SELECT COUNT(*) FROM blocks"),
+                entities=q("SELECT COUNT(*) FROM entities"),
+            )
+            path = getattr(repo, "db_path", ":memory:")
+            out["db_bytes"] = Path(path).stat().st_size if path != ":memory:" else None
+        else:
+            out["documents"] = len(self.repo.list_documents())
+        vi = self.components.vector_index
+        out["vectors"] = vi.count() if vi is not None and hasattr(vi, "count") else 0
+        return out
 
     # ------------------------------------------------------------------ agent navigation
     def list_documents(self) -> list[Document]:
@@ -165,8 +442,15 @@ class TreeEngine:
     def reindex_vectors(self) -> int:
         """Re-embed every block (e.g. after changing the embedding model)."""
         if self.components.pipeline.indexer is None:
-            raise RuntimeError("no embedder configured")
-        return self.components.pipeline.indexer.reindex_all()
+            from .api.errors import InvalidPolicyError
+
+            raise InvalidPolicyError("no embedder configured")
+        n = self.components.pipeline.indexer.reindex_all()
+        repo: Any = self.repo
+        if hasattr(repo, "set_index_status"):
+            for d in self.repo.list_documents():
+                repo.set_index_status(d.id, vector_status="ok")
+        return n
 
     # ------------------------------------------------------------------ managed retrieval
     def retrieve(
@@ -179,14 +463,37 @@ class TreeEngine:
         policy: RetrievalPolicy | None = None,
         context_budget: int | None = None,
         context_policy: str = "auto",
+        options: Any = None,
+        preset: str | None = None,
     ) -> SearchResult:
         """Managed retrieval with trace and stats (latency, LLM cost, visits).
+
+        Simple use (SDK v1): ``preset="lite" | "balanced" | "quality"`` or
+        ``options=RetrievalOptions(...)`` - see ``treeengine.api.presets``; missing
+        capabilities are recorded in ``result.degradations`` (or raise with ``strict``).
+        ``result.to_v1()`` gives the versioned JSON record.
 
         Without ``policy``: the planner (V0.3 behaviour). With a ``RetrievalPolicy``: the
         retrieval controller - FTS / Vector / LLM tree reasoning enabled by weight, an agentic
         loop bounded by budgets, and ``result.context_spans`` built within
         ``policy.context_budget``. ``context_budget`` also adds context spans to a planner
-        result."""
+        result. ``context_budget`` and ``options.context_tokens`` are the same budget."""
+        resolved = None
+        if options is not None or preset is not None:
+            from .api.presets import RetrievalOptions, resolve
+
+            if options is None:
+                options = RetrievalOptions(preset=preset or "balanced")
+            elif preset is not None:
+                options = replace(options, preset=preset)
+            if context_budget is not None:
+                options = replace(options, context_tokens=context_budget)
+            if str(getattr(options.preset, "value", options.preset)) == "research":
+                from .api.errors import InvalidPolicyError
+
+                raise InvalidPolicyError("the research preset is engine.research(...)")
+            resolved = resolve(self, options)
+            policy = resolved.policy
         before = self.llm.usage.snapshot() if self.llm else None
         if policy is not None:
             res = self.components.controller.retrieve(query, document_id=document_id, policy=policy)
@@ -206,8 +513,22 @@ class TreeEngine:
             res.stats.llm_output_tokens = used.output_tokens
             res.stats.llm_tokens_estimated = used.estimated
             res.stats.llm_calls_by_purpose = used.by_purpose
+        if resolved is not None:
+            res.preset = resolved.preset
+            res.degradations = list(resolved.degradations)
+        res.source_revisions = self._revisions(
+            {e.document_id for e in res.evidence} | {sp.document_id for sp in res.context_spans}
+        )
         self.last_result, self.last_plan = res, res.plan
         return res
+
+    def _revisions(self, doc_ids: set[str]) -> dict[str, str | None]:
+        get = getattr(self.repo, "get_index_status", None)
+        out: dict[str, str | None] = {}
+        for d in doc_ids:
+            rec = get(d) if get is not None else None
+            out[d] = rec.get("source_revision") if rec else None
+        return out
 
     @overload
     def search(
@@ -257,9 +578,42 @@ class TreeEngine:
             if budget is not None or kw:
                 raise TypeError("budget / search options need a strategy")
             return self.retrieve(query, document_id=document_id, limit=limit, mode=mode).evidence
+        import warnings
+
+        warnings.warn(
+            "search(query, strategy=...) is deprecated; use research(query, strategy=...) - "
+            "search() will only return Evidence[] in 0.4",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.research(query, document_id, strategy=strategy, budget=budget, **kw)
+
+    def research(
+        self,
+        query: str,
+        document_id: str | None = None,
+        *,
+        strategy: str = "best_first",
+        budget: dict[str, int] | None = None,
+        policy: RetrievalPolicy | None = None,
+        **kw: Any,
+    ) -> TreeRAGResult:
+        """EXPERIMENTAL (TE-020): budgeted multi-step evidence search - V0.17 Tree-RAG.
+
+        Query Tree (DECOMPOSE) -> Retrieval Search Tree (SEARCH / VERIFY / REWRITE_QUERY) ->
+        Evidence Tree (READ_* / FOLLOW_ENTITY / SEARCH_IN_SECTION) with a local reranker as
+        the node value; ``strategy`` = best_first | beam | mcts. ``budget`` is a hard limit:
+        ``max_steps`` (READ actions), ``max_llm_calls`` (DECOMPOSE + VERIFY; the answer call
+        is extra), ``max_context_tokens``. Returns a ``TreeRAGResult`` (answer, query_tree,
+        search_tree with ``render()``, context_spans, trace, stats; ``to_v1()``)."""
         from .treerag import TreeRAG
 
-        policy = kw.pop("policy", None)
+        if budget is not None:
+            bad = set(budget) - {"max_steps", "max_llm_calls", "max_context_tokens"}
+            if bad:
+                from .api.errors import InvalidPolicyError
+
+                raise InvalidPolicyError(f"unknown budget keys: {sorted(bad)}")
         return TreeRAG.from_engine(self, policy).run(
             query, document_id=document_id, strategy=strategy, budget=budget, **kw
         )
@@ -350,16 +704,67 @@ class TreeEngine:
         *,
         document_id: str | None = None,
         question: str | None = None,
+        strict_mapping: bool = False,
+        on_unmapped: str | None = None,
     ) -> list[ContextSpan]:
         """Context Reconstruction on its own: rebuild continuous reading spans around any hits -
         TreeEngine anchors / evidence, or results of an external retriever (``ExternalHit``,
-        dicts with ``text`` / ``document_id`` / ``block_id`` / ``start_offset`` / ``page``...).
-        External hits are mapped back to blocks by block id, offsets, text or page; a hit that
-        cannot be mapped is passed through as its own span."""
-        from .integrations.hits import resolve_hits
+        dicts with ``text`` / ``document_id`` / ``block_id`` / ``start_offset`` / ``page`` /
+        ``source_revision``...). External hits are mapped back to blocks by block id, offsets,
+        text or page; each span from an external hit carries ``span.mapping`` (status,
+        mapped_by, quality, reason). ``strict_mapping=True`` admits only exact, current
+        mappings; ``on_unmapped`` = passthrough | drop | error (see
+        ``integrations.hits.resolve_hits``)."""
+        from .integrations.hits import mapping_of, resolve_hits
 
-        items = resolve_hits(self.repo, hits, document_id=document_id)
-        return self._context(policy, question, items, token_budget)
+        items = resolve_hits(
+            self.repo,
+            hits,
+            document_id=document_id,
+            strict=strict_mapping,
+            on_unmapped=on_unmapped,
+        )
+        spans = self._context(policy, question, items, token_budget)
+        by_id: dict[str, dict[str, Any]] = {}
+        for it in items:
+            m = mapping_of(it)
+            if m is not None:
+                key = getattr(it, "block_id", None) or ""
+                if not key:
+                    from .context.span import evidence_id
+
+                    key = evidence_id(it)  # type: ignore[arg-type]
+                by_id.setdefault(str(key), m)
+        if by_id:
+            for sp in spans:
+                for a in sp.source_evidence_ids:
+                    if a in by_id:
+                        sp.mapping = by_id[a]
+                        break
+        return spans
+
+    def map_hits(
+        self, hits: Any, *, document_id: str | None = None, strict: bool = False
+    ) -> list[dict[str, Any]]:
+        """How each external hit maps to local blocks - for checking a retriever's ids before
+        relying on them: ``{"block_id", "document_id", "status", "mapped_by", "quality",
+        "reason"}`` per hit, in order."""
+        from .integrations.hits import mapping_of, resolve_hits
+
+        out = []
+        for it in resolve_hits(
+            self.repo, hits, document_id=document_id, strict=strict, on_unmapped="passthrough"
+        ):
+            m = mapping_of(it) or {"status": "exact", "mapped_by": "anchor", "quality": 1.0,
+                                   "reason": None}  # fmt: skip
+            out.append(
+                {
+                    "block_id": getattr(it, "block_id", None),
+                    "document_id": getattr(it, "document_id", None),
+                    **m,
+                }
+            )
+        return out
 
     def _context(
         self, policy: str, question: str | None, items: Any, budget: int
@@ -386,6 +791,7 @@ class TreeEngine:
         policy: RetrievalPolicy | None = None,
         context_budget: int | None = None,
         retry: bool | None = None,
+        preset: str | None = None,
     ) -> AnswerResult:
         """Retrieve -> anchors -> ContextSpans -> answer. The answer model reads continuous
         spans (``EngineConfig.answer_context_tokens``); citations point at the spans' first
@@ -400,6 +806,13 @@ class TreeEngine:
         ``RetrievalPolicy.recommended()`` (results/v0.16-routes.md)."""
         k = max_evidence or self.config.answer_max_evidence
         budget = context_budget or self.config.answer_context_tokens
+        if preset is not None:  # SDK presets: "quality" also turns the answer retry on
+            from .api.presets import RetrievalOptions, resolve
+
+            r = resolve(self, RetrievalOptions(preset=preset, context_tokens=budget or 2000))
+            policy = r.policy
+            if retry is None:
+                retry = r.answer_retry
         res = self.retrieve(question, document_id=document_id, limit=k, mode=mode, policy=policy)
         if not budget:
             return self.components.answerer.answer(question, res.evidence, res.query_type)
@@ -514,3 +927,58 @@ class TreeEngine:
 
     def format_tree(self, document_id: str) -> str:
         return format_tree(self.repo, document_id)
+
+
+# TE-008: one engine = one SQLite connection set; public calls are serialised so an engine can
+# be shared by threads (servers, agents). Reentrant: methods may call each other.
+_SERIALISED = (
+    "ingest", "ingest_text", "ingest_bytes", "ingest_many", "delete_document",
+    "list_documents", "get_document", "get_roots", "get_children", "get_node",
+    "get_ancestors", "read_node", "read_blocks", "search_text", "search_semantic",
+    "build_graph_index", "reindex_vectors", "retrieve", "search", "research", "tree_search",
+    "evidence_search", "build_summary_tree", "build_context", "ask", "get_tree", "format_tree",
+    "health", "stats", "verify", "repair", "map_hits", "document_info", "export_blocks",
+)  # fmt: skip
+
+
+def _storage_error(e: sqlite3.DatabaseError) -> Exception:
+    from .api.errors import StorageError
+
+    msg = str(e)
+    low = msg.lower()
+    if "locked" in low or "busy" in low:
+        err = StorageError(
+            f"the database is locked by another writer ({msg}); retry later",
+            reason="locked",
+        )
+        err.retryable = True
+        err.status = 503
+    elif "full" in low:
+        err = StorageError(f"the database or disk is full ({msg})", reason="full")
+        err.retryable = False
+    else:
+        err = StorageError(f"storage error: {msg}", reason="database")
+        err.retryable = False
+    return err
+
+
+def _serialise(name: str) -> None:
+    fn = getattr(TreeEngine, name, None)
+    if fn is None or getattr(fn, "_serialised", False):
+        return
+
+    @functools.wraps(fn)
+    def run(self: TreeEngine, *a: Any, **kw: Any) -> Any:
+        with self._lock:
+            self._check_open()
+            try:
+                return fn(self, *a, **kw)
+            except sqlite3.DatabaseError as e:  # TE-018/040: no raw sqlite3 errors in the API
+                raise _storage_error(e) from e
+
+    run._serialised = True  # type: ignore[attr-defined]
+    setattr(TreeEngine, name, run)
+
+
+for _name in _SERIALISED:
+    _serialise(_name)

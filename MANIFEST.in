@@ -1,0 +1,9 @@
+# sdist = the package + the files needed to build and license it; no benchmark data, no databases
+include LICENSE README.md README.zh-CN.md CHANGELOG.md pyproject.toml
+recursive-include treeengine *.py *.sql py.typed *.json
+prune benchmarks
+prune docs
+prune tests
+prune examples
+prune .github
+global-exclude *.db *.db-wal *.db-shm *.sqlite *.pyc __pycache__

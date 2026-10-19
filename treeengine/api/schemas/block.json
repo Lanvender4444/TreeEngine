@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Lanvender4444/TreeEngine/schemas/v1/block.json",
+  "title": "BlockV1",
+  "description": "BlockV1(id: 'str', document_id: 'str', position: 'int', block_type: 'str', text: 'str', node_id: 'str | None' = None, page: 'int | None' = None, start_offset: 'int | None' = None, end_offset: 'int | None' = None)",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "document_id": {
+      "type": "string"
+    },
+    "position": {
+      "type": "integer"
+    },
+    "block_type": {
+      "type": "string"
+    },
+    "text": {
+      "type": "string"
+    },
+    "node_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "page": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "start_offset": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "end_offset": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "additionalProperties": true,
+  "required": [
+    "id",
+    "document_id",
+    "position",
+    "block_type",
+    "text"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+ "schema": "error",
+ "record": {
+  "schema_version": "1",
+  "status": "error",
+  "error": {
+   "code": "dependency_missing",
+   "message": "preset 'balanced' needs an embedder",
+   "retryable": false,
+   "details": {
+    "preset": "balanced"
+   }
+  }
+ }
+}

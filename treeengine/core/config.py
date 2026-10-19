@@ -60,6 +60,11 @@ class EngineConfig:
     # V0.16: ask() re-searches once when the answer says its evidence was insufficient
     # (exclude what was read, rewrite the question, reasoned reading again, answer again)
     answer_retry: bool = False
+    # TE-012: a vector index written by another embedding model -> "error" | "reset" | "ignore"
+    vector_fingerprint: str = "error"
+    # a PDF without a text layer: "flag" (stored with metadata ocr_required) | "error"
+    # (OCRRequiredError, nothing stored)
+    on_scanned_pdf: str = "flag"
     # retrieve() without a RetrievalPolicy also fills result.context_spans within this many
     # tokens (None / 0: evidence only, the pre-V0.9 behaviour)
     retrieve_context_tokens: int | None = None

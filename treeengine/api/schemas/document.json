@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Lanvender4444/TreeEngine/schemas/v1/document.json",
+  "title": "DocumentV1",
+  "description": "DocumentV1(id: 'str', title: 'str', source_type: 'str', uri: 'str | None' = None, source_revision: 'str | None' = None, index_revision: 'int | None' = None, index_status: 'str | None' = None, metadata: 'dict[str, Any]' = <factory>, schema_version: 'str' = '1')",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "source_type": {
+      "type": "string"
+    },
+    "uri": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "source_revision": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "index_revision": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "index_status": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "metadata": {
+      "type": "object"
+    },
+    "schema_version": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true,
+  "required": [
+    "id",
+    "title",
+    "source_type"
+  ]
+}

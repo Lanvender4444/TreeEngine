@@ -34,13 +34,47 @@ class Element:
 
 @runtime_checkable
 class SourceAdapter(Protocol):
+    """Turns a source into a Document. ``load(path)`` is required; adapters may also offer
+    ``from_bytes(data, uri=None, fallback_title=...)`` (used by ``ingest_bytes`` without a
+    temporary file) and ``from_text(text, uri=None, fallback_title=...)``."""
+
     source_type: str
 
     def load(self, source: str) -> Document: ...
 
 
+# TE-026: third-party adapters, registered by source type and file extensions
+_REGISTRY: dict[str, SourceAdapter] = {}
+_REGISTERED_EXT: dict[str, str] = {}
+
+
+def register_adapter(adapter: SourceAdapter, extensions: tuple[str, ...] = ()) -> None:
+    """Make ``adapter`` available to every engine: ``ingest(path)`` picks it by extension,
+    ``ingest(path, source_type=adapter.source_type)`` by name. Registering a built-in type
+    (markdown / html / pdf) replaces it."""
+    if not isinstance(adapter, SourceAdapter):
+        raise TypeError("an adapter needs a source_type attribute and a load(source) method")
+    _REGISTRY[adapter.source_type] = adapter
+    for ext in extensions:
+        e = ext.lower() if ext.startswith(".") else "." + ext.lower()
+        _REGISTERED_EXT[e] = adapter.source_type
+
+
+def unregister_adapter(source_type: str) -> None:
+    _REGISTRY.pop(source_type, None)
+    for e in [e for e, t in _REGISTERED_EXT.items() if t == source_type]:
+        del _REGISTERED_EXT[e]
+
+
+def registered_types() -> list[str]:
+    return sorted({"markdown", "html", "pdf", *_REGISTRY})
+
+
 def read_text_file(path: str | Path) -> str:
-    raw = Path(path).read_bytes()
+    return decode_text(Path(path).read_bytes())
+
+
+def decode_text(raw: bytes) -> str:
     for enc in ("utf-8-sig", "utf-8", "gb18030"):
         try:
             return raw.decode(enc)
@@ -62,17 +96,28 @@ _EXT_MAP = {
 
 
 def detect_source_type(source: str) -> str:
+    from ..api.errors import UnsupportedFormatError
+
     ext = Path(source).suffix.lower()
+    if ext in _REGISTERED_EXT:
+        return _REGISTERED_EXT[ext]
     if ext in _EXT_MAP:
         return _EXT_MAP[ext]
-    raise ValueError(f"Cannot detect source type for {source!r}; pass source_type explicitly")
+    raise UnsupportedFormatError(
+        f"Cannot detect source type for {source!r}; pass source_type explicitly",
+        extension=ext,
+        supported=registered_types(),
+    )
 
 
 def get_adapter(source_type: str) -> SourceAdapter:
+    from ..api.errors import UnsupportedFormatError
     from .html import HTMLAdapter
     from .markdown import MarkdownAdapter
     from .pdf import PDFAdapter
 
+    if source_type in _REGISTRY:
+        return _REGISTRY[source_type]
     adapters: dict[str, SourceAdapter] = {
         "markdown": MarkdownAdapter(),
         "html": HTMLAdapter(),
@@ -81,4 +126,8 @@ def get_adapter(source_type: str) -> SourceAdapter:
     try:
         return adapters[source_type]
     except KeyError:
-        raise ValueError(f"Unsupported source type: {source_type!r}") from None
+        raise UnsupportedFormatError(
+            f"Unsupported source type: {source_type!r}",
+            source_type=source_type,
+            supported=registered_types(),
+        ) from None

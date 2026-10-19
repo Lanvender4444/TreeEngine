@@ -1,4 +1,4 @@
--- TreeEngine schema (latest = v2). Older databases are upgraded by SQLiteRepository.migrate().
+-- TreeEngine schema (latest = v4). Older databases are upgraded by SQLiteRepository.migrate().
 -- Deviation from the V0.1 baseline doc: documents.text is stored so that a Document can be
 -- fully reloaded from the database (the database is the source of truth).
 
@@ -81,3 +81,19 @@ CREATE TABLE IF NOT EXISTS entity_blocks (
 );
 CREATE INDEX IF NOT EXISTS idx_entity_blocks_block ON entity_blocks(block_id);
 CREATE INDEX IF NOT EXISTS idx_entity_blocks_doc ON entity_blocks(document_id, entity_id);
+
+-- v4: per-document source / index revisions and index status (TE-013 / TE-025).
+-- source_revision = "sha256:" + sha256 of the canonical text; index_revision counts the
+-- (re)builds of the document's blocks; status: indexing | ready | partial | failed.
+-- vector_status / graph_status: ok | failed | off.
+CREATE TABLE IF NOT EXISTS document_index (
+    document_id TEXT PRIMARY KEY,
+    source_revision TEXT,
+    index_revision INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL,
+    vector_status TEXT NOT NULL DEFAULT 'off',
+    graph_status TEXT NOT NULL DEFAULT 'off',
+    error TEXT,
+    updated_at TEXT NOT NULL
+);
+

@@ -1,0 +1,29 @@
+{
+ "schema": "retrieval_result",
+ "record": {
+  "schema_version": "1",
+  "query": "q",
+  "status": "degraded",
+  "retrieval": {
+   "preset": "balanced",
+   "context_policy": "auto",
+   "paths_used": [
+    "fts"
+   ],
+   "degradations": [
+    "an embedder not configured: FTS only (no vector path)"
+   ]
+  },
+  "evidence": [],
+  "context_spans": [],
+  "stats": {
+   "latency_ms": 1.0,
+   "context_tokens": 0,
+   "evidence": 0,
+   "llm_calls": 0,
+   "llm_input_tokens": 0
+  },
+  "trace_id": null,
+  "trace": null
+ }
+}

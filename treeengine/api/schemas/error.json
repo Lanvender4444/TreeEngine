@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Lanvender4444/TreeEngine/schemas/v1/error.json",
+  "title": "ErrorV1",
+  "description": "The payload of every TreeEngine error (HTTP body, MCP error content).",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "status",
+    "error"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "status": {
+      "const": "error"
+    },
+    "error": {
+      "type": "object",
+      "required": [
+        "code",
+        "message",
+        "retryable"
+      ],
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "details": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+ "tolerance": 0.01,
+ "metrics": {
+  "fts": {
+   "recall@5": 0.7938,
+   "mrr": 0.6218,
+   "recall@2k_tok": 0.8985
+  },
+  "policy_fts": {
+   "recall@5": 0.7938,
+   "mrr": 0.6218,
+   "recall@2k_tok": 0.8985
+  },
+  "policy_hybrid": {
+   "recall@5": 0.6862,
+   "mrr": 0.5191,
+   "recall@2k_tok": 0.8677
+  }
+ }
+}

@@ -65,7 +65,7 @@ class Unit:
 
 @dataclass
 class _Doc:
-    blocks: list[Block]
+    blocks: Sequence[Block]
     hits: dict[int, float]  # block index -> mass
     hit_ids: dict[int, str]  # block index -> anchor id
     first: dict[int, int]  # block index -> fused rank (for output order)

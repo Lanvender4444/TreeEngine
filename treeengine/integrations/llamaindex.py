@@ -1,7 +1,8 @@
 """LlamaIndex adapter: ``TreeEngineLlamaRetriever`` (needs ``llama-index-core``).
 
 Each ContextSpan becomes a ``NodeWithScore(TextNode(text, metadata))``; the score is the span's
-rank position (1.0 for the first, decreasing), since TreeEngine fuses by rank.
+rank position (1.0 for the first, decreasing), since TreeEngine fuses by rank. ``metadata`` is
+the same flat citation record as the LangChain adapter's. Tested with llama-index-core 0.12+.
 """
 
 from __future__ import annotations
@@ -14,8 +15,10 @@ try:  # pragma: no cover - import guard
     from llama_index.core.retrievers import BaseRetriever
     from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode
 except ImportError as e:  # pragma: no cover
-    raise ImportError(
-        "the LlamaIndex adapter needs llama-index-core: pip install llama-index-core"
+    from ..api.errors import DependencyMissingError
+
+    raise DependencyMissingError(
+        "the LlamaIndex adapter needs llama-index-core: pip install 'treeengine[llamaindex]'"
     ) from e
 
 
@@ -26,18 +29,29 @@ class TreeEngineLlamaRetriever(BaseRetriever):
         document_id: str | None = None,
         context_budget: int = 2000,
         policy: Any = None,
+        preset: str | None = None,
     ) -> None:
         super().__init__()
         self.engine = engine
         self.document_id = document_id
         self.context_budget = context_budget
         self.policy = policy
+        self.preset = preset
 
     def _retrieve(self, query_bundle: QueryBundle) -> list[NodeWithScore]:
-        from ..retrieval.policy import RetrievalPolicy
+        q = query_bundle.query_str
+        if self.policy is not None:
+            from dataclasses import replace
 
-        pol = self.policy or RetrievalPolicy(context_budget=self.context_budget)
-        res = self.engine.retrieve(query_bundle.query_str, document_id=self.document_id, policy=pol)
+            pol = replace(self.policy, context_budget=self.context_budget)
+            res = self.engine.retrieve(q, document_id=self.document_id, policy=pol)
+        else:
+            res = self.engine.retrieve(
+                q,
+                document_id=self.document_id,
+                preset=self.preset or "balanced",
+                context_budget=self.context_budget,
+            )
         recs = to_documents(res)
         return [
             NodeWithScore(

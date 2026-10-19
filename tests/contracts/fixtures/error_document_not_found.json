@@ -1,0 +1,15 @@
+{
+ "schema": "error",
+ "record": {
+  "schema_version": "1",
+  "status": "error",
+  "error": {
+   "code": "document_not_found",
+   "message": "no document 'doc-x'",
+   "retryable": false,
+   "details": {
+    "document_id": "doc-x"
+   }
+  }
+ }
+}

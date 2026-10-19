@@ -66,10 +66,11 @@ def _layout_outline(
     """(outline entries with a 'detected' flag, method, furniture lines per page)."""
     from ..pdf import OCRRequired, analyze_structure
 
-    if not doc.uri:
+    path = doc.metadata.get("_source_path") or doc.uri  # ingest_bytes: a temporary file
+    if not path:
         return [], "unavailable", {}
     try:
-        res = analyze_structure(doc.uri, mode)
+        res = analyze_structure(path, mode)
     except OCRRequired:
         if len(doc.text.strip()) < 20 * max(1, int(doc.metadata.get("page_count") or 1)):
             doc.metadata["ocr_required"] = True  # scanned: no structure from garbage

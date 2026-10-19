@@ -1,0 +1,56 @@
+# TE-038: a cheap, deterministic retrieval-quality gate on every PR (no LLM, no embedding model:
+# FTS + context geometry on the bundled controlled suite), and the expensive QA benchmarks only
+# by hand or on a schedule with secrets.
+name: benchmark-gate
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      qa:
+        description: "also run the QA benchmark (needs TREEENGINE_LLM_* secrets)"
+        type: boolean
+        default: false
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  retrieval-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e ".[dev,bench]"
+      - name: fetch the controlled suite (pinned URLs, sha256-verified)
+        run: python -m benchmarks.datasets controlled
+      - run: python tools/bench_gate.py --check
+
+  qa:
+    if: github.event_name == 'schedule' || inputs.qa
+    runs-on: ubuntu-latest
+    env:
+      TREEENGINE_LLM_MODEL: ${{ secrets.TREEENGINE_LLM_MODEL }}
+      TREEENGINE_LLM_API_KEY: ${{ secrets.TREEENGINE_LLM_API_KEY }}
+      TREEENGINE_LLM_BASE_URL: ${{ secrets.TREEENGINE_LLM_BASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e ".[dev,bench,vector]"
+      - run: python -m benchmarks.datasets financebench
+      - run: >-
+          python -m benchmarks.run_qa --suite financebench --pdf-structure hybrid
+          --hash-split dev --strategies policy_gate --context auto,gate,gate+retry
+          --vector --embedder fastembed:BAAI/bge-small-en-v1.5 --budget 2000 --out bench-out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qa-report
+          path: bench-out
