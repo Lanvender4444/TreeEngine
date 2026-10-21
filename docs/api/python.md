@@ -14,7 +14,7 @@ from treeengine.api import RetrievalResultV1, TreeEngineError, schema
 
 | call | returns | notes |
 |---|---|---|
-| `TreeEngine.open(path, *, llm=None, embedder=None, config=None, use_vector=None)` | `TreeEngine` | Creates the SQLite file if needed. Vector retrieval is fused in when an `embedder` is given. |
+| `TreeEngine.open(path, *, llm=None, embedder=None, config=None, use_vector=None, vector_store=None)` | `TreeEngine` | Creates the SQLite file if needed. Vector retrieval is fused in when an `embedder` is given; `vector_store` (an `integrations.vectorstores` adapter) holds the block vectors instead of sqlite-vec. |
 | `TreeEngine(path, llm=None, config=None, *, embedder=None, use_vector=False, ...)` | `TreeEngine` | The original constructor; same resources. |
 | `with TreeEngine.open(...) as engine:` / `engine.close()` | | `close()` releases every resource the engine opened (repository, vector index); it is idempotent. Calls after `close()` raise `StorageError`. |
 | `engine.health()` / `engine.stats()` | `dict` | Capabilities and versions / index sizes. |
@@ -46,6 +46,8 @@ unchanged content is skipped. See [indexing and revisions](../concepts/indexing-
 | `retrieve(query, document_id=None, *, preset=None, options=None, policy=None, context_budget=None)` | `SearchResult` | Evidence **and** reconstructed reading context (`result.context_spans`). `result.to_v1()` → `RetrievalResultV1`. |
 | `build_context(hits, token_budget=2000, policy="auto", *, document_id=None, strict_mapping=False, on_unmapped=None)` | `list[ContextSpan]` | Reading context around any hits, including another retriever's. |
 | `map_hits(hits, *, document_id=None, strict=False)` | `list[dict]` | How external hits map to local blocks (status, mapped_by, quality, reason). |
+| `align_chunks(chunks, *, document_id=None, min_quality=0.0, store=True)` | `AlignReport` | Align another system's chunks with the blocks (stored; `.summary()`), see [under another RAG](../integrations/under-another-rag.md). |
+| `sync_vector_store(store, *, embedder=None, target=None, document_ids=None, force=False)` | `dict` | Push blocks into an external vector store, incrementally by revision. |
 | `ask(question, document_id=None, *, preset=None, policy=None, context_budget=None, retry=None)` | `AnswerResult` | Retrieve → read → answer with citations. Needs an LLM for generated answers (otherwise extractive). |
 
 Presets (`preset=` or `RetrievalOptions(preset=...)`): `lite`, `balanced` (default),

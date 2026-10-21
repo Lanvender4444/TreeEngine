@@ -71,6 +71,10 @@ MODES += SEARCH
 # "treerag@algo=mcts;steps=12;llm=4;dec=1;act=child+table+section;raptor=0"
 TREERAG = ["treerag", "treerag_beam", "treerag_mcts"]
 MODES += TREERAG
+# Part B MCTS-RAG (treeengine/mctsrag): MCTS over BM25 / vector / tree / fused / expand + LLM
+# decompose / verify, read by the gate: "mctsrag@iters=24;depth=4;llm=2+retry"
+MCTSRAG = ["mctsrag"]
+MODES += MCTSRAG
 
 MODES += REASON
 
@@ -122,4 +126,4 @@ def fragmentation(spans: Sequence[ContextSpan]) -> dict[str, float]:
     }
 
 
-__all__ = ["MODES", "ContextBuilder", "as_evidence", "fragmentation"]
+__all__ = ["MCTSRAG", "MODES", "ContextBuilder", "as_evidence", "fragmentation"]

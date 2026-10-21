@@ -17,6 +17,9 @@ Suites:
                 validation set for changes designed while looking at multires (all test)
   finx          V0.16 fresh held-out: FinanceBench-style analyst questions over 24 10-Ks no
                 other suite uses (evidence = page; all test)
+  multihop      V0.19 multi-hop: cross-document questions over FinanceBench 10-Ks of the same
+                company 3-7 fiscal years apart, asked over the whole corpus (evidence = text
+                needles of both gold blocks; dev / test by the runner's hash split)
 
     python -m benchmarks.datasets controlled     # download / verify one suite's documents
 """
@@ -33,7 +36,7 @@ from typing import Any
 
 HERE = Path(__file__).parent
 ROOT = HERE.parent.parent
-SUITES = ("controlled", "longdoc", "financebench", "multires", "multires2", "finx")
+SUITES = ("controlled", "longdoc", "financebench", "multires", "multires2", "finx", "multihop")
 
 
 @dataclass

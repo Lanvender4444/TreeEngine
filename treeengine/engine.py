@@ -74,6 +74,7 @@ class TreeEngine:
         embedder: EmbeddingProvider | None = None,
         use_vector: bool = False,
         components: Components | None = None,
+        vector_store: Any = None,
     ) -> None:
         c = components or build_local_components(
             db_path,
@@ -83,6 +84,7 @@ class TreeEngine:
             llm_tree_navigation=llm_tree_navigation,
             llm_planner=llm_planner,
             use_vector=use_vector,
+            vector_store=vector_store,
         )
         self.components = c
         self.config = c.config
@@ -112,16 +114,20 @@ class TreeEngine:
         embedder: EmbeddingProvider | None = None,
         config: EngineConfig | None = None,
         use_vector: bool | None = None,
+        vector_store: Any = None,
     ) -> TreeEngine:
         """Open (or create) a knowledge base. The engine owns what it opens: use it as a
         context manager or call ``close()``. Vector retrieval is fused in when an ``embedder``
-        is given (``use_vector`` defaults to that)."""
+        is given (``use_vector`` defaults to that). ``vector_store`` (an adapter from
+        ``integrations.vectorstores``: Qdrant, Chroma, LanceDB, FAISS ...) holds the block
+        vectors instead of the local sqlite-vec table; the caller owns and closes it."""
         return cls(
             db_path,
             llm,
             config,
             embedder=embedder,
             use_vector=bool(embedder) if use_vector is None else use_vector,
+            vector_store=vector_store,
         )
 
     # ------------------------------------------------------------------ lifecycle
@@ -605,7 +611,12 @@ class TreeEngine:
         the node value; ``strategy`` = best_first | beam | mcts. ``budget`` is a hard limit:
         ``max_steps`` (READ actions), ``max_llm_calls`` (DECOMPOSE + VERIFY; the answer call
         is extra), ``max_context_tokens``. Returns a ``TreeRAGResult`` (answer, query_tree,
-        search_tree with ``render()``, context_spans, trace, stats; ``to_v1()``)."""
+        search_tree with ``render()``, context_spans, trace, stats; ``to_v1()``).
+
+        ``strategy="mcts_rag"``: MCTS over retrieval operators (BM25 / vector / tree / fused /
+        expand) and LLM thinking (decompose, verify -> rewrite), read by the confidence gate
+        (``treeengine.mctsrag``); keywords are ``MCTSRAGSpec`` fields (iters, depth, ops ...),
+        ``max_llm_calls`` limits the THINK calls."""
         from .treerag import TreeRAG
 
         if budget is not None:
@@ -614,6 +625,18 @@ class TreeEngine:
                 from .api.errors import InvalidPolicyError
 
                 raise InvalidPolicyError(f"unknown budget keys: {sorted(bad)}")
+        if strategy == "mcts_rag":
+            from .mctsrag import MCTSRAG, MCTSRAGSpec
+
+            b = budget or {}
+            answer = bool(kw.pop("answer", True))
+            spec = MCTSRAGSpec(**{"max_llm": b.get("max_llm_calls", 2), **kw})
+            return MCTSRAG.from_engine(self, spec, policy).run(
+                query,
+                document_id,
+                budget=int(b.get("max_context_tokens", 2000)),
+                answer=answer,
+            )
         return TreeRAG.from_engine(self, policy).run(
             query, document_id=document_id, strategy=strategy, budget=budget, **kw
         )
@@ -748,7 +771,8 @@ class TreeEngine:
     ) -> list[dict[str, Any]]:
         """How each external hit maps to local blocks - for checking a retriever's ids before
         relying on them: ``{"block_id", "document_id", "status", "mapped_by", "quality",
-        "reason"}`` per hit, in order."""
+        "reason"}`` per hit, in order (a hit with an aligned ``chunk_id`` gives one entry per
+        block of the chunk)."""
         from .integrations.hits import mapping_of, resolve_hits
 
         out = []
@@ -765,6 +789,42 @@ class TreeEngine:
                 }
             )
         return out
+
+    def align_chunks(
+        self,
+        chunks: Any,
+        *,
+        document_id: str | None = None,
+        min_quality: float = 0.0,
+        store: bool = True,
+    ) -> Any:
+        """Align another RAG system's chunks (dicts, LangChain / LlamaIndex / Haystack
+        documents) with this engine's blocks and remember it: later hits carrying the chunk id
+        map to all of the chunk's blocks exactly. Returns an ``AlignReport`` (``.summary()``).
+        See ``integrations.align``."""
+        from .integrations.align import ChunkAligner
+
+        return ChunkAligner(self).align(
+            chunks, document_id=document_id, store=store, min_quality=min_quality
+        )
+
+    def sync_vector_store(
+        self,
+        store: Any,
+        *,
+        embedder: Any = None,
+        target: str | None = None,
+        document_ids: Any = None,
+        force: bool = False,
+    ) -> dict[str, Any]:
+        """Push this engine's blocks (vector, text, mapping payload) into an external vector
+        store, incrementally by document revision; documents deleted here are deleted there.
+        ``embedder`` defaults to the engine's (its vectors are then copied, not recomputed).
+        See ``integrations.vectorstores.sync``."""
+        from .integrations.vectorstores.sync import BlockSync
+
+        sync = BlockSync(self, store, embedder=embedder, target=target)
+        return sync.sync(document_ids, force=force).to_dict()
 
     def _context(
         self, policy: str, question: str | None, items: Any, budget: int
@@ -938,6 +998,7 @@ _SERIALISED = (
     "build_graph_index", "reindex_vectors", "retrieve", "search", "research", "tree_search",
     "evidence_search", "build_summary_tree", "build_context", "ask", "get_tree", "format_tree",
     "health", "stats", "verify", "repair", "map_hits", "document_info", "export_blocks",
+    "align_chunks", "sync_vector_store",
 )  # fmt: skip
 
 

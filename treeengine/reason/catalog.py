@@ -111,6 +111,16 @@ def build_catalog(
         if not doc_title:
             doc = repo.get_document(a.document_id) if hasattr(repo, "get_document") else None
             doc_title = str(getattr(doc, "title", "") or "")
+    docs = list(dict.fromkeys(k[0] for k in order))
+    if len(docs) > 1:  # a corpus-wide pool: every region names its document (V0.19)
+        names: dict[str, str] = {}
+        for d in docs:
+            doc = repo.get_document(d) if hasattr(repo, "get_document") else None
+            uri = str(getattr(doc, "uri", "") or "").replace("\\", "/").rsplit("/", 1)[-1]
+            names[d] = uri.rsplit(".", 1)[0] or str(getattr(doc, "title", "") or d)
+        for k in order:
+            regions[k].path = f"[{names[k[0]]}] {regions[k].path}"
+        doc_title = ""
     return RegionCatalog([regions[k] for k in order], anchors, doc_title)
 
 

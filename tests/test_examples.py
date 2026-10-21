@@ -28,6 +28,7 @@ EXPECT = {
     "06_mcp_client.py": "sections: ['Results', 'Margins', 'Outlook']",
     "07_custom_provider.py": "Operating margin declined",
     "08_agent_navigation.py": "retrieved:",
+    "09_under_another_rag.py": "backend vectors: 3",
 }
 
 

@@ -161,6 +161,16 @@ with TreeEngine("treeengine.db") as engine:
         print(span.content)
 ```
 
+你的技术栈可以一直保留：自己的切分器和 chunk id，Qdrant / Chroma / LanceDB / FAISS 做向量库，LangChain / LlamaIndex / Haystack 做框架。TreeEngine 垫在下面有三种接法：
+
+- 把你的 chunk 对齐到它的块上：`engine.align_chunks`；
+- 把它的块增量同步进你的向量库：`engine.sync_vector_store`；
+- 直接把你的向量库当作它的向量索引：`TreeEngine.open(..., vector_store=store)`。
+
+详见 [docs/integrations/under-another-rag.md](docs/integrations/under-another-rag.md)。
+
+dev 集上的效果（[结果](benchmarks/results/v0.18-under-rag.md)）：一个 LangChain 风格的检索栈，只用它自己检索出的 top chunk 作答时准确率 55.1%；同样的 chunk 交给 TreeEngine 去读（对齐 + 置信门控 + 重试），准确率升到 78.2%，逐题对比 20 胜 2 负。
+
 ### 给 Agent 用（MCP）
 
 ```bash

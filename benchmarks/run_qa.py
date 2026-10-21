@@ -32,7 +32,16 @@ from treeengine.core.protocols import LLMProvider
 from treeengine.llm.base import CallableLLM, MeteredLLM
 
 from .answer import Answerer, llm_from_env
-from .context import MODES, REASON, SEARCH, TREERAG, ContextBuilder, as_evidence, fragmentation
+from .context import (
+    MCTSRAG,
+    MODES,
+    REASON,
+    SEARCH,
+    TREERAG,
+    ContextBuilder,
+    as_evidence,
+    fragmentation,
+)
 from .freeze import candidate_pool
 from .judges import UNCERTAIN, Verdict
 from .judges import exact as exact_judge
@@ -122,7 +131,9 @@ RETRIEVER_LABEL = {
 
 
 def context_label(strategy: str, mode: str, budget: int | None) -> str:
-    chunked = strategy.startswith("rag_")
+    chunked = strategy.startswith("rag_") or (
+        strategy.startswith("ext_") and not strategy.endswith("+te")
+    )
     policy = "fixed_chunk" if chunked and mode == "raw" else mode
     return f"{RETRIEVER_LABEL.get(strategy, strategy)}:{policy} @{budget}"
 
@@ -291,6 +302,80 @@ def _treerag_job(
     return (label, q, run2, recall5, extra)
 
 
+def _mcts_job(
+    mode: str,
+    label: str,
+    q: Any,
+    run: Any,
+    recall5: Any,
+    judged: bool,
+    base_extra: dict[str, Any],
+    strat: Any,
+    ops: dict[str, Any],
+    doc_id: str | None,
+    budget: int,
+    builder: Any,
+    llm: Any,
+    paths: Any,
+) -> tuple[tuple[str, Any, Any, Any, dict[str, Any]], Any]:
+    """Part B MCTS-RAG for one (question, budget) -> (QA job, the run whose evidence is the
+    best state's pool - what "+retry" reads from)."""
+    from treeengine.mctsrag import MCTSRAG, parse_mcts_mode
+
+    spec = parse_mcts_mode(mode)
+
+    def op(s: Any) -> Any:
+        return lambda query, doc: list(s.retrieve(query, document_id=doc, limit=50).evidence)
+
+    operators = {"fused": op(strat), **{k: op(v) for k, v in ops.items()}}
+    t0 = time.perf_counter()
+    m = MCTSRAG(builder.inner.repo, operators, llm, spec=spec, builder=builder.inner)
+    res = m.run(q.query, doc_id, budget=budget, seed=list(run.evidence), answer=False)
+    ms = round((time.perf_counter() - t0) * 1000)
+    spans = res.context_spans
+    ctx = as_evidence(run.evidence, spans)
+    info = {
+        **{k: v for k, v in res.stats.items() if k != "read"},
+        "search_ms": ms,
+        "tree": res.render(max_lines=60),
+    }
+    extra = {
+        **base_extra,
+        **fragmentation(spans),
+        "reason": info,
+        "retrieval_llm_calls": base_extra["retrieval_llm_calls"] + m.llm_calls,
+        "retrieval_llm_input_tokens": base_extra["retrieval_llm_input_tokens"] + m.llm_in,
+        "retrieval_llm_output_tokens": base_extra["retrieval_llm_output_tokens"] + m.llm_out,
+    }
+    if judged:
+        depth = len(run.evidence) or 1
+        extra["candidate_recall"] = evaluate(q, label, run, paths, [depth]).recall.get(depth)
+        cut = replace(run, evidence=ctx, metadata={})
+        n = len(ctx) or 1
+        extra["context_coverage"] = evaluate(q, label, cut, paths, [n]).recall.get(n)
+    run2 = replace(
+        run,
+        evidence=ctx,
+        llm_calls=run.llm_calls + m.llm_calls,
+        input_tokens=run.input_tokens + m.llm_in,
+        output_tokens=run.output_tokens + m.llm_out,
+        latency_ms=run.latency_ms + ms,
+    )
+    from treeengine.core.models import Evidence
+
+    pool = []
+    for a in m.best_state.pool:
+        ev = getattr(a, "evidence", None)
+        if ev is None:
+            b = builder.inner.repo.get_block(str(a.block_id))
+            if b is not None:
+                ev = Evidence(b.document_id, b.node_id, b.id, b.content, "mcts", None,
+                              {"page": b.page})  # fmt: skip
+        if ev is not None:
+            pool.append(ev)
+    return (label, q, run2, recall5, extra), replace(run, evidence=pool or list(run.evidence))
+
+
 def stub_answer_llm() -> LLMProvider:
     """Offline stand-in: answers with the first evidence sentence (pipeline test only)."""
 
@@ -381,9 +466,21 @@ def main(argv: list[str] | None = None) -> int:
     if "full_context" in strategies:
         strategies["full_context"] = FullContext(ws, args.max_context_tokens)
     ws.warm_queries([q.query for q in queries])
+    ext_stats = None
+    if any(n.startswith("ext_") for n in strategies):
+        # Part A: build the other stack's per-document index outside the timed retrieval
+        from .strategies.external import shared
+
+        x = shared(ws)
+        for q in queries:
+            d = corpus.doc_ids.get(q.document) if q.document else None
+            if d:
+                x.ensure(d)
+        ext_stats = dict(x.stats)
     index_stats = {s: st.index() for s, st in strategies.items()}
     audit = AuditLabels.load(suite.root / "audit.jsonl")
     answerer = Answerer(answer_llm, args.answer_max_tokens)
+    answerer.doc_names = {d: name for name, d in corpus.doc_ids.items()}
 
     # 1) retrieval, sequentially (SQLite connections are per thread)
     budgets = [int(b) for b in args.budget.split(",")] if args.budget else []
@@ -404,11 +501,17 @@ def main(argv: list[str] | None = None) -> int:
         if _base(m) in REASON
     }
     pending: list[Any] = []
+    retryable: list[Any] = []  # MCTS-RAG jobs with "+retry" (their pool is what a retry reads)
+    mcts_ops: Any = None
     names: list[str] = []  # report rows: strategy, or "retriever:policy @budget"
     family: dict[str, str] = {}
     jobs: list[tuple[str, Any, Any, float | None, dict[str, Any]]] = []
     for name, strat in strategies.items():
-        chunked = name.startswith("rag_") or name == "full_context"
+        chunked = (
+            name.startswith("rag_")
+            or name == "full_context"
+            or (name.startswith("ext_") and not name.endswith("+te"))
+        )
         # traditional chunks have no block geometry: they are read raw (fixed chunks) at every
         # budget, whatever reading policies the block strategies use
         chunk_modes = ["raw"] if chunked and name != "full_context" else modes
@@ -439,7 +542,72 @@ def main(argv: list[str] | None = None) -> int:
                 if m is None or b is None or name == "full_context":
                     jobs.append((labels[(m, b)], q, run, recall5, dict(base_extra)))
                     continue
+                if _base(m) in MCTSRAG and not chunked:
+                    if mcts_ops is None:
+                        mcts_ops = build_strategies(
+                            ws,
+                            [
+                                n
+                                for n in ("fts", "vector", "tree_lexical")
+                                if args.vector or n != "vector"
+                            ],
+                        )
+                        mcts_ops = {
+                            "bm25": mcts_ops["fts"],
+                            "tree": mcts_ops["tree_lexical"],
+                            **({"vector": mcts_ops["vector"]} if "vector" in mcts_ops else {}),
+                        }
+                    job, pool_run = _mcts_job(
+                        m,
+                        labels[(m, b)],
+                        q,
+                        run,
+                        recall5,
+                        judged,
+                        base_extra,
+                        strat,
+                        mcts_ops,
+                        doc_id,
+                        b,
+                        builder,
+                        answer_llm,
+                        paths,
+                    )
+                    if "+retry" in m:
+                        retryable.append(
+                            Job(
+                                len(jobs),
+                                m,
+                                labels[(m, b)],
+                                q,
+                                pool_run,
+                                recall5,
+                                judged,
+                                base_extra,
+                                strat,
+                                doc_id,
+                                b,
+                            )  # fmt: skip
+                        )
+                    jobs.append(job)
+                    continue
                 if _base(m) in TREERAG and not chunked:
+                    if "+retry" in m:  # V0.19: the answer-level retry over the seed pool
+                        retryable.append(
+                            Job(
+                                len(jobs),
+                                m,
+                                labels[(m, b)],
+                                q,
+                                run,
+                                recall5,
+                                judged,
+                                base_extra,
+                                strat,
+                                doc_id,
+                                b,
+                            )  # fmt: skip
+                        )
                     jobs.append(
                         _treerag_job(
                             m,
@@ -598,10 +766,10 @@ def main(argv: list[str] | None = None) -> int:
     retry = (
         [
             (i, j)
-            for i, j in enumerate(pending)
+            for i, j in enumerate(pending + retryable)
             if "+retry" in j.mode and insufficient(outcomes[j.idx].answer)
         ]
-        if pending
+        if pending or retryable
         else []
     )
     if retry:
@@ -670,6 +838,7 @@ def main(argv: list[str] | None = None) -> int:
     meta.update(
         {
             "answer_model": answer_name,
+            "external_stack": ext_stats,
             "judges": [n for n, _ in judges],
             "k": args.k,
             "context_modes": modes if budgets else None,

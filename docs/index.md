@@ -12,6 +12,7 @@ core needs only Python and SQLite.
 | ingest PDFs with structure and page numbers | [PDF ingestion](getting-started/pdf-ingestion.md) |
 | understand what `retrieve()` returns | [first retrieval](getting-started/first-retrieval.md) |
 | keep my own vector DB / search engine | [external retriever](integrations/external-retriever.md) |
+| put TreeEngine under my existing RAG stack (Qdrant / Chroma / LanceDB / FAISS, LangChain / LlamaIndex / Haystack) | [under another RAG](integrations/under-another-rag.md) |
 | give an agent tools over my documents | [MCP](integrations/mcp.md), [agent recipe](integrations/agent.md) |
 | use it from LangChain / LlamaIndex | [LangChain](integrations/langchain.md), [LlamaIndex](integrations/llamaindex.md) |
 | call it over HTTP | [HTTP API](integrations/http.md) |
@@ -37,4 +38,5 @@ core needs only Python and SQLite.
 
 Results and designs of the retrieval experiments; nothing here is part of the stable API.
 [Benchmarks](research/benchmarks.md) · [Tree-RAG](research/tree-rag.md) ·
-[Evidence Search](research/evidence-search.md) · [RAPTOR summaries](research/raptor.md)
+[Evidence Search](research/evidence-search.md) · [RAPTOR summaries](research/raptor.md) ·
+[MCTS-RAG](research/mcts-rag.md)

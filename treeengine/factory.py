@@ -149,6 +149,7 @@ def build_local_components(
     llm_tree_navigation: bool = True,
     llm_planner: bool = False,
     use_vector: bool = False,
+    vector_store: Any = None,
 ) -> Components:
     # the only place the app picks concrete backends; everything opened here is owned by the
     # engine (closed by TreeEngine.close()) and closed again if wiring fails half way
@@ -159,11 +160,18 @@ def build_local_components(
         repo = SQLiteRepository(db_path)
         opened.append(repo)
         vector_index: VectorIndex | None = None
-        if embedder is not None:
+        if embedder is not None and vector_store is not None:
+            # A3: an external vector database as the engine's vector index (caller owns it)
+            from .integrations.vectorstores.backend import StoreVectorIndex
+
+            vector_index = StoreVectorIndex(vector_store, repo=repo)
+        elif embedder is not None:
             from .storage.vectors import SQLiteVectorIndex
 
             vector_index = SQLiteVectorIndex(db_path)  # same file, table block_vectors
             opened.append(vector_index)
+        elif vector_store is not None:
+            raise ValueError("vector_store needs an embedder")
         c = build_components(
             repo,
             llm,
@@ -194,6 +202,7 @@ def create_local_engine(
     llm_tree_navigation: bool = True,
     llm_planner: bool = False,
     use_vector: bool = False,
+    vector_store: Any = None,
 ) -> TreeEngine:
     from .engine import TreeEngine
 
@@ -206,5 +215,6 @@ def create_local_engine(
             llm_tree_navigation=llm_tree_navigation,
             llm_planner=llm_planner,
             use_vector=use_vector,
+            vector_store=vector_store,
         )
     )

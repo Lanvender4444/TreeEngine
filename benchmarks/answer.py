@@ -40,9 +40,22 @@ def _pages(e: Evidence) -> str:
     return f" (pages {min(pages)}-{max(pages)})"
 
 
-def format_evidence(evidence: Sequence[Evidence]) -> str:
+def format_evidence(evidence: Sequence[Evidence], doc_names: dict[str, str] | None = None) -> str:
     """``[E1] (page 12) text`` - page labels only, identical for every strategy (no section
-    titles: structural provenance must not leak into the answer prompt for one family only)."""
+    titles: structural provenance must not leak into the answer prompt for one family only).
+    When the evidence comes from more than one document (V0.19 cross-document questions) each
+    item also names its source file - for every strategy alike."""
+    docs = {e.document_id for e in evidence}
+    if len(docs) > 1 and doc_names:
+
+        def label(e: Evidence) -> str:
+            name = doc_names.get(e.document_id, e.document_id).rsplit(".", 1)[0]
+            p = _pages(e).strip()[1:-1] if _pages(e) else ""
+            return f" ({name}{', ' + p if p else ''})"
+
+        return "\n\n".join(
+            f"[E{i}]{label(e)} {e.content.strip()}" for i, e in enumerate(evidence, 1)
+        )
     return "\n\n".join(f"[E{i}]{_pages(e)} {e.content.strip()}" for i, e in enumerate(evidence, 1))
 
 
@@ -59,9 +72,12 @@ class Answerer:
     def __init__(self, llm: LLMProvider, max_tokens: int = 512) -> None:
         self.llm = llm if isinstance(llm, MeteredLLM) else MeteredLLM(llm)
         self.max_tokens = max_tokens
+        self.doc_names: dict[str, str] | None = None  # document id -> file name (multi-doc)
 
     def prompt(self, question: str, evidence: Sequence[Evidence]) -> str:
-        return ANSWER_PROMPT.format(question=question, evidence=format_evidence(evidence))
+        return ANSWER_PROMPT.format(
+            question=question, evidence=format_evidence(evidence, self.doc_names)
+        )
 
     def answer(self, question: str, evidence: Sequence[Evidence]) -> Answer:
         before = self.llm.usage.snapshot()

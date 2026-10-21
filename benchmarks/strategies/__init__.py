@@ -183,6 +183,9 @@ SCOPE_VECTOR = [b + sfx for sfx in ("+vector", "+fts+vector") for b in SCOPE_BAS
 NEEDS_VECTOR += SCOPE_VECTOR + ["policy_vector", "policy_hybrid"]
 NEEDS_VECTOR += [n for n in WEIGHT_SWEEP if n not in _SWEEP_TREE]
 LEXICAL_POLICY = ["policy_fts"]
+from .external import EXT  # noqa: E402 - Part A: another RAG stack +/- TreeEngine
+
+NEEDS_VECTOR += list(EXT)
 ALL = LEXICAL + SCOPE_LEXICAL + LEXICAL_POLICY + GRAPH_LEXICAL + NEEDS_VECTOR + NEEDS_LLM + QA_ONLY
 RENAMED = {"tree": "tree_lexical", "tree+fts": "tree_lexical+fts"}  # V0.2 names
 PRESETS = {
@@ -270,7 +273,11 @@ def _value(v: str) -> Any:
 
 # (query, document_id, scope node ids, limit, trace) -> evidence
 Inner = Callable[[str, str | None, Sequence[str] | None, int, Trace | None], list[Evidence]]
-FAMILY = {"full_context": "baseline", **{s: "traditional" for s in ALL if s.startswith("rag_")}}
+FAMILY = {
+    "full_context": "baseline",
+    **{s: "traditional" for s in ALL if s.startswith("rag_")},
+    **{s: ("external+treeengine" if s.endswith("+te") else "external") for s in EXT},
+}
 
 
 def build_strategies(ws: Workspace, names: Sequence[str]) -> dict[str, BenchmarkStrategy]:
@@ -500,6 +507,9 @@ def build_strategies(ws: Workspace, names: Sequence[str]) -> dict[str, Benchmark
                 k, _, v = kv.partition("=")
                 spec[k.strip()] = _value(v.strip())
             table[name] = (policy_search(spec), table[base][1])
+    from .external import ext_table
+
+    table.update(ext_table(ws))
     # scope ablation (benchmark only): hard scope / soft prior / structural rerank
     scoper = ScopeBuilder(repo, r(tree_lex), r(corpus))
     table.update(

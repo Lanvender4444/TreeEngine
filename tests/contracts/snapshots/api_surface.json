@@ -1,5 +1,11 @@
 {
  "TreeEngine": {
+  "align_chunks": [
+   "chunks",
+   "*document_id=None",
+   "*min_quality=0.0",
+   "*store=True"
+  ],
   "ask": [
    "question",
    "document_id=None",
@@ -111,7 +117,8 @@
    "*llm=None",
    "*embedder=None",
    "*config=None",
-   "*use_vector=None"
+   "*use_vector=None",
+   "*vector_store=None"
   ],
   "read_blocks": [
    "node_id",
@@ -168,6 +175,13 @@
    "limit=10"
   ],
   "stats": [],
+  "sync_vector_store": [
+   "store",
+   "*embedder=None",
+   "*target=None",
+   "*document_ids=None",
+   "*force=False"
+  ],
   "tree_search": [
    "query",
    "document_id"

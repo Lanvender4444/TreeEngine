@@ -162,6 +162,15 @@ with TreeEngine("treeengine.db") as engine:
         print(span.content)
 ```
 
+Underneath an existing stack - your own splitter and ids, Qdrant / Chroma / LanceDB / FAISS,
+LangChain / LlamaIndex / Haystack - TreeEngine can align your chunks with its blocks
+(`engine.align_chunks`), sync its blocks into your store (`engine.sync_vector_store`) or use
+your store as its vector index (`TreeEngine.open(..., vector_store=store)`). See
+[docs/integrations/under-another-rag.md](docs/integrations/under-another-rag.md). On the dev
+sets, a LangChain-style stack answered 55.1% from its own top chunks and 78.2% when the same
+chunks were read through TreeEngine (alignment + confidence gate + retry), 20:2 per question
+([results](benchmarks/results/v0.18-under-rag.md)).
+
 ### Use it from an agent (MCP)
 
 ```bash

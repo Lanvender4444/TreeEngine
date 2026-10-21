@@ -4,6 +4,7 @@ An external retriever (Pinecone, Qdrant, Elasticsearch, a home-grown index ...) 
 of text with some identifiers. ``resolve_hits`` maps each one back to a stable block of a
 document TreeEngine has ingested, trying in order:
 
+    0. ``chunk_id``                       a chunk aligned by ``ChunkAligner`` (all its blocks)
     1. ``block_id``                       an id TreeEngine handed out
     2. document + ``start_offset``/``end_offset``  the block overlapping the range most
     3. document + ``text``                the block the text starts in (normalised substring)
@@ -50,6 +51,7 @@ class ExternalHit:
     end_offset: int | None = None
     uri: str | None = None  # the source file / URL the document was ingested from
     source_revision: str | None = None  # "sha256:..." of the document the hit was taken from
+    chunk_id: str | None = None  # an id aligned with ChunkAligner (integrations.align)
     score: float | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -275,6 +277,10 @@ def resolve_hits(
         raise ValueError(f"on_unmapped must be passthrough | drop | error, not {mode!r}")
     out: list[Anchor | Evidence] = []
     for i, h in enumerate(hits, 1):
+        chunk = resolve_chunk(repo, h, rank=i, strict=strict)
+        if chunk is not None:
+            out.extend(chunk)
+            continue
         r = resolve_hit(repo, h, document_id=document_id, rank=i, strict=strict)
         if isinstance(r, Evidence) and (r.metadata or {}).get("unmapped"):
             if mode == "drop":
@@ -292,6 +298,49 @@ def resolve_hits(
     return out
 
 
+def resolve_chunk(
+    repo: Repository, hit: Any, *, rank: int = 0, strict: bool = False
+) -> list[Anchor] | None:
+    """Anchors for every block of an aligned chunk, or None when the hit has no stored
+    alignment (then the other mapping rules apply)."""
+    if isinstance(hit, (Anchor, Evidence)):
+        return None
+    h = as_external(hit)
+    cid = h.chunk_id or h.metadata.get("chunk_id")
+    if not cid:
+        return None
+    from .align import stored_alignment
+
+    a = stored_alignment(repo, str(cid))
+    if a is None or not a.block_ids:
+        return None
+    rev = _revision(repo, a.document_id) if a.document_id else None
+    stale = bool(a.source_revision and rev and a.source_revision != rev)
+    exact = a.method in ("offsets", "exact") and not stale
+    if strict and not exact:
+        return None  # fall through: strict rules decide (normally unmapped)
+    out: list[Anchor] = []
+    for bid in a.block_ids:
+        b = repo.get_block(bid)
+        if b is None:
+            return None  # the document was re-ingested: alignment no longer valid
+        info = {
+            **h.metadata,
+            "external": True,
+            "chunk_id": str(cid),
+            "chunk_blocks": len(a.block_ids),
+            "mapping_status": "stale" if stale else ("exact" if exact else "approximate"),
+            "mapping_quality": round(a.quality * (0.5 if stale else 1.0), 2),
+            "mapping_reason": (
+                f"stale alignment ({a.source_revision}, now {rev})"
+                if stale
+                else (None if exact else f"aligned by {a.method}")
+            ),
+        }
+        out.append(_anchor(b, h, rank, info, f"chunk:{a.method}"))
+    return out
+
+
 def mapping_of(item: Any) -> dict[str, Any] | None:
     """The mapping record of a resolved hit (None for TreeEngine's own anchors)."""
     md = getattr(item, "metadata", None) or {}
@@ -305,4 +354,12 @@ def mapping_of(item: Any) -> dict[str, Any] | None:
     }
 
 
-__all__ = ["QUALITY", "ExternalHit", "as_external", "mapping_of", "resolve_hit", "resolve_hits"]
+__all__ = [
+    "QUALITY",
+    "ExternalHit",
+    "as_external",
+    "mapping_of",
+    "resolve_chunk",
+    "resolve_hit",
+    "resolve_hits",
+]

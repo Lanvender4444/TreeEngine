@@ -1,0 +1,292 @@
+{
+ "description": "Multi-hop benchmark (V0.19): cross-document questions (same company, fiscal years 3-7 apart, asked over the whole corpus) over FinanceBench 10-Ks, generated and verified leave-one-out by an LLM; evidence = text needles of the two gold blocks.",
+ "has_answers": true,
+ "documents": [
+  {
+   "name": "3M_2018_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/3M_2018_10K.pdf",
+   "sha256": "faf10c53fc6f1a8aa346ec3db79145e3ae6fbb3753c8064924e174d0a973934d",
+   "lang": "en",
+   "kind": "10k Industrials",
+   "pages": 160,
+   "company": "3M",
+   "period": 2018,
+   "source_suite": "financebench"
+  },
+  {
+   "name": "3M_2022_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/3M_2022_10K.pdf",
+   "sha256": "d5cf549543a24b04228fd2af979ff2ca94cf64fb008a789340cb9117fbcfde5d",
+   "lang": "en",
+   "kind": "10k Industrials",
+   "pages": 252,
+   "company": "3M",
+   "period": 2022,
+   "source_suite": "financebench"
+  },
+  {
+   "name": "ADOBE_2016_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/ADOBE_2016_10K.pdf",
+   "sha256": "655153cdaed14d7093e98ff75595bf850a0d2299fa851ccf5b344ebc2d5038ae",
+   "lang": "en",
+   "kind": "10k Information Technology",
+   "pages": 112,
+   "company": "Adobe",
+   "period": 2016,
+   "source_suite": "financebench"
+  },
+  {
+   "name": "ADOBE_2022_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/ADOBE_2022_10K.pdf",
+   "sha256": "ce8c716abac26bfa38ae6b71d703112852c8591a4bb19f7c1177beb1dfc87ad2",
+   "lang": "en",
+   "kind": "10k Information Technology",
+   "pages": 99,
+   "company": "Adobe",
+   "period": 2022,
+   "source_suite": "financebench"
+  },
+  {
+   "name": "AMD_2015_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/AMD_2015_10K.pdf",
+   "sha256": "105fff1c4af84a3d974b0f3fa224122e782aedca60fa3609f2789c80549dd8f6",
+   "lang": "en",
+   "kind": "10k Information Technology",
+   "pages": 215,
+   "company": "AMD",
+   "period": 2015,
+   "source_suite": "financebench"
+  },
+  {
+   "name": "AMD_2022_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/AMD_2022_10K.pdf",
+   "sha256": "a3bd74088fae0ad4aa03d04998a1f4c64fd0b3c693841601b0ac49b46cf5c1f4",
+   "lang": "en",
+   "kind": "10k Information Technology",
+   "pages": 121,
+   "company": "AMD",
+   "period": 2022,
+   "source_suite": "financebench"
+  },
+  {
+   "name": "BLOCK_2016_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/BLOCK_2016_10K.pdf",
+   "sha256": "5ef866a19b1110dcdbd1b0bc3c513a04e3d05322384c754cf394ad63f9af8191",
+   "lang": "en",
+   "kind": "10k Information Technology",
+   "pages": 121,
+   "company": "Block",
+   "period": 2016,
+   "source_suite": "financebench"
+  },
+  {
+   "name": "BLOCK_2020_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/BLOCK_2020_10K.pdf",
+   "sha256": "c19a9fb25db3270e3a908c202855f4a54f000a06bf19a8b284331810228646fe",
+   "lang": "en",
+   "kind": "10k Information Technology",
+   "pages": 158,
+   "company": "Block",
+   "period": 2020,
+   "source_suite": "financebench"
+  },
+  {
+   "name": "BOEING_2018_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/BOEING_2018_10K.pdf",
+   "sha256": "6f1ace34b3b01778ad7d92d43ccd2f76513d5159ef48fbc07b510296cf2d07dc",
+   "lang": "en",
+   "kind": "10k Industrials",
+   "pages": 136,
+   "company": "Boeing",
+   "period": 2018,
+   "source_suite": "financebench"
+  },
+  {
+   "name": "BOEING_2022_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/BOEING_2022_10K.pdf",
+   "sha256": "09285ff7ee737d3302977104aa05cc53c9dfb0161f3461a89b583dc38b9f2ab6",
+   "lang": "en",
+   "kind": "10k Industrials",
+   "pages": 190,
+   "company": "Boeing",
+   "period": 2022,
+   "source_suite": "financebench"
+  },
+  {
+   "name": "CVSHEALTH_2018_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/CVSHEALTH_2018_10K.pdf",
+   "sha256": "bdc800e3f52a3e1d7a79c0973af3e94122fa08a76e335ea8305df60a09e1a0dc",
+   "lang": "en",
+   "kind": "10k Health Care",
+   "pages": 392,
+   "company": "CVS Health",
+   "period": 2018,
+   "source_suite": "financebench"
+  },
+  {
+   "name": "CVSHEALTH_2022_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/CVSHEALTH_2022_10K.pdf",
+   "sha256": "183c196a41793cd50002ff6b88f8c6d32e4fcb1117ab490a732414e1208cda8f",
+   "lang": "en",
+   "kind": "10k Health Care",
+   "pages": 213,
+   "company": "CVS Health",
+   "period": 2022,
+   "source_suite": "financebench"
+  },
+  {
+   "name": "MICROSOFT_2016_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/MICROSOFT_2016_10K.pdf",
+   "sha256": "f3555bd5ea1802770cc8f2a7ca766392e16fe6504f18688db681d852029404dc",
+   "lang": "en",
+   "kind": "10k Information Technology",
+   "pages": 121,
+   "company": "Microsoft",
+   "period": 2016,
+   "source_suite": "financebench"
+  },
+  {
+   "name": "MICROSOFT_2023_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/MICROSOFT_2023_10K.pdf",
+   "sha256": "e534af371c824aab19b8d01f8bc0e9d1e0a3fb418a33119c5224a53d20a0d37b",
+   "lang": "en",
+   "kind": "10k Information Technology",
+   "pages": 116,
+   "company": "Microsoft",
+   "period": 2023,
+   "source_suite": "financebench"
+  },
+  {
+   "name": "NIKE_2018_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/NIKE_2018_10K.pdf",
+   "sha256": "31de66f1e37cabf1785e0ffa66955bf003bf2a9dcf3f4ebe93732d063b7b6ebe",
+   "lang": "en",
+   "kind": "10k Consumer Discretionary",
+   "pages": 97,
+   "company": "Nike",
+   "period": 2018,
+   "source_suite": "financebench"
+  },
+  {
+   "name": "NIKE_2023_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/NIKE_2023_10K.pdf",
+   "sha256": "51f5a0fc6ede20de4f5cfdeae8791a57bdd65c95db2ceb263eb120696ff90172",
+   "lang": "en",
+   "kind": "10k Consumer Discretionary",
+   "pages": 106,
+   "company": "Nike",
+   "period": 2023,
+   "source_suite": "financebench"
+  },
+  {
+   "name": "COCACOLA_2017_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/COCACOLA_2017_10K.pdf",
+   "sha256": "b57c75cf20916904f31c6aa7644d6c110f019adf7c76782c7d0ede7b95c65ac1",
+   "lang": "en",
+   "kind": "10k Consumer Staples",
+   "pages": 197,
+   "company": "Coca-Cola",
+   "period": 2017,
+   "source_suite": "financebench"
+  },
+  {
+   "name": "COCACOLA_2022_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/COCACOLA_2022_10K.pdf",
+   "sha256": "9f91bb914d94d014cfca96e1021c932d5476d8b8ac2a933767bac4c438fd7a71",
+   "lang": "en",
+   "kind": "10k Consumer Staples",
+   "pages": 183,
+   "company": "Coca-Cola",
+   "period": 2022,
+   "source_suite": "financebench"
+  },
+  {
+   "name": "BESTBUY_2017_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/BESTBUY_2017_10K.pdf",
+   "sha256": "4570187fa697f252e08c8f99c409446fbcde05b08358851d34d4cb1c8bd1cec8",
+   "lang": "en",
+   "kind": "10k Consumer Discretionary",
+   "pages": 109,
+   "company": "Best Buy",
+   "period": 2017,
+   "source_suite": "financebench"
+  },
+  {
+   "name": "BESTBUY_2023_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/BESTBUY_2023_10K.pdf",
+   "sha256": "7ca465d31a08be29e8c08d756644d33d818c7254a1215720f265227005cda696",
+   "lang": "en",
+   "kind": "10k Consumer Discretionary",
+   "pages": 75,
+   "company": "Best Buy",
+   "period": 2023,
+   "source_suite": "financebench"
+  },
+  {
+   "name": "MGMRESORTS_2018_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/MGMRESORTS_2018_10K.pdf",
+   "sha256": "1b540737f91716aaa23b062499e6cab9c51d258e151f37eb8c65646bb588a0da",
+   "lang": "en",
+   "kind": "10k Consumer Discretionary",
+   "pages": 188,
+   "company": "MGM Resorts",
+   "period": 2018,
+   "source_suite": "financebench"
+  },
+  {
+   "name": "MGMRESORTS_2022_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/MGMRESORTS_2022_10K.pdf",
+   "sha256": "130b96c1309c97aaedcabee2fa5d5421e54491e618273bd33c3b1aeddad323ec",
+   "lang": "en",
+   "kind": "10k Consumer Discretionary",
+   "pages": 220,
+   "company": "MGM Resorts",
+   "period": 2022,
+   "source_suite": "financebench"
+  },
+  {
+   "name": "AMCOR_2020_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/AMCOR_2020_10K.pdf",
+   "sha256": "da158d5c68835374bcc52205663aa7653af1c2a6b31b09ab775c6e02a40da026",
+   "lang": "en",
+   "kind": "10k Materials",
+   "pages": 195,
+   "company": "Amcor",
+   "period": 2020,
+   "source_suite": "financebench"
+  },
+  {
+   "name": "AMCOR_2023_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/AMCOR_2023_10K.pdf",
+   "sha256": "84d7a0291a12f4e68352750dccda3754c78eefdf06e0b5462046357a1ed53332",
+   "lang": "en",
+   "kind": "10k Materials",
+   "pages": 156,
+   "company": "Amcor",
+   "period": 2023,
+   "source_suite": "financebench"
+  },
+  {
+   "name": "GENERALMILLS_2019_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/GENERALMILLS_2019_10K.pdf",
+   "sha256": "e8120ce31b22136e15c14115cdfbf3ddc548e58f15b6febc350c422a4c12d9db",
+   "lang": "en",
+   "kind": "10k Consumer Staples",
+   "pages": 140,
+   "company": "General Mills",
+   "period": 2019,
+   "source_suite": "financebench"
+  },
+  {
+   "name": "GENERALMILLS_2022_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/GENERALMILLS_2022_10K.pdf",
+   "sha256": "27f2cc507ffc056de3b679d124d51b80bd043ce7b8e867c59e2cdfe1d2ea5de3",
+   "lang": "en",
+   "kind": "10k Consumer Staples",
+   "pages": 127,
+   "company": "General Mills",
+   "period": 2022,
+   "source_suite": "financebench"
+  }
+ ]
+}

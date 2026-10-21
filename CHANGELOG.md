@@ -8,6 +8,23 @@ Compatibility promises are in [docs/api/compatibility.md](docs/api/compatibility
 ## [Unreleased] — 0.3.0.dev1
 
 ### Added
+- TreeEngine under another RAG stack ([docs](docs/integrations/under-another-rag.md)):
+  `engine.align_chunks()` / `integrations.align` aligns foreign chunks (any splitter, any ids)
+  with blocks and stores it; hits carrying an aligned `chunk_id` map to all the chunk's blocks
+  (stale after a re-ingest). `integrations.postprocess.Reconstructor` plus
+  `TreeEngineCompressor` (LangChain), `TreeEngineNodePostprocessor` (LlamaIndex) and the
+  Haystack 2.x components `TreeEngineReconstructor` / `TreeEngineRetriever`.
+- Vector database adapters with one contract and one shared contract test
+  (`integrations.vectorstores`): Qdrant, Chroma, LanceDB, FAISS, in-memory; extras `qdrant`,
+  `chroma`, `lancedb`, `faiss`, `haystack`. `engine.sync_vector_store(store)` pushes blocks
+  (vector, text, mapping payload) incrementally by revision; `TreeEngine.open(...,
+  vector_store=store)` uses the store as the engine's vector index.
+- Benchmark suite `multihop` (V0.19): 123 cross-document questions over the same company's
+  10-Ks 3-7 years apart, asked over the whole corpus ([results](benchmarks/results/v0.19-multihop.md)).
+  Reading catalogs of multi-document pools name each region's document.
+- EXPERIMENTAL MCTS-RAG (`treeengine.mctsrag`, `research(strategy="mcts_rag")`): MCTS over
+  BM25 / vector / tree / fused / expand operators and LLM decompose / verify actions, read by
+  the confidence gate.
 - SDK packaging: `LICENSE` (MIT), project metadata and URLs, `py.typed`, single version
   source (`treeengine/_version.py`), `MANIFEST.in`; `tools/check_wheel.py` builds, audits and
   installs the wheel in a clean venv; GitHub Actions CI (lint, types, Python 3.11–3.13,
